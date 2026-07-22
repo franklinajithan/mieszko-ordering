@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Mieszko Ordering
 
-## Getting Started
+Dairy ordering and supplier price comparison MVP built with Next.js App Router, PostgreSQL, Drizzle ORM, and TypeScript.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 (App Router)
+- PostgreSQL + Drizzle ORM
+- Zod validation
+- ExcelJS / Papa Parse for imports
+- Tailwind CSS
+- Vitest for calculation engine tests
+
+## Quick start (UI only — no database)
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Create a `.env` file in the project root:
+
+```
+USE_MOCK_DATA=true
+```
+
+3. Run the dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The app runs in **demo mode** with sample stores, products, suppliers, and a pre-built order at `/orders/mock-order-demo-001`. A yellow banner confirms demo mode is active.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## PostgreSQL (optional, later)
 
-## Learn More
+When you are ready to persist data, set `DATABASE_URL` in `.env` and remove or set `USE_MOCK_DATA=false`:
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm test` | Run unit tests |
+| `npm run db:push` | Push Drizzle schema to database |
+| `npm run db:seed` | Seed MM, SP, WAB suppliers |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Architecture
 
-## Deploy on Vercel
+```
+src/
+  app/           Route handlers and server actions
+  components/    UI only — no business logic
+  db/            Drizzle schema and connection
+  repositories/  Database access
+  services/      Business logic (stock sim, pricing, imports)
+  parsers/       CSV/XLSX parsing
+  validators/    Zod schemas
+  types/         Shared types
+  utils/         Decimal helpers, cn()
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Business logic lives in `services/` so it can later move to FastAPI without changing PostgreSQL.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Main workflows
+
+1. **Stores & suppliers** — `/stores`
+2. **Products** — `/products` (codes, barcodes, supplier mappings, Excel import)
+3. **Daily sales** — `/daily-sales`
+4. **Supplier prices** — `/supplier-prices`
+5. **New order** — `/orders/new` (4-step wizard)
+6. **Order review & export** — `/orders/[id]`
+
+## Testing
+
+Unit tests cover:
+
+- Highest-sales calculation
+- Event-based stock simulation
+- Supplier price CHECK rules (including WAB exclusion/inclusion)
+- Tie-break priority
+- Suggested order formula
+
+```bash
+npm test
+```

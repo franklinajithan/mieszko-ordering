@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: mieszko-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mieszko_ordering
+    ports:
+      - "5432:5432"
+    volumes:
+      - mieszko_pg_data:/var/lib/postgresql/data
+
+volumes:
+  mieszko_pg_data:
