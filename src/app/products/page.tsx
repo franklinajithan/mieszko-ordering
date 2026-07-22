@@ -24,7 +24,10 @@ export default async function ProductsPage({
   });
 
   return (
-    <AppShell title="Products">
+    <AppShell
+      title="Products"
+      description="Manage master products, store codes, barcodes, and supplier mappings."
+    >
       <div className="space-y-6">
         <ProductFilters stores={stores} departments={departments} />
         <ProductForms stores={stores} />

@@ -14,7 +14,10 @@ export default async function NewOrderPage() {
   ]);
 
   return (
-    <AppShell title="New order">
+    <AppShell
+      title="New Order"
+      description="Step through periods, supplier selection, stock uploads, and calculation."
+    >
       <OrderWizard stores={stores} suppliers={suppliers} departments={departments} />
     </AppShell>
   );

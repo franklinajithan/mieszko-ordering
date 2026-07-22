@@ -15,7 +15,7 @@ export default async function ProductDetailPage({
   ]);
 
   return (
-    <AppShell title="Product mappings">
+    <AppShell title="Product Mappings" description="Barcodes and supplier-specific product codes.">
       <ProductDetailForms
         productId={id}
         barcodes={barcodes}

@@ -11,6 +11,7 @@ import {
   uploadOrderStockFile,
 } from "@/app/actions";
 import { ImportSummary } from "@/components/layout/app-shell";
+import { DepartmentFilterDropdown } from "@/components/orders/department-filter-dropdown";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,15 +46,15 @@ export function OrderWizard({
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>(
     suppliers.filter((s) => s.isActive && ["MM", "SP"].includes(s.code)).map((s) => s.id),
   );
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
 
   async function onStep1(formData: FormData) {
     setError(null);
-    const departmentsSelected = formData.getAll("departments") as string[];
     const result = await createOrder({
       storeId: formData.get("storeId"),
       bookStockDate: formData.get("bookStockDate"),
       clientDeliveryDate: formData.get("clientDeliveryDate"),
-      departmentFilters: departmentsSelected,
+      departmentFilters: selectedDepartments,
       notes: formData.get("notes") || undefined,
     });
     if (!result.success) {
@@ -162,21 +163,11 @@ export function OrderWizard({
             <Label>Client delivery date</Label>
             <Input name="clientDeliveryDate" type="date" required />
           </div>
-          <div>
-            <Label>Department filters</Label>
-            <select
-              name="departments"
-              multiple
-              className="min-h-24 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-            >
-              {departments.map((department) => (
-                <option key={department} value={department}>
-                  {department}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-zinc-500">Leave empty to include all departments.</p>
-          </div>
+          <DepartmentFilterDropdown
+            departments={departments}
+            selected={selectedDepartments}
+            onChange={setSelectedDepartments}
+          />
           <div className="md:col-span-2">
             <Label>Notes</Label>
             <Textarea name="notes" />

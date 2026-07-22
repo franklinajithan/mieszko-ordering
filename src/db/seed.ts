@@ -1,8 +1,9 @@
 import "dotenv/config";
-import { db } from "./index";
+import { getDb } from "./client";
 import { suppliers } from "./schema";
 
 async function seed() {
+  const db = getDb();
   await db
     .insert(suppliers)
     .values([

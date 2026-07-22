@@ -12,7 +12,10 @@ export default async function StoresPage() {
   ]);
 
   return (
-    <AppShell title="Stores and suppliers">
+    <AppShell
+      title="Stores & Suppliers"
+      description="Configure stores, suppliers, and price tie-break priorities."
+    >
       <div className="grid gap-8 lg:grid-cols-2">
         <section className="space-y-4">
           <h2 className="text-xl font-semibold">Stores</h2>

@@ -29,7 +29,10 @@ export default async function OrderDetailPage({
   }
 
   return (
-    <AppShell title={`Order review — ${store?.name ?? "Store"}`}>
+    <AppShell
+      title={`Order — ${store?.name ?? "Store"}`}
+      description="Review calculated quantities, supplier prices, and export to Excel."
+    >
       <div className="mb-6 space-y-2 rounded-xl border bg-white p-4 text-sm">
         <div className="flex flex-wrap gap-4">
           <span>Book stock: {order.bookStockDate}</span>

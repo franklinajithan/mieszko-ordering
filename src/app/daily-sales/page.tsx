@@ -5,7 +5,10 @@ import { storeRepository } from "@/repositories";
 export default async function DailySalesPage() {
   const stores = await storeRepository.list();
   return (
-    <AppShell title="Daily sales import">
+    <AppShell
+      title="Daily Sales Import"
+      description="Upload CSV or XLSX sales history and map columns to store products."
+    >
       <DailySalesImportForm stores={stores} />
     </AppShell>
   );

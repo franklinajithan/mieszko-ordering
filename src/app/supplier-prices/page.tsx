@@ -5,7 +5,10 @@ import { supplierRepository } from "@/repositories";
 export default async function SupplierPricesPage() {
   const suppliers = await supplierRepository.list();
   return (
-    <AppShell title="Supplier price import">
+    <AppShell
+      title="Supplier Prices"
+      description="Import net-price files and match rows by supplier code."
+    >
       <SupplierPriceImportForm suppliers={suppliers} />
     </AppShell>
   );

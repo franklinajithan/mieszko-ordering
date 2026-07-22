@@ -7,7 +7,10 @@ export default async function OrdersPage() {
   const orders = await orderRepository.list();
 
   return (
-    <AppShell title="Order history">
+    <AppShell
+      title="Order History"
+      description="Browse past orders and open any order for review or export."
+    >
       <div className="mb-4">
         <Link href="/orders/new" className="text-sm font-medium underline">
           Create new order
