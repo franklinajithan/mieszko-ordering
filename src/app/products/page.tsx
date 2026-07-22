@@ -17,8 +17,9 @@ export default async function ProductsPage({
   const params = await searchParams;
   const stores = await storeRepository.list();
   const departments = await productRepository.getDepartments();
+  const storeId = params.storeId ? Number(params.storeId) : undefined;
   const products = await productRepository.list({
-    storeId: params.storeId,
+    storeId: storeId && Number.isInteger(storeId) && storeId > 0 ? storeId : undefined,
     department: params.department,
     isActive: params.active === "false" ? false : params.active === "all" ? undefined : true,
   });

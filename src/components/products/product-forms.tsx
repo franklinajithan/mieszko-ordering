@@ -13,7 +13,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ImportResult } from "@/types";
 
-type Store = { id: string; name: string };
+type Store = { id: number; name: string };
 
 export function ProductForms({
   stores,

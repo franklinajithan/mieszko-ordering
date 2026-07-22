@@ -1,13 +1,16 @@
 import { z } from "zod";
 
+export const idSchema = z.coerce.number().int().positive();
+
 export const createStoreSchema = z.object({
   name: z.string().min(1).max(255),
   code: z.string().min(1).max(50),
+  erpType: z.enum(["msp", "glopos"]).default("msp"),
   isActive: z.boolean().default(true),
 });
 
 export const updateStoreSchema = createStoreSchema.partial().extend({
-  id: z.string().uuid(),
+  id: idSchema,
 });
 
 export const createSupplierSchema = z.object({
@@ -18,7 +21,7 @@ export const createSupplierSchema = z.object({
 });
 
 export const updateSupplierSchema = createSupplierSchema.partial().extend({
-  id: z.string().uuid(),
+  id: idSchema,
 });
 
 export const createProductSchema = z.object({
@@ -28,24 +31,24 @@ export const createProductSchema = z.object({
 });
 
 export const updateProductSchema = createProductSchema.partial().extend({
-  id: z.string().uuid(),
+  id: idSchema,
 });
 
 export const storeProductSchema = z.object({
-  storeId: z.string().uuid(),
-  productId: z.string().uuid(),
+  storeId: idSchema,
+  productId: idSchema,
   storeProductCode: z.string().min(1).max(100),
   isActive: z.boolean().default(true),
 });
 
 export const barcodeSchema = z.object({
-  productId: z.string().uuid(),
+  productId: idSchema,
   barcode: z.string().min(1).max(100),
 });
 
 export const supplierProductSchema = z.object({
-  productId: z.string().uuid(),
-  supplierId: z.string().uuid(),
+  productId: idSchema,
+  supplierId: idSchema,
   supplierCode: z.string().min(1).max(100),
   isActive: z.boolean().default(true),
 });
@@ -62,7 +65,7 @@ export const salesPeriodSchema = z.object({
 });
 
 export const createOrderSchema = z.object({
-  storeId: z.string().uuid(),
+  storeId: idSchema,
   bookStockDate: z.string().date(),
   clientDeliveryDate: z.string().date(),
   departmentFilters: z.array(z.string()).default([]),
@@ -70,17 +73,17 @@ export const createOrderSchema = z.object({
 });
 
 export const updateOrderPeriodsSchema = z.object({
-  orderId: z.string().uuid(),
+  orderId: idSchema,
   periods: z.array(salesPeriodSchema).min(1),
 });
 
 export const updateOrderSuppliersSchema = z.object({
-  orderId: z.string().uuid(),
-  supplierIds: z.array(z.string().uuid()).min(1),
+  orderId: idSchema,
+  supplierIds: z.array(idSchema).min(1),
 });
 
 export const stockUploadSchema = z.object({
-  orderId: z.string().uuid(),
+  orderId: idSchema,
   uploadType: z.enum([
     "book_stock",
     "received_not_posted",
@@ -90,12 +93,12 @@ export const stockUploadSchema = z.object({
   mappingType: z.enum(["store_product_code", "barcode", "supplier_code"]),
   referenceColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
-  supplierId: z.string().uuid().optional(),
+  supplierId: idSchema.optional(),
   deliveryDate: z.string().date().optional(),
 });
 
 export const dailySalesImportSchema = z.object({
-  storeId: z.string().uuid(),
+  storeId: idSchema,
   mappingType: z.enum(["store_product_code", "barcode"]),
   productColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
@@ -105,7 +108,7 @@ export const dailySalesImportSchema = z.object({
 });
 
 export const supplierPriceImportSchema = z.object({
-  supplierId: z.string().uuid(),
+  supplierId: idSchema,
   referenceColumn: z.string().min(1),
   priceColumn: z.string().min(1),
   effectiveDate: z.string().date(),
@@ -113,14 +116,27 @@ export const supplierPriceImportSchema = z.object({
 });
 
 export const updateFinalQuantitySchema = z.object({
-  orderItemId: z.string().uuid(),
+  orderItemId: idSchema,
   finalOrderQty: z.string().regex(/^\d+(\.\d+)?$/),
 });
 
 export const calculateOrderSchema = z.object({
-  orderId: z.string().uuid(),
+  orderId: idSchema,
 });
 
 export const exportOrderSchema = z.object({
-  orderId: z.string().uuid(),
+  orderId: idSchema,
+});
+
+export const bookStockImportSchema = z.object({
+  storeId: idSchema,
+  bookStockDate: z.string().date(),
+  referenceColumn: z.string().min(1),
+  quantityColumn: z.string().min(1),
+  fileName: z.string().min(1),
+});
+
+export const applyStoredBookStockSchema = z.object({
+  orderId: idSchema,
+  importId: idSchema,
 });

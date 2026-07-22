@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { StoreForm } from "@/components/stores/store-form";
-import { StoreToggleButton, SupplierToggleButton } from "@/components/stores/store-actions";
+import { StoreErpSelect, StoreToggleButton, SupplierToggleButton } from "@/components/stores/store-actions";
 import { SupplierForm } from "@/components/suppliers/supplier-form";
 import { Badge } from "@/components/ui/badge";
 import { storeRepository, supplierRepository } from "@/repositories";
@@ -26,6 +26,7 @@ export default async function StoresPage() {
                 <tr>
                   <th className="px-4 py-3">Code</th>
                   <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">ERP</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
@@ -35,6 +36,9 @@ export default async function StoresPage() {
                   <tr key={store.id}>
                     <td className="px-4 py-3 font-medium">{store.code}</td>
                     <td className="px-4 py-3">{store.name}</td>
+                    <td className="px-4 py-3">
+                      <StoreErpSelect id={store.id} erpType={store.erpType} />
+                    </td>
                     <td className="px-4 py-3">
                       <Badge status={store.isActive ? "active" : "inactive"}>
                         {store.isActive ? "Active" : "Inactive"}

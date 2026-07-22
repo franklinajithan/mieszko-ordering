@@ -1,32 +1,52 @@
 import { db } from "@/db";
-import type { ImportResult, MappingType, ParsedRow, UploadType } from "@/types";
+import type { ImportResult, MappingType, ParsedRow, UploadType, ErpType } from "@/types";
 import { toDecimal, decimalToDb } from "@/utils/decimal";
 import { orderRepository, productRepository } from "@/repositories/postgres";
+import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
 
 export async function processStockUpload(input: {
-  orderId: string;
-  storeId: string;
+  orderId: number;
+  storeId: number;
   uploadType: UploadType;
   fileName: string;
   mappingType: MappingType;
   referenceColumn: string;
   quantityColumn: string;
-  supplierId?: string;
+  supplierId?: number;
   deliveryDate?: string;
   bookStockDate: string;
   rows: ParsedRow[];
-}): Promise<ImportResult & { uploadId: string }> {
+  erpType?: ErpType;
+}): Promise<ImportResult & { uploadId: number }> {
+  let rows = input.rows;
+  let duplicateRows = 0;
+
+  if (input.uploadType === "book_stock" && input.erpType === "glopos") {
+    const pivoted = pivotBookStockByReference(
+      rows,
+      input.referenceColumn,
+      input.quantityColumn,
+    );
+    rows = pivoted.rows;
+    duplicateRows = pivoted.duplicateRows;
+  }
+
   const result: ImportResult = {
-    totalRows: input.rows.length,
+    totalRows: rows.length,
     matchedRows: 0,
     unmatchedRows: 0,
     invalidRows: 0,
+    duplicateRows,
     errors: [],
   };
 
-  let uploadId = "";
+  let uploadId = 0;
 
   await db.transaction(async () => {
+    if (input.uploadType === "book_stock") {
+      await orderRepository.clearBookStockEvents(input.orderId);
+    }
+
     const upload = await orderRepository.createUpload({
       orderId: input.orderId,
       uploadType: input.uploadType,
@@ -53,12 +73,12 @@ export async function processStockUpload(input: {
     });
 
     const items: Array<{
-      eventId: string;
-      storeProductId: string;
+      eventId: number;
+      storeProductId: number;
       quantity: string;
     }> = [];
 
-    for (const row of input.rows) {
+    for (const row of rows) {
       const rowNumber = Number(row.__rowNumber ?? 0);
       const reference = row[input.referenceColumn]?.trim() ?? "";
       const qtyRaw = row[input.quantityColumn]?.trim() ?? "";

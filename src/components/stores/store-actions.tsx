@@ -1,14 +1,15 @@
 "use client";
 
 import { useTransition } from "react";
-import { toggleStoreActive, toggleSupplierActive } from "@/app/actions";
+import { toggleStoreActive, toggleSupplierActive, updateStore } from "@/app/actions";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/input";
 
 export function StoreToggleButton({
   id,
   isActive,
 }: {
-  id: string;
+  id: number;
   isActive: boolean;
 }) {
   const [pending, startTransition] = useTransition();
@@ -29,11 +30,36 @@ export function StoreToggleButton({
   );
 }
 
+export function StoreErpSelect({
+  id,
+  erpType,
+}: {
+  id: number;
+  erpType: string;
+}) {
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <Select
+      value={erpType}
+      disabled={pending}
+      onChange={(e) =>
+        startTransition(async () => {
+          await updateStore({ id, erpType: e.target.value });
+        })
+      }
+    >
+      <option value="msp">MSP</option>
+      <option value="glopos">GloPOS</option>
+    </Select>
+  );
+}
+
 export function SupplierToggleButton({
   id,
   isActive,
 }: {
-  id: string;
+  id: number;
   isActive: boolean;
 }) {
   const [pending, startTransition] = useTransition();

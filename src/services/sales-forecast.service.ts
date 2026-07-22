@@ -2,7 +2,7 @@ import { getDay, eachDayOfInterval, isSameDay } from "date-fns";
 import { Decimal, toDecimal } from "@/utils/decimal";
 
 export type ForecastInput = {
-  storeProductId: string;
+  storeProductId: number;
   fromDate: Date;
   toDate: Date;
   /** Daily sales keyed by ISO date (yyyy-MM-dd) */

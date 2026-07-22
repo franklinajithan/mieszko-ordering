@@ -9,6 +9,14 @@ import {
   supplierRepository,
 } from "@/repositories";
 import { importDailySalesRows } from "@/services/daily-sales-import.service";
+import { importBookStockRows } from "@/services/book-stock-import.service";
+import {
+  applyBookStockImportToOrder,
+  getLatestBookStockSummary,
+  listBookStockImportsForStore,
+  type BookStockImportSummary,
+  type LatestBookStockSummary,
+} from "@/services/apply-book-stock-to-order.service";
 import { calculateOrder } from "@/services/order-calculation.service";
 import { exportOrderToExcel } from "@/services/order-export.service";
 import { importSupplierPriceRows } from "@/services/supplier-price-import.service";
@@ -19,6 +27,8 @@ import type { ActionResult, ImportResult } from "@/types";
 import { decimalToDb, parseDbDecimal } from "@/utils/decimal";
 import {
   barcodeSchema,
+  applyStoredBookStockSchema,
+  bookStockImportSchema,
   calculateOrderSchema,
   createOrderSchema,
   createProductSchema,
@@ -36,6 +46,7 @@ import {
   updateProductSchema,
   updateStoreSchema,
   updateSupplierSchema,
+  idSchema,
 } from "@/validators/schemas";
 
 function demoImportResult(rowCount: number): ImportResult {
@@ -59,7 +70,7 @@ function demoImportResult(rowCount: number): ImportResult {
 }
 
 export async function toggleStoreActive(
-  id: string,
+  id: number,
   isActive: boolean,
 ): Promise<ActionResult> {
   await storeRepository.update(id, { isActive });
@@ -68,7 +79,7 @@ export async function toggleStoreActive(
 }
 
 export async function toggleSupplierActive(
-  id: string,
+  id: number,
   isActive: boolean,
 ): Promise<ActionResult> {
   await supplierRepository.update(id, { isActive });
@@ -96,7 +107,7 @@ export async function updateSupplierDetails(input: unknown): Promise<ActionResul
 
 export async function createStore(
   input: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: number }>> {
   const parsed = createStoreSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const store = await storeRepository.create(parsed.data);
@@ -108,12 +119,13 @@ export async function updateStore(input: unknown): Promise<ActionResult> {
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const { id, ...data } = parsed.data;
   await storeRepository.update(id, data);
+  revalidatePath("/stores");
   return { success: true, data: undefined };
 }
 
 export async function createSupplier(
   input: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: number }>> {
   const parsed = createSupplierSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const supplier = await supplierRepository.create(parsed.data);
@@ -130,7 +142,7 @@ export async function updateSupplier(input: unknown): Promise<ActionResult> {
 
 export async function createProduct(
   input: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: number }>> {
   const parsed = createProductSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const product = await productRepository.createProduct(parsed.data);
@@ -147,7 +159,7 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
 
 export async function addStoreProduct(
   input: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: number }>> {
   const parsed = storeProductSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const row = await productRepository.addStoreProduct(parsed.data);
@@ -156,7 +168,7 @@ export async function addStoreProduct(
 
 export async function addBarcode(
   input: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: number }>> {
   const parsed = barcodeSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const row = await productRepository.addBarcode(parsed.data);
@@ -165,7 +177,7 @@ export async function addBarcode(
 
 export async function addSupplierProductMapping(
   input: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: number }>> {
   const parsed = supplierProductSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const row = await productRepository.addSupplierProduct(parsed.data);
@@ -231,9 +243,81 @@ export async function importSupplierPrices(
   return { success: true, data: result };
 }
 
+export async function importBookStock(
+  formData: FormData,
+): Promise<ActionResult<ImportResult & { importId: number }>> {
+  const file = formData.get("file") as File | null;
+  if (!file) return { success: false, error: "No file uploaded" };
+
+  const meta = bookStockImportSchema.safeParse({
+    storeId: formData.get("storeId"),
+    bookStockDate: formData.get("bookStockDate"),
+    referenceColumn: formData.get("referenceColumn"),
+    quantityColumn: formData.get("quantityColumn"),
+    fileName: file.name,
+  });
+
+  if (!meta.success) return { success: false, error: meta.error.message };
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { rows } = await parseAllRows(buffer, file.name);
+  if (isDemoMode()) {
+    return {
+      success: true,
+      data: { ...demoImportResult(rows.length), importId: Date.now() },
+    };
+  }
+
+  const store = await storeRepository.getById(meta.data.storeId);
+  const erpType = store?.erpType === "glopos" ? "glopos" : "msp";
+
+  const result = await importBookStockRows({ ...meta.data, rows, erpType });
+  revalidatePath("/book-stock");
+  return { success: true, data: result };
+}
+
+export async function listBookStockImports(
+  storeId: number,
+): Promise<ActionResult<BookStockImportSummary[]>> {
+  const parsed = idSchema.safeParse(storeId);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+  if (isDemoMode()) {
+    return { success: true, data: [] };
+  }
+  const imports = await listBookStockImportsForStore(parsed.data);
+  return { success: true, data: imports };
+}
+
+export async function getLatestBookStockForStore(
+  storeId: number,
+): Promise<ActionResult<LatestBookStockSummary | null>> {
+  const parsed = idSchema.safeParse(storeId);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+  if (isDemoMode()) {
+    return { success: true, data: null };
+  }
+  const summary = await getLatestBookStockSummary(parsed.data);
+  return { success: true, data: summary };
+}
+
+export async function applyStoredBookStockToOrder(
+  input: unknown,
+): Promise<ActionResult<ImportResult & { uploadId: number }>> {
+  const parsed = applyStoredBookStockSchema.safeParse(input);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+  if (isDemoMode()) {
+    return {
+      success: true,
+      data: { ...demoImportResult(10), uploadId: Date.now() },
+    };
+  }
+  const result = await applyBookStockImportToOrder(parsed.data);
+  return { success: true, data: result };
+}
+
 export async function createOrder(
   input: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: number }>> {
   const parsed = createOrderSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const order = await orderRepository.create({
@@ -275,7 +359,7 @@ export async function updateOrderSelectedSuppliers(
 
 export async function uploadOrderStockFile(
   formData: FormData,
-): Promise<ActionResult<ImportResult & { uploadId: string }>> {
+): Promise<ActionResult<ImportResult & { uploadId: number }>> {
   const file = formData.get("file") as File | null;
   if (!file) return { success: false, error: "No file uploaded" };
 
@@ -295,12 +379,15 @@ export async function uploadOrderStockFile(
   const order = await orderRepository.getById(meta.data.orderId);
   if (!order) return { success: false, error: "Order not found" };
 
+  const store = await storeRepository.getById(order.storeId);
+  const erpType = store?.erpType === "glopos" ? "glopos" : "msp";
+
   const buffer = Buffer.from(await file.arrayBuffer());
   const { rows } = await parseAllRows(buffer, file.name);
   if (isDemoMode()) {
     return {
       success: true,
-      data: { ...demoImportResult(rows.length), uploadId: `demo-upload-${Date.now()}` },
+      data: { ...demoImportResult(rows.length), uploadId: Date.now() },
     };
   }
   const result = await processStockUpload({
@@ -308,6 +395,7 @@ export async function uploadOrderStockFile(
     storeId: order.storeId,
     bookStockDate: order.bookStockDate,
     rows,
+    erpType,
   });
   return { success: true, data: result };
 }
@@ -376,10 +464,11 @@ export async function importProducts(
   formData: FormData,
 ): Promise<ActionResult<ImportResult>> {
   const file = formData.get("file") as File | null;
-  const storeId = String(formData.get("storeId") ?? "");
-  if (!file || !storeId) {
+  const parsedStoreId = idSchema.safeParse(formData.get("storeId"));
+  if (!file || !parsedStoreId.success) {
     return { success: false, error: "Store and file are required" };
   }
+  const storeId = parsedStoreId.data;
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const { rows } = await parseAllRows(buffer, file.name);

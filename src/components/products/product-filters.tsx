@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/input";
 
-type Store = { id: string; name: string; code: string };
+type Store = { id: number; name: string; code: string };
 
 export function ProductFilters({
   stores,

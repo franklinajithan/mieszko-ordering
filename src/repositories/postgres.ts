@@ -3,6 +3,8 @@ import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   dailySales,
+  bookStockImports,
+  bookStockItems,
   orderItemSupplierPrices,
   orderItems,
   orders,
@@ -26,7 +28,7 @@ export const storeRepository = {
     return db.select().from(stores).orderBy(stores.name);
   },
 
-  async getById(id: string) {
+  async getById(id: number) {
     const [row] = await db.select().from(stores).where(eq(stores.id, id));
     return row ?? null;
   },
@@ -36,7 +38,7 @@ export const storeRepository = {
     return row;
   },
 
-  async update(id: string, data: Partial<typeof stores.$inferInsert>) {
+  async update(id: number, data: Partial<typeof stores.$inferInsert>) {
     const [row] = await db
       .update(stores)
       .set({ ...data, updatedAt: new Date() })
@@ -64,7 +66,7 @@ export const supplierRepository = {
     return row;
   },
 
-  async update(id: string, data: Partial<typeof suppliers.$inferInsert>) {
+  async update(id: number, data: Partial<typeof suppliers.$inferInsert>) {
     const [row] = await db
       .update(suppliers)
       .set({ ...data, updatedAt: new Date() })
@@ -76,7 +78,7 @@ export const supplierRepository = {
 
 export const productRepository = {
   async list(filters?: {
-    storeId?: string;
+    storeId?: number;
     department?: string;
     isActive?: boolean;
   }) {
@@ -115,7 +117,7 @@ export const productRepository = {
     return row;
   },
 
-  async updateProduct(id: string, data: Partial<typeof products.$inferInsert>) {
+  async updateProduct(id: number, data: Partial<typeof products.$inferInsert>) {
     const [row] = await db
       .update(products)
       .set({ ...data, updatedAt: new Date() })
@@ -139,14 +141,14 @@ export const productRepository = {
     return row;
   },
 
-  async getBarcodes(productId: string) {
+  async getBarcodes(productId: number) {
     return db
       .select()
       .from(productBarcodes)
       .where(eq(productBarcodes.productId, productId));
   },
 
-  async getSupplierProducts(productId: string) {
+  async getSupplierProducts(productId: number) {
     return db
       .select({ supplierProduct: supplierProducts, supplier: suppliers })
       .from(supplierProducts)
@@ -154,7 +156,7 @@ export const productRepository = {
       .where(eq(supplierProducts.productId, productId));
   },
 
-  async findStoreProductByCode(storeId: string, code: string) {
+  async findStoreProductByCode(storeId: number, code: string) {
     const [row] = await db
       .select()
       .from(storeProducts)
@@ -167,7 +169,7 @@ export const productRepository = {
     return row ?? null;
   },
 
-  async findStoreProductByBarcode(storeId: string, barcode: string) {
+  async findStoreProductByBarcode(storeId: number, barcode: string) {
     const [row] = await db
       .select({ storeProduct: storeProducts })
       .from(productBarcodes)
@@ -183,8 +185,8 @@ export const productRepository = {
   },
 
   async findStoreProductBySupplierCode(
-    storeId: string,
-    supplierId: string,
+    storeId: number,
+    supplierId: number,
     supplierCode: string,
   ) {
     const [row] = await db
@@ -229,7 +231,7 @@ export const dailySalesRepository = {
   },
 
   async sumSalesInPeriod(
-    storeProductId: string,
+    storeProductId: number,
     startDate: string,
     endDate: string,
   ) {
@@ -248,7 +250,7 @@ export const dailySalesRepository = {
     return row?.total ?? "0";
   },
 
-  async getSalesForProduct(storeProductId: string) {
+  async getSalesForProduct(storeProductId: number) {
     return db
       .select()
       .from(dailySales)
@@ -271,7 +273,7 @@ export const supplierPriceRepository = {
     return db.insert(supplierPrices).values(rows).returning();
   },
 
-  async getLatestPrice(supplierProductId: string, asOfDate: string) {
+  async getLatestPrice(supplierProductId: number, asOfDate: string) {
     const [row] = await db
       .select()
       .from(supplierPrices)
@@ -286,7 +288,7 @@ export const supplierPriceRepository = {
     return row ?? null;
   },
 
-  async findSupplierProduct(supplierId: string, supplierCode: string) {
+  async findSupplierProduct(supplierId: number, supplierCode: string) {
     const [row] = await db
       .select()
       .from(supplierProducts)
@@ -297,6 +299,60 @@ export const supplierPriceRepository = {
         ),
       );
     return row ?? null;
+  },
+};
+
+export const bookStockRepository = {
+  async createImport(data: typeof bookStockImports.$inferInsert) {
+    const [row] = await db.insert(bookStockImports).values(data).returning();
+    return row;
+  },
+
+  async insertItems(rows: Array<typeof bookStockItems.$inferInsert>) {
+    if (!rows.length) return [];
+    return db.insert(bookStockItems).values(rows).returning();
+  },
+
+  async getImportById(importId: number) {
+    const [row] = await db
+      .select()
+      .from(bookStockImports)
+      .where(eq(bookStockImports.id, importId));
+    return row ?? null;
+  },
+
+  async getLatestForStore(storeId: number) {
+    const [row] = await db
+      .select()
+      .from(bookStockImports)
+      .where(eq(bookStockImports.storeId, storeId))
+      .orderBy(desc(bookStockImports.importedAt))
+      .limit(1);
+    return row ?? null;
+  },
+
+  async listForStore(storeId: number, limit = 50) {
+    return db
+      .select()
+      .from(bookStockImports)
+      .where(eq(bookStockImports.storeId, storeId))
+      .orderBy(desc(bookStockImports.importedAt))
+      .limit(limit);
+  },
+
+  async getItems(importId: number) {
+    return db
+      .select()
+      .from(bookStockItems)
+      .where(eq(bookStockItems.importId, importId));
+  },
+
+  async countItems(importId: number) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(bookStockItems)
+      .where(eq(bookStockItems.importId, importId));
+    return row?.count ?? 0;
   },
 };
 
@@ -312,7 +368,7 @@ export const orderRepository = {
       .orderBy(desc(orders.createdAt));
   },
 
-  async getById(orderId: string) {
+  async getById(orderId: number) {
     const [row] = await db.select().from(orders).where(eq(orders.id, orderId));
     return row ?? null;
   },
@@ -322,7 +378,7 @@ export const orderRepository = {
     return row;
   },
 
-  async update(orderId: string, data: Partial<typeof orders.$inferInsert>) {
+  async update(orderId: number, data: Partial<typeof orders.$inferInsert>) {
     const [row] = await db
       .update(orders)
       .set({ ...data, updatedAt: new Date() })
@@ -332,7 +388,7 @@ export const orderRepository = {
   },
 
   async replacePeriods(
-    orderId: string,
+    orderId: number,
     periods: Array<typeof orderSalesPeriods.$inferInsert>,
   ) {
     await db
@@ -343,7 +399,7 @@ export const orderRepository = {
     }
   },
 
-  async replacePriceSuppliers(orderId: string, supplierIds: string[]) {
+  async replacePriceSuppliers(orderId: number, supplierIds: number[]) {
     await db
       .delete(orderPriceSuppliers)
       .where(eq(orderPriceSuppliers.orderId, orderId));
@@ -354,14 +410,14 @@ export const orderRepository = {
     }
   },
 
-  async getPeriods(orderId: string) {
+  async getPeriods(orderId: number) {
     return db
       .select()
       .from(orderSalesPeriods)
       .where(eq(orderSalesPeriods.orderId, orderId));
   },
 
-  async getSelectedSuppliers(orderId: string) {
+  async getSelectedSuppliers(orderId: number) {
     return db
       .select({ supplier: suppliers })
       .from(orderPriceSuppliers)
@@ -387,7 +443,7 @@ export const orderRepository = {
     return db.insert(orderStockEventItems).values(rows).returning();
   },
 
-  async getStoreProductsForOrder(storeId: string, departments: string[]) {
+  async getStoreProductsForOrder(storeId: number, departments: string[]) {
     const conditions = [eq(storeProducts.storeId, storeId), eq(storeProducts.isActive, true)];
     if (departments.length) {
       conditions.push(inArray(products.department, departments));
@@ -403,7 +459,7 @@ export const orderRepository = {
       .orderBy(products.name);
   },
 
-  async getStockEvents(orderId: string) {
+  async getStockEvents(orderId: number) {
     return db
       .select({
         event: orderStockEvents,
@@ -418,7 +474,18 @@ export const orderRepository = {
       .orderBy(orderStockEvents.eventDate, orderStockEvents.sortOrder);
   },
 
-  async clearCalculatedItems(orderId: string) {
+  async clearBookStockEvents(orderId: number) {
+    await db
+      .delete(orderStockEvents)
+      .where(
+        and(
+          eq(orderStockEvents.orderId, orderId),
+          eq(orderStockEvents.eventType, "book_stock"),
+        ),
+      );
+  },
+
+  async clearCalculatedItems(orderId: number) {
     await db.delete(orderItems).where(eq(orderItems.orderId, orderId));
   },
 
@@ -434,7 +501,7 @@ export const orderRepository = {
     return db.insert(orderItemSupplierPrices).values(rows).returning();
   },
 
-  async getOrderItemsWithDetails(orderId: string) {
+  async getOrderItemsWithDetails(orderId: number) {
     return db
       .select({
         item: orderItems,
@@ -448,7 +515,7 @@ export const orderRepository = {
       .orderBy(storeProducts.storeProductCode);
   },
 
-  async getItemSupplierPrices(orderId: string) {
+  async getItemSupplierPrices(orderId: number) {
     return db
       .select({
         price: orderItemSupplierPrices,
@@ -460,7 +527,7 @@ export const orderRepository = {
       .where(eq(orderItems.orderId, orderId));
   },
 
-  async updateFinalQuantity(orderItemId: string, finalOrderQty: string) {
+  async updateFinalQuantity(orderItemId: number, finalOrderQty: string) {
     const [row] = await db
       .update(orderItems)
       .set({ finalOrderQty })
@@ -469,7 +536,7 @@ export const orderRepository = {
     return row;
   },
 
-  async getOrderItem(orderItemId: string) {
+  async getOrderItem(orderItemId: number) {
     const [row] = await db
       .select()
       .from(orderItems)

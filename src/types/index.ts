@@ -65,6 +65,26 @@ export type FilePreview = {
   rows: ParsedRow[];
 };
 
+export type ErpType = "msp" | "glopos";
+
+export const ERP_TYPES: ErpType[] = ["msp", "glopos"];
+
+export const BOOK_STOCK_COLUMNS: Record<
+  ErpType,
+  { reference: string[]; quantity: string[]; label: string }
+> = {
+  msp: {
+    reference: ["ID", "Id"],
+    quantity: ["Qty", "QTY", "Quantity"],
+    label: "MSP (ID + Qty)",
+  },
+  glopos: {
+    reference: ["Item Code"],
+    quantity: ["Current Stock"],
+    label: "GloPOS (Item Code + Current Stock, pivoted)",
+  },
+};
+
 export type SalesMappingType = "store_product_code" | "barcode";
 
 export const KNOWN_PRICE_COLUMNS: Record<

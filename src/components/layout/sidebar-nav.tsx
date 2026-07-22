@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BookOpen,
   ClipboardList,
   History,
   Home,
@@ -56,6 +57,12 @@ export const navGroups: NavGroup[] = [
     items: [
       { href: "/daily-sales", label: "Daily Sales", icon: TrendingUp },
       { href: "/supplier-prices", label: "Supplier Prices", icon: Truck },
+      {
+        href: "/book-stock",
+        label: "Book Stock",
+        icon: BookOpen,
+        match: (p) => p.startsWith("/book-stock"),
+      },
     ],
   },
   {

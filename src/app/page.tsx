@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  BookOpen,
   ClipboardList,
   History,
   Package,
@@ -82,11 +83,18 @@ export default function HomePage() {
               accent="violet"
             />
             <NavCard
+              href="/book-stock"
+              title="Book Stock"
+              description="Import BK files by store and reuse the latest upload in orders."
+              icon={BookOpen}
+              accent="teal"
+            />
+            <NavCard
               href="/orders/new"
               title="New Order"
               description="Prepare an order with stock uploads, forecasting, and price comparison."
               icon={ClipboardList}
-              accent="teal"
+              accent="emerald"
             />
             <NavCard
               href="/orders"

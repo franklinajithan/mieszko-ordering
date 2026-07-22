@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { detectSalesColumns } from "@/parsers/file-parser";
 import type { FilePreview, ImportResult } from "@/types";
 
-type Store = { id: string; name: string };
+type Store = { id: number; name: string };
 
 export function DailySalesImportForm({ stores }: { stores: Store[] }) {
   const [preview, setPreview] = useState<FilePreview | null>(null);
