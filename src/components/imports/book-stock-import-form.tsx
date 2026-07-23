@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { importBookStock, listBookStockImports, previewUpload } from "@/app/actions";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,12 @@ import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { detectBookStockColumns } from "@/parsers/file-parser";
 import { BOOK_STOCK_COLUMNS, type ErpType, type FilePreview, type ImportResult } from "@/types";
+import {
+  detectBookStockFileErpType,
+  reportErpMismatch,
+  resolveStoreErpType,
+} from "@/utils/erp-file-validation";
+import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 
 type Store = { id: number; name: string; code: string; erpType: string };
 type BookStockImport = {
@@ -39,6 +45,44 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
   );
   const erpType: ErpType = selectedStore?.erpType === "glopos" ? "glopos" : "msp";
   const erpHelp = BOOK_STOCK_COLUMNS[erpType];
+  const storeErpType = resolveStoreErpType(selectedStore?.erpType);
+
+  async function validateSelectedFile(selected: File | null) {
+    if (!selected || !storeId) return true;
+    const mismatch = await checkUploadErpMismatch(
+      selected,
+      storeErpType,
+      detectBookStockFileErpType,
+    );
+    if (mismatch) {
+      setError(mismatch);
+      reportErpMismatch(mismatch);
+      return false;
+    }
+    return true;
+  }
+
+  async function onFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0] ?? null;
+    setPreview(null);
+    setResult(null);
+    if (!selected) {
+      setFile(null);
+      return;
+    }
+    if (!storeId) {
+      setFile(selected);
+      return;
+    }
+    const valid = await validateSelectedFile(selected);
+    if (!valid) {
+      event.target.value = "";
+      setFile(null);
+      return;
+    }
+    setError(null);
+    setFile(selected);
+  }
 
   useEffect(() => {
     if (!storeId) {
@@ -53,9 +97,25 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
   async function onPreview(formData: FormData) {
     setError(null);
     setResult(null);
+    setPreview(null);
     try {
       const selected = formData.get("file") as File;
+      if (!storeId) {
+        const message = "Select a store before previewing the file.";
+        setError(message);
+        return;
+      }
       setFile(selected);
+      const mismatch = await checkUploadErpMismatch(
+        selected,
+        storeErpType,
+        detectBookStockFileErpType,
+      );
+      if (mismatch) {
+        setError(mismatch);
+        reportErpMismatch(mismatch);
+        return;
+      }
       const data = await previewUpload(formData);
       setPreview(data);
       const detected = detectBookStockColumns(data.headers, erpType);
@@ -71,6 +131,9 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
       setError("Select a store and file first");
       return;
     }
+    if (!(await validateSelectedFile(file))) {
+      return;
+    }
     setError(null);
     const formData = new FormData();
     formData.set("file", file);
@@ -82,6 +145,7 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
     const response = await importBookStock(formData);
     if (!response.success) {
       setError(response.error);
+      reportErpMismatch(response.error);
       return;
     }
     setResult(response.data);
@@ -108,7 +172,24 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
             name="storeId"
             required
             value={storeId}
-            onChange={(e) => setStoreId(e.target.value)}
+            onChange={async (e) => {
+              const nextStoreId = e.target.value;
+              setStoreId(nextStoreId);
+              setPreview(null);
+              if (file && nextStoreId) {
+                const nextStore = stores.find((store) => String(store.id) === nextStoreId);
+                const mismatch = await checkUploadErpMismatch(
+                  file,
+                  resolveStoreErpType(nextStore?.erpType),
+                  detectBookStockFileErpType,
+                );
+                if (mismatch) {
+                  setError(mismatch);
+                  reportErpMismatch(mismatch);
+                  setFile(null);
+                }
+              }
+            }}
           >
             <option value="" disabled>
               Select store
@@ -133,7 +214,13 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
         </div>
         <div className="md:col-span-2">
           <Label>BK file (CSV or XLSX)</Label>
-          <Input name="file" type="file" accept=".csv,.xlsx,.xls" required />
+          <Input
+            name="file"
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            required
+            onChange={onFileChange}
+          />
         </div>
         <div className="md:col-span-2">
           <Button type="submit">Preview file</Button>

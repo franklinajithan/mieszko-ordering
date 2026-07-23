@@ -4,8 +4,19 @@ import * as schema from "./schema";
 
 type Db = PostgresJsDatabase<typeof schema>;
 
-let client: ReturnType<typeof postgres> | null = null;
-let database: Db | null = null;
+const globalForDb = globalThis as unknown as {
+  postgresClient: ReturnType<typeof postgres> | undefined;
+  drizzleDb: Db | undefined;
+};
+
+function createPostgresClient(url: string) {
+  return postgres(url, {
+    max: process.env.NODE_ENV === "production" ? 10 : 1,
+    idle_timeout: 20,
+    max_lifetime: 60 * 30,
+    connect_timeout: 10,
+  });
+}
 
 export function createDb(connectionString?: string): Db {
   const url = connectionString ?? process.env.DATABASE_URL;
@@ -15,11 +26,15 @@ export function createDb(connectionString?: string): Db {
     );
   }
 
-  if (database) return database;
+  if (!globalForDb.postgresClient) {
+    globalForDb.postgresClient = createPostgresClient(url);
+  }
 
-  client = postgres(url, { max: 10 });
-  database = drizzle(client, { schema });
-  return database;
+  if (!globalForDb.drizzleDb) {
+    globalForDb.drizzleDb = drizzle(globalForDb.postgresClient, { schema });
+  }
+
+  return globalForDb.drizzleDb;
 }
 
 export function getDb(): Db {

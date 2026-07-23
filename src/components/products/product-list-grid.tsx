@@ -1,0 +1,124 @@
+import Link from "next/link";
+import { ArrowUpRight, PackageSearch } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/utils/cn";
+
+export const PRODUCT_GRID_COLS =
+  "grid-cols-[2.75rem_minmax(5.5rem,7.5rem)_minmax(0,1fr)_minmax(5rem,9rem)_5.5rem_4.5rem]";
+
+type ProductRow = {
+  product: {
+    id: number;
+    name: string;
+    department: string;
+    isActive: boolean;
+  };
+  storeProduct: {
+    id: number;
+    storeProductCode: string;
+  };
+  store: {
+    id: number;
+  };
+};
+
+export function ProductListGrid({
+  products,
+  duplicateNames,
+  lineOffset,
+  search,
+}: {
+  products: ProductRow[];
+  duplicateNames: Set<string>;
+  lineOffset: number;
+  search?: string;
+}) {
+  if (!products.length) {
+    return (
+      <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+        <div className="rounded-2xl bg-zinc-100 p-4 text-zinc-500">
+          <PackageSearch className="h-8 w-8" aria-hidden />
+        </div>
+        <p className="mt-4 font-medium text-zinc-900">No products match these filters</p>
+        <p className="mt-1 max-w-sm text-sm text-zinc-500">
+          {search
+            ? `Nothing found for “${search}”. Try a different search or clear filters.`
+            : "Try changing department or status filters, or import products for this store."}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-[44rem]">
+      <div
+        className={cn(
+          "sticky top-0 z-10 grid gap-x-3 border-b border-zinc-200/80 bg-zinc-50/95 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 backdrop-blur-sm",
+          PRODUCT_GRID_COLS,
+        )}
+      >
+        <div className="text-right">#</div>
+        <div>Code</div>
+        <div>Product</div>
+        <div>Department</div>
+        <div>Status</div>
+        <div className="text-right"> </div>
+      </div>
+
+      <div className="divide-y divide-zinc-100">
+        {products.map(({ product, storeProduct, store }, index) => {
+          const isDuplicate = duplicateNames.has(product.name.trim().toLowerCase());
+          const lineNumber = lineOffset + index + 1;
+
+          return (
+            <div
+              key={storeProduct.id}
+              className={cn(
+                "grid gap-x-3 px-4 py-3 text-sm transition-colors hover:bg-emerald-50/35",
+                PRODUCT_GRID_COLS,
+                index % 2 === 1 && "bg-zinc-50/40",
+              )}
+            >
+              <div className="self-center text-right tabular-nums text-xs text-zinc-400">
+                {lineNumber}
+              </div>
+              <div className="self-center truncate font-mono text-xs font-medium text-zinc-800">
+                {storeProduct.storeProductCode}
+              </div>
+              <div
+                className={cn(
+                  "self-center min-w-0 rounded-md px-2 py-1 -mx-2",
+                  isDuplicate && "bg-red-50 text-red-900 ring-1 ring-red-100",
+                )}
+              >
+                <p className="truncate font-medium" title={product.name}>
+                  {product.name}
+                </p>
+                {isDuplicate ? (
+                  <p className="mt-0.5 text-[11px] font-normal text-red-700/80">
+                    Duplicate name
+                  </p>
+                ) : null}
+              </div>
+              <div className="self-center truncate text-zinc-600">{product.department}</div>
+              <div className="self-center">
+                <Badge status={product.isActive ? "active" : "inactive"}>
+                  {product.isActive ? "Active" : "Inactive"}
+                </Badge>
+              </div>
+              <div className="self-center text-right">
+                <Link
+                  href={`/products/${product.id}?storeId=${store.id}`}
+                  className="inline-flex items-center gap-0.5 rounded-md px-2 py-1 text-xs font-medium text-emerald-800 transition hover:bg-emerald-100/80"
+                >
+                  Manage
+                  <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+                </Link>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

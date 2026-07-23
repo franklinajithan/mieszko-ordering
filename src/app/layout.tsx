@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { ErpMismatchModalHost } from "@/components/ui/erp-mismatch-modal";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +27,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {children}
+        <ErpMismatchModalHost />
+      </body>
     </html>
   );
 }

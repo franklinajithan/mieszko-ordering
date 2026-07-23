@@ -77,12 +77,54 @@ export const supplierRepository = {
   },
 };
 
+let ensureDepartmentsTablePromise: Promise<void> | null = null;
+
+function isMissingRelationError(error: unknown, relation = "departments") {
+  const cause = error instanceof Error ? error.cause : null;
+  if (!cause || typeof cause !== "object" || !("code" in cause)) return false;
+  if (cause.code !== "42P01") return false;
+  const message = "message" in cause ? String(cause.message) : "";
+  return message.includes(relation);
+}
+
+async function ensureDepartmentsTable() {
+  if (!ensureDepartmentsTablePromise) {
+    ensureDepartmentsTablePromise = db
+      .execute(sql`
+        CREATE TABLE IF NOT EXISTS departments (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name VARCHAR(100) NOT NULL UNIQUE,
+          code VARCHAR(50),
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      .then(() => undefined)
+      .catch((error) => {
+        ensureDepartmentsTablePromise = null;
+        throw error;
+      });
+  }
+  return ensureDepartmentsTablePromise;
+}
+
+async function listLegacyDepartmentNames() {
+  const legacy = await db
+    .selectDistinct({ department: products.department })
+    .from(products)
+    .orderBy(products.department);
+  return legacy.map((r) => r.department);
+}
+
 export const departmentRepository = {
   async list() {
+    await ensureDepartmentsTable();
     return db.select().from(departments).orderBy(departments.name);
   },
 
   async getById(id: string) {
+    await ensureDepartmentsTable();
     const [row] = await db
       .select()
       .from(departments)
@@ -91,6 +133,7 @@ export const departmentRepository = {
   },
 
   async getByName(name: string) {
+    await ensureDepartmentsTable();
     const [row] = await db
       .select()
       .from(departments)
@@ -99,11 +142,13 @@ export const departmentRepository = {
   },
 
   async create(data: typeof departments.$inferInsert) {
+    await ensureDepartmentsTable();
     const [row] = await db.insert(departments).values(data).returning();
     return row;
   },
 
   async update(id: string, data: Partial<typeof departments.$inferInsert>) {
+    await ensureDepartmentsTable();
     const existing = await departmentRepository.getById(id);
     if (!existing) return null;
 
@@ -124,21 +169,22 @@ export const departmentRepository = {
   },
 
   async listActiveNames() {
-    const rows = await db
-      .select({ name: departments.name })
-      .from(departments)
-      .where(eq(departments.isActive, true))
-      .orderBy(departments.name);
+    try {
+      await ensureDepartmentsTable();
+      const rows = await db
+        .select({ name: departments.name })
+        .from(departments)
+        .where(eq(departments.isActive, true))
+        .orderBy(departments.name);
 
-    if (rows.length > 0) {
-      return rows.map((r) => r.name);
+      if (rows.length > 0) {
+        return rows.map((r) => r.name);
+      }
+    } catch (error) {
+      if (!isMissingRelationError(error)) throw error;
     }
 
-    const legacy = await db
-      .selectDistinct({ department: products.department })
-      .from(products)
-      .orderBy(products.department);
-    return legacy.map((r) => r.department);
+    return listLegacyDepartmentNames();
   },
 };
 
@@ -197,7 +243,7 @@ export const productRepository = {
       query = query.where(and(...conditions));
     }
 
-    query = query.orderBy(storeProducts.storeProductCode);
+    query = query.orderBy(products.name, storeProducts.storeProductCode);
 
     if (filters?.limit !== undefined) {
       query = query.limit(filters.limit);
@@ -228,6 +274,31 @@ export const productRepository = {
 
     const [row] = await query;
     return row?.count ?? 0;
+  },
+
+  async getDuplicateProductNameKeys(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+  }) {
+    const conditions = productRepository.buildListConditions(filters);
+    let query = db
+      .select({
+        nameKey: sql<string>`lower(trim(${products.name}))`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(storeProducts)
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .$dynamic();
+
+    if (conditions.length) {
+      query = query.where(and(...conditions));
+    }
+
+    const rows = await query.groupBy(sql`lower(trim(${products.name}))`).having(sql`count(*) > 1`);
+
+    return rows.map((row) => row.nameKey);
   },
 
   async createProduct(data: typeof products.$inferInsert) {

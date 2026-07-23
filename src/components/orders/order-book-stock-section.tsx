@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   applyStoredBookStockToOrder,
   listBookStockImports,
@@ -10,6 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BOOK_STOCK_COLUMNS, type ErpType, type ImportResult } from "@/types";
+import {
+  detectBookStockFileErpType,
+  reportErpMismatch,
+} from "@/utils/erp-file-validation";
+import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 
 type BookStockImport = {
   importId: number;
@@ -89,14 +94,45 @@ export function OrderBookStockSection({
     onApplied(`Book stock (${formatImportLabel(selectedImport!)})`, result.data);
   }
 
+  async function validateSelectedFile(selected: File) {
+    const mismatch = await checkUploadErpMismatch(
+      selected,
+      erpType,
+      detectBookStockFileErpType,
+    );
+    if (mismatch) {
+      setError(mismatch);
+      reportErpMismatch(mismatch);
+      return false;
+    }
+    return true;
+  }
+
+  async function onUploadFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0];
+    if (!selected) return;
+    const valid = await validateSelectedFile(selected);
+    if (!valid) {
+      event.target.value = "";
+    }
+  }
+
   async function handleUpload(formData: FormData) {
     setError(null);
+    const file = formData.get("file");
+    if (file instanceof File) {
+      if (!(await validateSelectedFile(file))) {
+        return;
+      }
+    }
+
     formData.set("orderId", String(orderId));
     formData.set("uploadType", "book_stock");
     formData.set("mappingType", "store_product_code");
     const result = await uploadOrderStockFile(formData);
     if (!result.success) {
       setError(result.error);
+      reportErpMismatch(result.error);
       return;
     }
     onApplied("Book stock (new upload)", result.data);
@@ -183,7 +219,13 @@ export function OrderBookStockSection({
         <form action={handleUpload} className="grid gap-3 md:grid-cols-2">
           <div>
             <Label>BK file</Label>
-            <Input name="file" type="file" accept=".csv,.xlsx,.xls" required />
+            <Input
+              name="file"
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              required
+              onChange={onUploadFileChange}
+            />
           </div>
           <div>
             <Label>Product code column</Label>

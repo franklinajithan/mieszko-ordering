@@ -571,9 +571,15 @@ export const productRepository = {
         }
         return true;
       })
-      .sort((a, b) =>
-        a.storeProduct.storeProductCode.localeCompare(b.storeProduct.storeProductCode),
-      );
+      .sort((a, b) => {
+        const byName = a.product.name.localeCompare(b.product.name, undefined, {
+          sensitivity: "base",
+        });
+        if (byName !== 0) return byName;
+        return a.storeProduct.storeProductCode.localeCompare(
+          b.storeProduct.storeProductCode,
+        );
+      });
   },
 
   async list(filters?: {
@@ -599,6 +605,24 @@ export const productRepository = {
   }) {
     return productRepository.filterListItems(filters).length;
   },
+
+  async getDuplicateProductNameKeys(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+  }) {
+    const counts = new Map<string, number>();
+    for (const { product } of productRepository.filterListItems(filters)) {
+      const key = product.name.trim().toLowerCase();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([key]) => key);
+  },
+
   async createProduct(data: typeof schema.products.$inferInsert) {
     const product = row({
       id: genId(),

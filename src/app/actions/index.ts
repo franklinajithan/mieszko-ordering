@@ -28,6 +28,14 @@ import { recalculateLineCost } from "@/services/supplier-price.service";
 import { parseAllRows, parseUploadedFile } from "@/parsers/file-parser";
 import { tryParseRetailSalesReport } from "@/parsers/glopos-retail-parser";
 import {
+  detectBookStockFileErpType,
+  detectDailySalesFileErpType,
+  detectProductFileErpType,
+  inferProductFileErpTypeFromColumns,
+  resolveStoreErpType,
+  validateErpFileMatch,
+} from "@/utils/erp-file-validation";
+import {
   detectProductFileColumns,
   parseProductFile,
 } from "@/parsers/product-file-parser";
@@ -332,19 +340,34 @@ export async function previewDailySalesUpload(
   const buffer = Buffer.from(await file.arrayBuffer());
   const retail = await tryParseRetailSalesReport(buffer, file.name);
 
-  if (retail) {
-    return {
-      headers: retail.headers,
-      rows: retail.rows.slice(0, 10),
-      productColumn: retail.itemCodeColumn,
-      quantityColumn: retail.salesQtyColumn,
-      manualSalesDate: retail.salesDate ?? undefined,
-      periodLabel: retail.periodLabel,
-      duplicateRows: retail.duplicateRows,
-    };
+  const preview =
+    retail ?
+      {
+        headers: retail.headers,
+        rows: retail.rows.slice(0, 10),
+        productColumn: retail.itemCodeColumn,
+        quantityColumn: retail.salesQtyColumn,
+        manualSalesDate: retail.salesDate ?? undefined,
+        periodLabel: retail.periodLabel,
+        duplicateRows: retail.duplicateRows,
+      }
+    : await parseUploadedFile(buffer, file.name);
+
+  const storeId = idSchema.safeParse(formData.get("storeId"));
+  if (storeId.success) {
+    const store = await storeRepository.getById(storeId.data);
+    if (store) {
+      const storeErpType = resolveStoreErpType(store.erpType);
+      const fileErpType = detectDailySalesFileErpType(
+        preview.headers,
+        file.name,
+      );
+      const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+      if (mismatch) throw new Error(mismatch);
+    }
   }
 
-  return parseUploadedFile(buffer, file.name);
+  return preview;
 }
 
 export async function importDailySales(
@@ -365,15 +388,20 @@ export async function importDailySales(
 
   if (!meta.success) return { success: false, error: meta.error.message };
 
+  const store = await storeRepository.getById(meta.data.storeId);
+  if (!store) return { success: false, error: "Store not found" };
+
   const buffer = Buffer.from(await file.arrayBuffer());
 
   let rows;
   let importMeta = { ...meta.data };
   let duplicateRows = 0;
+  let previewHeaders: string[] = [];
 
   const retail = await tryParseRetailSalesReport(buffer, file.name);
   if (retail) {
     rows = retail.rows;
+    previewHeaders = retail.headers;
     importMeta = {
       ...importMeta,
       productColumn: retail.itemCodeColumn,
@@ -383,8 +411,15 @@ export async function importDailySales(
     };
     duplicateRows = retail.duplicateRows;
   } else {
-    ({ rows } = await parseAllRows(buffer, file.name));
+    const parsed = await parseAllRows(buffer, file.name);
+    rows = parsed.rows;
+    previewHeaders = parsed.headers;
   }
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const fileErpType = detectDailySalesFileErpType(previewHeaders, file.name);
+  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+  if (mismatch) return { success: false, error: mismatch };
 
   if (isDemoMode()) {
     return {
@@ -439,8 +474,17 @@ export async function importBookStock(
 
   if (!meta.success) return { success: false, error: meta.error.message };
 
+  const store = await storeRepository.getById(meta.data.storeId);
+  if (!store) return { success: false, error: "Store not found" };
+
   const buffer = Buffer.from(await file.arrayBuffer());
-  const { rows } = await parseAllRows(buffer, file.name);
+  const { headers, rows } = await parseAllRows(buffer, file.name);
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const fileErpType = detectBookStockFileErpType(headers);
+  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+  if (mismatch) return { success: false, error: mismatch };
+
   if (isDemoMode()) {
     return {
       success: true,
@@ -448,8 +492,7 @@ export async function importBookStock(
     };
   }
 
-  const store = await storeRepository.getById(meta.data.storeId);
-  const erpType = store?.erpType === "glopos" ? "glopos" : "msp";
+  const erpType = storeErpType;
 
   const result = await importBookStockRows({ ...meta.data, rows, erpType });
   revalidatePath("/book-stock");
@@ -560,10 +603,18 @@ export async function uploadOrderStockFile(
   if (!order) return { success: false, error: "Order not found" };
 
   const store = await storeRepository.getById(order.storeId);
-  const erpType = store?.erpType === "glopos" ? "glopos" : "msp";
+  if (!store) return { success: false, error: "Store not found" };
+  const erpType = resolveStoreErpType(store.erpType);
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const { rows } = await parseAllRows(buffer, file.name);
+  const { headers, rows } = await parseAllRows(buffer, file.name);
+
+  if (meta.data.uploadType === "book_stock") {
+    const fileErpType = detectBookStockFileErpType(headers);
+    const mismatch = validateErpFileMatch(fileErpType, erpType);
+    if (mismatch) return { success: false, error: mismatch };
+  }
+
   if (isDemoMode()) {
     return {
       success: true,
@@ -696,6 +747,14 @@ export async function importProducts(
     };
   }
 
+  const store = await storeRepository.getById(parsedStoreId.data);
+  if (!store) return { success: false, error: "Store not found" };
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const fileErpType = detectProductFileErpType(headers);
+  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+  if (mismatch) return { success: false, error: mismatch };
+
   if (isDemoMode()) {
     return { success: true, data: demoImportResult(rows.length) };
   }
@@ -737,6 +796,11 @@ async function createProductImportJob(input: {
 }): Promise<ActionResult<ProductImportProgress>> {
   const store = await storeRepository.getById(input.storeId);
   if (!store) return { success: false, error: "Store not found" };
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const fileErpType = inferProductFileErpTypeFromColumns(input);
+  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+  if (mismatch) return { success: false, error: mismatch };
 
   if (isDemoMode()) {
     return {

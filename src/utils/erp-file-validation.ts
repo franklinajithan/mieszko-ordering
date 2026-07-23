@@ -1,0 +1,149 @@
+import { detectBookStockColumns } from "@/parsers/file-parser";
+import { isGloposRetailReport } from "@/parsers/glopos-retail-parser";
+import { detectProductFileColumns } from "@/parsers/product-file-parser";
+import { BOOK_STOCK_COLUMNS, type ErpType } from "@/types";
+
+function normHeader(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function hasHeader(headers: string[], patterns: string[]): boolean {
+  const normalized = headers.map(normHeader);
+  return patterns.some((pattern) => normalized.includes(normHeader(pattern)));
+}
+
+export function resolveStoreErpType(
+  erpType: string | null | undefined,
+): ErpType {
+  return erpType === "glopos" ? "glopos" : "msp";
+}
+
+export function erpTypeLabel(erpType: ErpType): string {
+  return erpType === "glopos" ? "GloPOS" : "MSP";
+}
+
+export function detectProductFileErpType(headers: string[]): ErpType | null {
+  const columns = detectProductFileColumns(headers);
+
+  if (columns.shareAcrossMspStores) return "msp";
+  if (hasHeader(headers, ["ProductCode", "Product Code"])) return "msp";
+  if (hasHeader(headers, ["ItemName1", "Item Name", "InnerEan", "Inner EAN"])) {
+    return "msp";
+  }
+
+  if (hasHeader(headers, ["Item Code"])) return "glopos";
+  if (
+    hasHeader(headers, ["ID", "Id"]) &&
+    hasHeader(headers, ["Name", "Description"]) &&
+    !hasHeader(headers, ["ItemName1", "Item Name"])
+  ) {
+    return "glopos";
+  }
+
+  return null;
+}
+
+export function detectBookStockFileErpType(headers: string[]): ErpType | null {
+  const hasItemCode = hasHeader(headers, BOOK_STOCK_COLUMNS.glopos.reference);
+  const hasCurrentStock = headers.some((header) =>
+    normHeader(header).includes("current stock"),
+  );
+  const hasId = hasHeader(headers, BOOK_STOCK_COLUMNS.msp.reference);
+  const hasQty = hasHeader(headers, BOOK_STOCK_COLUMNS.msp.quantity);
+
+  if (hasItemCode && hasCurrentStock) return "glopos";
+
+  const gloposColumns = detectBookStockColumns(headers, "glopos");
+  if (
+    gloposColumns.referenceColumn &&
+    gloposColumns.quantityColumn &&
+    normHeader(gloposColumns.referenceColumn) === "item code" &&
+    normHeader(gloposColumns.quantityColumn).includes("current stock")
+  ) {
+    return "glopos";
+  }
+
+  if (hasId && hasQty && !hasItemCode) return "msp";
+
+  const mspColumns = detectBookStockColumns(headers, "msp");
+  if (
+    mspColumns.referenceColumn &&
+    mspColumns.quantityColumn &&
+    hasHeader([mspColumns.referenceColumn], BOOK_STOCK_COLUMNS.msp.reference) &&
+    hasHeader([mspColumns.quantityColumn], BOOK_STOCK_COLUMNS.msp.quantity)
+  ) {
+    return "msp";
+  }
+
+  return null;
+}
+
+export function detectDailySalesFileErpType(
+  headers: string[],
+  fileName: string,
+): ErpType | null {
+  if (isGloposRetailReport(headers, fileName)) return "glopos";
+
+  if (
+    hasHeader(headers, ["Item Code"]) &&
+    hasHeader(headers, ["Sales Qty", "Sales QTY", "Sales qty"])
+  ) {
+    return "glopos";
+  }
+
+  if (
+    hasHeader(headers, ["ID", "Id"]) &&
+    hasHeader(headers, ["Qty", "QTY", "Quantity"]) &&
+    !hasHeader(headers, ["Item Code"])
+  ) {
+    return "msp";
+  }
+
+  return null;
+}
+
+export function getErpFileMismatchError(
+  fileErpType: ErpType,
+  storeErpType: ErpType,
+): string {
+  return `${erpTypeLabel(fileErpType)} files can only be uploaded to ${erpTypeLabel(fileErpType)} stores. The selected store is ${erpTypeLabel(storeErpType)}. Choose a matching store or upload the correct file type.`;
+}
+
+export function validateErpFileMatch(
+  fileErpType: ErpType | null,
+  storeErpType: ErpType,
+): string | null {
+  if (!fileErpType || fileErpType === storeErpType) return null;
+  return getErpFileMismatchError(fileErpType, storeErpType);
+}
+
+export function inferProductFileErpTypeFromColumns(input: {
+  shareAcrossMspStores?: boolean;
+  codeColumn: string;
+  nameColumn: string;
+}): ErpType | null {
+  if (input.shareAcrossMspStores) return "msp";
+
+  const code = normHeader(input.codeColumn);
+  const name = normHeader(input.nameColumn);
+
+  if (code === "productcode" || code === "product code") return "msp";
+  if (name === "itemname1" || name === "item name") return "msp";
+  if (code === "item code") return "glopos";
+  if (code === "id" && (name === "name" || name === "description")) return "glopos";
+
+  return null;
+}
+
+export function isErpMismatchMessage(message: string): boolean {
+  return message.includes("can only be uploaded to");
+}
+
+export const ERP_MISMATCH_EVENT = "erp-file-mismatch";
+
+/** Show a blocking modal for ERP mismatch (client only). */
+export function reportErpMismatch(message: string): void {
+  if (typeof window !== "undefined" && isErpMismatchMessage(message)) {
+    window.dispatchEvent(new CustomEvent(ERP_MISMATCH_EVENT, { detail: message }));
+  }
+}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useState, type ChangeEvent, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import {
   addStoreProduct,
@@ -23,6 +23,13 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ImportResult } from "@/types";
+import {
+  detectProductFileErpType,
+  reportErpMismatch,
+  resolveStoreErpType,
+  validateErpFileMatch,
+} from "@/utils/erp-file-validation";
+import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 
 type Store = { id: number; name: string; erpType: string };
 
@@ -39,6 +46,51 @@ export function ProductForms({
   const [error, setError] = useState<string | null>(null);
   const [storeId, setStoreId] = useState("");
   const [importing, setImporting] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+
+  async function validateSelectedFile(file: File | null, selectedStoreId: string) {
+    if (!file || !selectedStoreId) return true;
+    const selectedStore = stores.find(
+      (store) => String(store.id) === selectedStoreId,
+    );
+    const storeErpType = resolveStoreErpType(selectedStore?.erpType);
+    const mismatch = await checkUploadErpMismatch(
+      file,
+      storeErpType,
+      detectProductFileErpType,
+    );
+    if (mismatch) {
+      setError(mismatch);
+      reportErpMismatch(mismatch);
+      return false;
+    }
+    return true;
+  }
+
+  async function onImportFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0] ?? null;
+    setImportResult(null);
+    if (!selected) {
+      setImportFile(null);
+      return;
+    }
+
+    const selectedStoreId = storeId;
+    if (!selectedStoreId) {
+      setImportFile(selected);
+      return;
+    }
+
+    const valid = await validateSelectedFile(selected, selectedStoreId);
+    if (!valid) {
+      event.target.value = "";
+      setImportFile(null);
+      return;
+    }
+
+    setError(null);
+    setImportFile(selected);
+  }
 
   async function createMasterProduct(formData: FormData) {
     setError(null);
@@ -83,6 +135,10 @@ export function ProductForms({
       return;
     }
 
+    if (!(await validateSelectedFile(file, selectedStoreId))) {
+      return;
+    }
+
     if (!selectedStoreId) {
       setError("Please select a store.");
       return;
@@ -108,6 +164,19 @@ export function ProductForms({
       const buffer = await file.arrayBuffer();
       const { headers, rows } = parseProductFileBuffer(buffer, file.name);
       const columns = detectProductFileColumns(headers);
+
+      const selectedStore = stores.find(
+        (store) => String(store.id) === selectedStoreId,
+      );
+      const storeErpType = resolveStoreErpType(selectedStore?.erpType);
+      const fileErpType = detectProductFileErpType(headers);
+      const erpMismatch = validateErpFileMatch(fileErpType, storeErpType);
+      if (erpMismatch) {
+        setError(erpMismatch);
+        reportErpMismatch(erpMismatch);
+        updateProgress({ phase: "error", message: erpMismatch });
+        return;
+      }
 
       if (!columns.codeColumn || !columns.nameColumn) {
         const message =
@@ -152,6 +221,7 @@ export function ProductForms({
 
       if (!begin.success) {
         setError(begin.error);
+        reportErpMismatch(begin.error);
         updateProgress({ phase: "error", message: begin.error });
         return;
       }
@@ -292,7 +362,16 @@ export function ProductForms({
             name="storeId"
             required
             value={storeId}
-            onChange={(e) => setStoreId(e.target.value)}
+            onChange={async (e) => {
+              const nextStoreId = e.target.value;
+              setStoreId(nextStoreId);
+              if (importFile && nextStoreId) {
+                const valid = await validateSelectedFile(importFile, nextStoreId);
+                if (!valid) {
+                  setImportFile(null);
+                }
+              }
+            }}
           >
             <option value="" disabled>
               Select store
@@ -306,7 +385,13 @@ export function ProductForms({
         </div>
         <div>
           <Label>File</Label>
-          <Input name="file" type="file" accept=".csv,.xlsx,.xls" required />
+          <Input
+            name="file"
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            required
+            onChange={onImportFileChange}
+          />
         </div>
         <Button type="submit" disabled={importing}>
           {importing ? "Importing… please wait" : "Import"}
