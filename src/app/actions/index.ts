@@ -3,11 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { isDemoMode } from "@/lib/runtime-config";
 import {
+  departmentRepository,
   orderRepository,
   productRepository,
   storeRepository,
   supplierRepository,
 } from "@/repositories";
+import { importDepartmentRows } from "@/services/department-import.service";
 import { importDailySalesRows } from "@/services/daily-sales-import.service";
 import { calculateOrder } from "@/services/order-calculation.service";
 import { exportOrderToExcel } from "@/services/order-export.service";
@@ -24,7 +26,9 @@ import {
   createProductSchema,
   createStoreSchema,
   createSupplierSchema,
+  createDepartmentSchema,
   dailySalesImportSchema,
+  departmentImportSchema,
   exportOrderSchema,
   stockUploadSchema,
   storeProductSchema,
@@ -36,6 +40,7 @@ import {
   updateProductSchema,
   updateStoreSchema,
   updateSupplierSchema,
+  updateDepartmentSchema,
 } from "@/validators/schemas";
 
 function demoImportResult(rowCount: number): ImportResult {
@@ -74,6 +79,100 @@ export async function toggleSupplierActive(
   await supplierRepository.update(id, { isActive });
   revalidatePath("/stores");
   return { success: true, data: undefined };
+}
+
+export async function createDepartment(
+  input: unknown,
+): Promise<ActionResult<{ id: string }>> {
+  const parsed = createDepartmentSchema.safeParse(input);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+
+  const code = parsed.data.code?.trim();
+  const department = await departmentRepository.create({
+    name: parsed.data.name.trim(),
+    code: code || null,
+    isActive: parsed.data.isActive,
+  });
+  revalidatePath("/departments");
+  revalidatePath("/products");
+  revalidatePath("/orders/new");
+  return { success: true, data: { id: department.id } };
+}
+
+export async function updateDepartmentDetails(
+  input: unknown,
+): Promise<ActionResult> {
+  const parsed = updateDepartmentSchema.safeParse(input);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+
+  const { id, ...data } = parsed.data;
+  const payload = {
+    ...data,
+    ...(data.name !== undefined ? { name: data.name.trim() } : {}),
+    ...(data.code !== undefined
+      ? { code: data.code.trim() || null }
+      : {}),
+  };
+
+  const updated = await departmentRepository.update(id, payload);
+  if (!updated) return { success: false, error: "Department not found" };
+
+  revalidatePath("/departments");
+  revalidatePath("/products");
+  revalidatePath("/orders/new");
+  return { success: true, data: undefined };
+}
+
+export async function toggleDepartmentActive(
+  id: string,
+  isActive: boolean,
+): Promise<ActionResult> {
+  await departmentRepository.update(id, { isActive });
+  revalidatePath("/departments");
+  revalidatePath("/products");
+  revalidatePath("/orders/new");
+  return { success: true, data: undefined };
+}
+
+export async function importDepartments(
+  formData: FormData,
+): Promise<ActionResult<ImportResult>> {
+  const file = formData.get("file") as File | null;
+  const nameColumn = String(formData.get("nameColumn") ?? "");
+  const codeColumn = String(formData.get("codeColumn") ?? "");
+
+  if (!file) {
+    return { success: false, error: "File is required" };
+  }
+  if (!nameColumn) {
+    return { success: false, error: "Name column is required" };
+  }
+
+  const parsedMeta = departmentImportSchema.safeParse({
+    nameColumn,
+    codeColumn: codeColumn || undefined,
+    fileName: file.name,
+  });
+  if (!parsedMeta.success) {
+    return { success: false, error: parsedMeta.error.message };
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { rows } = await parseAllRows(buffer, file.name);
+
+  if (isDemoMode() && rows.length === 0) {
+    return { success: true, data: demoImportResult(0) };
+  }
+
+  const result = await importDepartmentRows(rows, {
+    nameColumn: parsedMeta.data.nameColumn,
+    codeColumn: parsedMeta.data.codeColumn,
+  });
+
+  revalidatePath("/departments");
+  revalidatePath("/products");
+  revalidatePath("/orders/new");
+  return { success: true, data: result };
 }
 
 export async function updateStoreDetails(input: unknown): Promise<ActionResult> {

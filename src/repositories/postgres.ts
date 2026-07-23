@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   dailySales,
+  departments,
   orderItemSupplierPrices,
   orderItems,
   orders,
@@ -71,6 +72,71 @@ export const supplierRepository = {
       .where(eq(suppliers.id, id))
       .returning();
     return row;
+  },
+};
+
+export const departmentRepository = {
+  async list() {
+    return db.select().from(departments).orderBy(departments.name);
+  },
+
+  async getById(id: string) {
+    const [row] = await db
+      .select()
+      .from(departments)
+      .where(eq(departments.id, id));
+    return row ?? null;
+  },
+
+  async getByName(name: string) {
+    const [row] = await db
+      .select()
+      .from(departments)
+      .where(eq(departments.name, name));
+    return row ?? null;
+  },
+
+  async create(data: typeof departments.$inferInsert) {
+    const [row] = await db.insert(departments).values(data).returning();
+    return row;
+  },
+
+  async update(id: string, data: Partial<typeof departments.$inferInsert>) {
+    const existing = await departmentRepository.getById(id);
+    if (!existing) return null;
+
+    const [row] = await db
+      .update(departments)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(departments.id, id))
+      .returning();
+
+    if (data.name && data.name !== existing.name) {
+      await db
+        .update(products)
+        .set({ department: data.name, updatedAt: new Date() })
+        .where(eq(products.department, existing.name));
+    }
+
+    return row;
+  },
+
+  async listActiveNames() {
+    const rows = await db
+      .select({ name: departments.name })
+      .from(departments)
+      .where(eq(departments.isActive, true))
+      .orderBy(departments.name);
+
+    if (rows.length > 0) {
+      return rows.map((r) => r.name);
+    }
+
+    const legacy = await db
+      .selectDistinct({ department: products.department })
+      .from(products)
+      .orderBy(products.department);
+    return legacy.map((r) => r.department);
   },
 };
 

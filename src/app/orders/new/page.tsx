@@ -1,7 +1,7 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { OrderWizard } from "@/components/orders/order-wizard";
 import {
-  productRepository,
+  departmentRepository,
   storeRepository,
   supplierRepository,
 } from "@/repositories";
@@ -10,7 +10,7 @@ export default async function NewOrderPage() {
   const [stores, suppliers, departments] = await Promise.all([
     storeRepository.list(),
     supplierRepository.list(),
-    productRepository.getDepartments(),
+    departmentRepository.listActiveNames(),
   ]);
 
   return (

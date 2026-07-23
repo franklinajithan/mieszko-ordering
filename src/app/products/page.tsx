@@ -3,7 +3,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ProductFilters } from "@/components/products/product-filters";
 import { ProductForms } from "@/components/products/product-forms";
 import { Badge } from "@/components/ui/badge";
-import { productRepository, storeRepository } from "@/repositories";
+import { productRepository, storeRepository, departmentRepository } from "@/repositories";
 
 export default async function ProductsPage({
   searchParams,
@@ -16,7 +16,7 @@ export default async function ProductsPage({
 }) {
   const params = await searchParams;
   const stores = await storeRepository.list();
-  const departments = await productRepository.getDepartments();
+  const departments = await departmentRepository.listActiveNames();
   const products = await productRepository.list({
     storeId: params.storeId,
     department: params.department,
@@ -30,7 +30,7 @@ export default async function ProductsPage({
     >
       <div className="space-y-6">
         <ProductFilters stores={stores} departments={departments} />
-        <ProductForms stores={stores} />
+        <ProductForms stores={stores} departments={departments} />
         <div className="overflow-x-auto rounded-xl border bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-zinc-50 text-left">

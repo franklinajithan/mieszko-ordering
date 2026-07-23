@@ -4,6 +4,7 @@ import type * as schema from "@/db/schema";
 
 type Store = typeof schema.stores.$inferSelect;
 type Supplier = typeof schema.suppliers.$inferSelect;
+type Department = typeof schema.departments.$inferSelect;
 type Product = typeof schema.products.$inferSelect;
 type StoreProduct = typeof schema.storeProducts.$inferSelect;
 type Order = typeof schema.orders.$inferSelect;
@@ -68,6 +69,25 @@ function seedState() {
       code: "WAB",
       priceTiePriority: 3,
       isActive: false,
+      createdAt: now(),
+      updatedAt: now(),
+    }),
+  ];
+
+  const departments: Department[] = [
+    row({
+      id: "mock-dept-dairy",
+      name: "Dairy",
+      code: "DAIRY",
+      isActive: true,
+      createdAt: now(),
+      updatedAt: now(),
+    }),
+    row({
+      id: "mock-dept-cheese",
+      name: "Cheese",
+      code: "CHEESE",
+      isActive: true,
       createdAt: now(),
       updatedAt: now(),
     }),
@@ -309,6 +329,7 @@ function seedState() {
   return {
     stores,
     suppliers,
+    departments,
     products,
     storeProducts,
     barcodes,
@@ -387,6 +408,62 @@ export const supplierRepository = {
     if (!supplier) throw new Error("Supplier not found");
     Object.assign(supplier, data, { updatedAt: now() });
     return supplier;
+  },
+};
+
+export const departmentRepository = {
+  async list() {
+    return [...getState().departments].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  },
+  async getById(id: string) {
+    return getState().departments.find((d) => d.id === id) ?? null;
+  },
+  async getByName(name: string) {
+    return getState().departments.find((d) => d.name === name) ?? null;
+  },
+  async create(data: typeof schema.departments.$inferInsert) {
+    const department = row({
+      id: randomUUID(),
+      name: data.name,
+      code: data.code ?? null,
+      isActive: data.isActive ?? true,
+      createdAt: now(),
+      updatedAt: now(),
+    });
+    getState().departments.push(department);
+    return department;
+  },
+  async update(
+    id: string,
+    data: Partial<typeof schema.departments.$inferInsert>,
+  ) {
+    const state = getState();
+    const department = state.departments.find((d) => d.id === id);
+    if (!department) return null;
+
+    const previousName = department.name;
+    Object.assign(department, data, { updatedAt: now() });
+
+    if (data.name && data.name !== previousName) {
+      for (const product of state.products) {
+        if (product.department === previousName) {
+          product.department = data.name;
+          product.updatedAt = now();
+        }
+      }
+    }
+
+    return department;
+  },
+  async listActiveNames() {
+    const active = getState()
+      .departments.filter((d) => d.isActive)
+      .map((d) => d.name)
+      .sort();
+    if (active.length > 0) return active;
+    return [...new Set(getState().products.map((p) => p.department))].sort();
   },
 };
 

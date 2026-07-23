@@ -152,6 +152,32 @@ export function detectKnownColumns(
   };
 }
 
+export function detectDepartmentColumns(headers: string[]): {
+  nameColumn: string | null;
+  codeColumn: string | null;
+} {
+  const lower = headers.map((h) => h.toLowerCase());
+  const findExact = (patterns: string[]) => {
+    const idx = lower.findIndex((h) => patterns.includes(h));
+    return idx >= 0 ? headers[idx] : null;
+  };
+  const findPartial = (patterns: string[]) => {
+    const idx = lower.findIndex((h) =>
+      patterns.some((p) => h.includes(p)),
+    );
+    return idx >= 0 ? headers[idx] : null;
+  };
+
+  return {
+    nameColumn:
+      findExact(["department", "department name", "name"]) ??
+      findPartial(["department", "name"]) ??
+      headers[0] ??
+      null,
+    codeColumn: findExact(["code", "department code"]) ?? findPartial(["code"]),
+  };
+}
+
 export function detectSalesColumns(headers: string[]): {
   productColumn: string | null;
   dateColumn: string | null;

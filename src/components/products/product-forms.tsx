@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
@@ -17,8 +18,10 @@ type Store = { id: string; name: string };
 
 export function ProductForms({
   stores,
+  departments,
 }: {
   stores: Store[];
+  departments: string[];
 }) {
   const router = useRouter();
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -72,7 +75,28 @@ export function ProductForms({
         </div>
         <div>
           <Label>Department</Label>
-          <Input name="department" required />
+          {departments.length > 0 ? (
+            <Select name="department" required defaultValue="">
+              <option value="" disabled>
+                Select department
+              </option>
+              {departments.map((department) => (
+                <option key={department} value={department}>
+                  {department}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <>
+              <Input name="department" required placeholder="Dairy" />
+              <p className="mt-1 text-xs text-zinc-500">
+                No departments configured yet.{" "}
+                <Link href="/departments" className="underline">
+                  Add departments
+                </Link>
+              </p>
+            </>
+          )}
         </div>
         <div>
           <Label>Store</Label>

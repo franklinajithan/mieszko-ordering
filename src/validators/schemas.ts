@@ -21,6 +21,22 @@ export const updateSupplierSchema = createSupplierSchema.partial().extend({
   id: z.string().uuid(),
 });
 
+export const createDepartmentSchema = z.object({
+  name: z.string().min(1).max(100),
+  code: z.string().max(50).optional(),
+  isActive: z.boolean().default(true),
+});
+
+export const updateDepartmentSchema = createDepartmentSchema.partial().extend({
+  id: z.string().uuid(),
+});
+
+export const departmentImportSchema = z.object({
+  nameColumn: z.string().min(1),
+  codeColumn: z.string().optional(),
+  fileName: z.string().min(1),
+});
+
 export const createProductSchema = z.object({
   name: z.string().min(1).max(500),
   department: z.string().min(1).max(100),
@@ -61,17 +77,82 @@ export const salesPeriodSchema = z.object({
   endDate: z.string().date(),
 });
 
+const salesPeriodInputSchema = z.object({
+  periodKey: z.enum([
+    "period_1",
+    "period_2",
+    "period_3",
+    "previous_year",
+  ]),
+  startDate: z.string(),
+  endDate: z.string(),
+});
+
+export const updateOrderPeriodsSchema = z
+  .object({
+    orderId: z.string().uuid(),
+    periods: z.array(salesPeriodInputSchema),
+  })
+  .superRefine((data, ctx) => {
+    const period1 = data.periods.find((p) => p.periodKey === "period_1");
+    if (!period1?.startDate.trim() || !period1?.endDate.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Period 1 start and end dates are required",
+        path: ["periods"],
+      });
+    }
+
+    for (const period of data.periods) {
+      const start = period.startDate.trim();
+      const end = period.endDate.trim();
+      const hasStart = Boolean(start);
+      const hasEnd = Boolean(end);
+
+      if (hasStart !== hasEnd) {
+        ctx.addIssue({
+          code: "custom",
+          message: `${period.periodKey}: provide both start and end dates, or leave both empty`,
+          path: ["periods"],
+        });
+        continue;
+      }
+
+      if (!hasStart) continue;
+
+      if (!z.string().date().safeParse(start).success) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Invalid start date for ${period.periodKey}`,
+          path: ["periods"],
+        });
+      }
+      if (!z.string().date().safeParse(end).success) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Invalid end date for ${period.periodKey}`,
+          path: ["periods"],
+        });
+      }
+    }
+  })
+  .transform((data) => ({
+    orderId: data.orderId,
+    periods: data.periods
+      .filter((p) => p.startDate.trim() && p.endDate.trim())
+      .map((p) => ({
+        periodKey: p.periodKey,
+        startDate: p.startDate.trim(),
+        endDate: p.endDate.trim(),
+      })),
+  }));
+
 export const createOrderSchema = z.object({
   storeId: z.string().uuid(),
   bookStockDate: z.string().date(),
   clientDeliveryDate: z.string().date(),
   departmentFilters: z.array(z.string()).default([]),
   notes: z.string().optional(),
-});
-
-export const updateOrderPeriodsSchema = z.object({
-  orderId: z.string().uuid(),
-  periods: z.array(salesPeriodSchema).min(1),
 });
 
 export const updateOrderSuppliersSchema = z.object({

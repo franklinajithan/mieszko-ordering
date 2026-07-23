@@ -21,10 +21,10 @@ type Store = { id: string; name: string };
 type Supplier = { id: string; code: string; name: string; isActive: boolean };
 
 const PERIOD_LABELS = [
-  { key: "period_1", label: "Period 1" },
-  { key: "period_2", label: "Period 2" },
-  { key: "period_3", label: "Period 3" },
-  { key: "previous_year", label: "Previous year" },
+  { key: "period_1", label: "Period 1", required: true },
+  { key: "period_2", label: "Period 2", required: false },
+  { key: "period_3", label: "Period 3", required: false },
+  { key: "previous_year", label: "Previous year", required: false },
 ] as const;
 
 export function OrderWizard({
@@ -179,16 +179,26 @@ export function OrderWizard({
       {step === 2 ? (
         <form action={onStep2} className="space-y-4 rounded-xl border bg-white p-4">
           <h3 className="font-semibold">Historical comparison periods</h3>
-          {PERIOD_LABELS.map(({ key, label }) => (
+          <p className="text-sm text-zinc-600">
+            Period 1 is required. Period 2, Period 3, and Previous year are optional.
+          </p>
+          {PERIOD_LABELS.map(({ key, label, required }) => (
             <div key={key} className="grid gap-3 md:grid-cols-3">
-              <div className="font-medium">{label}</div>
+              <div className="font-medium">
+                {label}
+                {!required ? (
+                  <span className="ml-1 text-xs font-normal text-zinc-500">
+                    (optional)
+                  </span>
+                ) : null}
+              </div>
               <div>
                 <Label>Start</Label>
-                <Input name={`${key}_start`} type="date" required />
+                <Input name={`${key}_start`} type="date" required={required} />
               </div>
               <div>
                 <Label>End</Label>
-                <Input name={`${key}_end`} type="date" required />
+                <Input name={`${key}_end`} type="date" required={required} />
               </div>
             </div>
           ))}

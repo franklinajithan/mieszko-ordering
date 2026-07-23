@@ -6,6 +6,7 @@ import {
   ClipboardList,
   History,
   Home,
+  Layers,
   LayoutDashboard,
   Package,
   Store,
@@ -42,6 +43,12 @@ export const navGroups: NavGroup[] = [
         label: "Products",
         icon: Package,
         match: (p) => p.startsWith("/products"),
+      },
+      {
+        href: "/departments",
+        label: "Departments",
+        icon: Layers,
+        match: (p) => p.startsWith("/departments"),
       },
       {
         href: "/stores",

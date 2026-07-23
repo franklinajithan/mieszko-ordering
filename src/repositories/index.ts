@@ -6,6 +6,7 @@ type RepoName = keyof Pick<
   MockRepos,
   | "storeRepository"
   | "supplierRepository"
+  | "departmentRepository"
   | "productRepository"
   | "dailySalesRepository"
   | "supplierPriceRepository"
@@ -43,6 +44,7 @@ function createRepositoryProxy<K extends RepoName>(name: K): MockRepos[K] {
 
 export const storeRepository = createRepositoryProxy("storeRepository");
 export const supplierRepository = createRepositoryProxy("supplierRepository");
+export const departmentRepository = createRepositoryProxy("departmentRepository");
 export const productRepository = createRepositoryProxy("productRepository");
 export const dailySalesRepository = createRepositoryProxy("dailySalesRepository");
 export const supplierPriceRepository = createRepositoryProxy("supplierPriceRepository");
