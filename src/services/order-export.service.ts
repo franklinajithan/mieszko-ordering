@@ -12,7 +12,7 @@ async function getOrderRepo(): Promise<OrderRepo> {
   return (await import("@/repositories/postgres")).orderRepository;
 }
 
-export async function exportOrderToExcel(orderId: string): Promise<Buffer> {
+export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
   const orderRepository = await getOrderRepo();
   const order = await orderRepository.getById(orderId);
   if (!order) throw new Error("Order not found");

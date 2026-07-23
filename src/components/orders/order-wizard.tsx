@@ -12,13 +12,14 @@ import {
 } from "@/app/actions";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { DepartmentFilterDropdown } from "@/components/orders/department-filter-dropdown";
+import { OrderBookStockSection } from "@/components/orders/order-book-stock-section";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ImportResult } from "@/types";
 
-type Store = { id: string; name: string };
-type Supplier = { id: string; code: string; name: string; isActive: boolean };
+type Store = { id: number; name: string; code: string; erpType: string };
+type Supplier = { id: number; code: string; name: string; isActive: boolean };
 
 const PERIOD_LABELS = [
   { key: "period_1", label: "Period 1", required: true },
@@ -38,12 +39,15 @@ export function OrderWizard({
 }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
-  const [orderId, setOrderId] = useState<string | null>(null);
+  const [orderId, setOrderId] = useState<number | null>(null);
+  const [storeId, setStoreId] = useState<number | null>(null);
+  const selectedStore = stores.find((store) => store.id === storeId) ?? null;
+  const storeErpType = selectedStore?.erpType === "glopos" ? "glopos" : "msp";
   const [error, setError] = useState<string | null>(null);
   const [uploadResults, setUploadResults] = useState<
     Array<{ label: string; result: ImportResult }>
   >([]);
-  const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>(
+  const [selectedSuppliers, setSelectedSuppliers] = useState<number[]>(
     suppliers.filter((s) => s.isActive && ["MM", "SP"].includes(s.code)).map((s) => s.id),
   );
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
@@ -62,6 +66,7 @@ export function OrderWizard({
       return;
     }
     setOrderId(result.data.id);
+    setStoreId(Number(formData.get("storeId")));
     setStep(2);
   }
 
@@ -106,7 +111,7 @@ export function OrderWizard({
   ) {
     if (!orderId) return;
     setError(null);
-    formData.set("orderId", orderId);
+    formData.set("orderId", String(orderId));
     formData.set("uploadType", uploadType);
     const result = await uploadOrderStockFile(formData);
     if (!result.success) {
@@ -235,13 +240,15 @@ export function OrderWizard({
         </div>
       ) : null}
 
-      {step === 4 && orderId ? (
+      {step === 4 && orderId && storeId ? (
         <div className="space-y-6">
-          <StockUploadSection
-            title="Book stock"
-            uploadType="book_stock"
-            suppliers={suppliers}
-            onUpload={(fd, label) => uploadStock("book_stock", fd, label)}
+          <OrderBookStockSection
+            orderId={orderId}
+            storeId={storeId}
+            erpType={storeErpType}
+            onApplied={(label, result) =>
+              setUploadResults((prev) => [...prev, { label, result }])
+            }
           />
           <StockUploadSection
             title="Received but not posted"

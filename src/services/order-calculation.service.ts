@@ -22,7 +22,7 @@ import { compareSupplierPrices } from "@/services/supplier-price.service";
 import { decimalToDb, parseDbDecimal, type Decimal } from "@/utils/decimal";
 import type { PeriodKey } from "@/types";
 
-export async function calculateOrder(orderId: string) {
+export async function calculateOrder(orderId: number) {
   const order = await orderRepository.getById(orderId);
   if (!order) throw new Error("Order not found");
 
@@ -38,7 +38,7 @@ export async function calculateOrder(orderId: string) {
   );
 
   const stockRows = await orderRepository.getStockEvents(orderId);
-  const stockByProduct = new Map<string, StockEvent[]>();
+  const stockByProduct = new Map<number, StockEvent[]>();
 
   for (const row of stockRows) {
     if (!row.item) continue;
@@ -207,7 +207,7 @@ export async function calculateOrder(orderId: string) {
 async function runSimulationWithAsyncForecast(input: {
   bookStockDate: string;
   clientDeliveryDate: string;
-  storeProductId: string;
+  storeProductId: number;
   aggregated: ReturnType<typeof aggregateStockQuantities>;
   historicalMap: Map<string, Decimal>;
   periodRanges: Array<{ startDate: Date; endDate: Date }>;

@@ -2,7 +2,7 @@ import { Decimal, toDecimal } from "@/utils/decimal";
 import type { PriceStatus, PriceValidationStatus } from "@/types";
 
 export type SupplierPriceInput = {
-  supplierId: string;
+  supplierId: number;
   supplierCode: string;
   supplierName: string;
   priceTiePriority: number;
@@ -11,7 +11,7 @@ export type SupplierPriceInput = {
 };
 
 export type SupplierPriceSnapshot = {
-  supplierId: string;
+  supplierId: number;
   supplierCode: string | null;
   netPrice: string | null;
   priceValidationStatus: PriceValidationStatus;
@@ -21,7 +21,7 @@ export type SupplierPriceSnapshot = {
 
 export type SupplierPriceComparisonResult = {
   priceStatus: PriceStatus;
-  cheapestSupplierId: string | null;
+  cheapestSupplierId: number | null;
   cheapestNetPrice: Decimal | null;
   estimatedLineCost: Decimal | null;
   warning: string | null;

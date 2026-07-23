@@ -1,9 +1,11 @@
 import "server-only";
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   dailySales,
   departments,
+  bookStockImports,
+  bookStockItems,
   orderItemSupplierPrices,
   orderItems,
   orders,
@@ -27,7 +29,7 @@ export const storeRepository = {
     return db.select().from(stores).orderBy(stores.name);
   },
 
-  async getById(id: string) {
+  async getById(id: number) {
     const [row] = await db.select().from(stores).where(eq(stores.id, id));
     return row ?? null;
   },
@@ -37,7 +39,7 @@ export const storeRepository = {
     return row;
   },
 
-  async update(id: string, data: Partial<typeof stores.$inferInsert>) {
+  async update(id: number, data: Partial<typeof stores.$inferInsert>) {
     const [row] = await db
       .update(stores)
       .set({ ...data, updatedAt: new Date() })
@@ -65,7 +67,7 @@ export const supplierRepository = {
     return row;
   },
 
-  async update(id: string, data: Partial<typeof suppliers.$inferInsert>) {
+  async update(id: number, data: Partial<typeof suppliers.$inferInsert>) {
     const [row] = await db
       .update(suppliers)
       .set({ ...data, updatedAt: new Date() })
@@ -141,22 +143,12 @@ export const departmentRepository = {
 };
 
 export const productRepository = {
-  async list(filters?: {
-    storeId?: string;
+  buildListConditions(filters?: {
+    storeId?: number;
     department?: string;
     isActive?: boolean;
+    search?: string;
   }) {
-    let query = db
-      .select({
-        product: products,
-        storeProduct: storeProducts,
-        store: stores,
-      })
-      .from(products)
-      .innerJoin(storeProducts, eq(storeProducts.productId, products.id))
-      .innerJoin(stores, eq(stores.id, storeProducts.storeId))
-      .$dynamic();
-
     const conditions = [];
     if (filters?.storeId) {
       conditions.push(eq(storeProducts.storeId, filters.storeId));
@@ -168,12 +160,74 @@ export const productRepository = {
       conditions.push(eq(products.isActive, filters.isActive));
       conditions.push(eq(storeProducts.isActive, filters.isActive));
     }
+    const search = filters?.search?.trim();
+    if (search) {
+      const pattern = `%${search}%`;
+      conditions.push(
+        or(
+          ilike(products.name, pattern),
+          ilike(storeProducts.storeProductCode, pattern),
+        )!,
+      );
+    }
+    return conditions;
+  },
 
+  async list(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    let query = db
+      .select({
+        product: products,
+        storeProduct: storeProducts,
+        store: stores,
+      })
+      .from(storeProducts)
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .innerJoin(stores, eq(stores.id, storeProducts.storeId))
+      .$dynamic();
+
+    const conditions = productRepository.buildListConditions(filters);
     if (conditions.length) {
       query = query.where(and(...conditions));
     }
 
-    return query.orderBy(products.name);
+    query = query.orderBy(storeProducts.storeProductCode);
+
+    if (filters?.limit !== undefined) {
+      query = query.limit(filters.limit);
+    }
+    if (filters?.offset !== undefined) {
+      query = query.offset(filters.offset);
+    }
+
+    return query;
+  },
+
+  async count(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+  }) {
+    let query = db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(storeProducts)
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .$dynamic();
+
+    const conditions = productRepository.buildListConditions(filters);
+    if (conditions.length) {
+      query = query.where(and(...conditions));
+    }
+
+    const [row] = await query;
+    return row?.count ?? 0;
   },
 
   async createProduct(data: typeof products.$inferInsert) {
@@ -181,7 +235,12 @@ export const productRepository = {
     return row;
   },
 
-  async updateProduct(id: string, data: Partial<typeof products.$inferInsert>) {
+  async getById(id: number) {
+    const [row] = await db.select().from(products).where(eq(products.id, id));
+    return row ?? null;
+  },
+
+  async updateProduct(id: number, data: Partial<typeof products.$inferInsert>) {
     const [row] = await db
       .update(products)
       .set({ ...data, updatedAt: new Date() })
@@ -195,9 +254,96 @@ export const productRepository = {
     return row;
   },
 
+  async upsertStoreProduct(data: typeof storeProducts.$inferInsert) {
+    const [row] = await db
+      .insert(storeProducts)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [storeProducts.storeId, storeProducts.storeProductCode],
+        set: {
+          productId: data.productId,
+          isActive: data.isActive ?? true,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  },
+
   async addBarcode(data: typeof productBarcodes.$inferInsert) {
     const [row] = await db.insert(productBarcodes).values(data).returning();
     return row;
+  },
+
+  async addBarcodeIfAbsent(data: typeof productBarcodes.$inferInsert) {
+    const [row] = await db
+      .insert(productBarcodes)
+      .values(data)
+      .onConflictDoNothing({ target: productBarcodes.barcode })
+      .returning();
+    return row ?? null;
+  },
+
+  async listStoreProductsForStore(storeId: number) {
+    return db
+      .select({
+        storeProduct: storeProducts,
+        product: products,
+      })
+      .from(storeProducts)
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .where(eq(storeProducts.storeId, storeId));
+  },
+
+  async listMspStoreProductsByCodes(codes: string[]) {
+    if (!codes.length) return [];
+    return db
+      .select({
+        storeProduct: storeProducts,
+        product: products,
+      })
+      .from(storeProducts)
+      .innerJoin(stores, eq(stores.id, storeProducts.storeId))
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .where(
+        and(eq(stores.erpType, "msp"), inArray(storeProducts.storeProductCode, codes)),
+      );
+  },
+
+  async createProductsBatch(data: Array<typeof products.$inferInsert>) {
+    if (!data.length) return [];
+    return db.insert(products).values(data).returning();
+  },
+
+  async upsertStoreProductsBatch(data: Array<typeof storeProducts.$inferInsert>) {
+    if (!data.length) return [];
+    return db
+      .insert(storeProducts)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [storeProducts.storeId, storeProducts.storeProductCode],
+        set: {
+          productId: sql`excluded.product_id`,
+          isActive: sql`excluded.is_active`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+  },
+
+  async listBarcodeSet() {
+    const rows = await db
+      .select({ barcode: productBarcodes.barcode })
+      .from(productBarcodes);
+    return new Set(rows.map((row) => row.barcode));
+  },
+
+  async insertBarcodesBatch(data: Array<typeof productBarcodes.$inferInsert>) {
+    if (!data.length) return [];
+    return db
+      .insert(productBarcodes)
+      .values(data)
+      .onConflictDoNothing({ target: productBarcodes.barcode });
   },
 
   async addSupplierProduct(data: typeof supplierProducts.$inferInsert) {
@@ -205,14 +351,14 @@ export const productRepository = {
     return row;
   },
 
-  async getBarcodes(productId: string) {
+  async getBarcodes(productId: number) {
     return db
       .select()
       .from(productBarcodes)
       .where(eq(productBarcodes.productId, productId));
   },
 
-  async getSupplierProducts(productId: string) {
+  async getSupplierProducts(productId: number) {
     return db
       .select({ supplierProduct: supplierProducts, supplier: suppliers })
       .from(supplierProducts)
@@ -220,7 +366,7 @@ export const productRepository = {
       .where(eq(supplierProducts.productId, productId));
   },
 
-  async findStoreProductByCode(storeId: string, code: string) {
+  async findStoreProductByCode(storeId: number, code: string) {
     const [row] = await db
       .select()
       .from(storeProducts)
@@ -233,7 +379,21 @@ export const productRepository = {
     return row ?? null;
   },
 
-  async findStoreProductByBarcode(storeId: string, barcode: string) {
+  async findMspStoreProductByCode(code: string) {
+    const [row] = await db
+      .select({
+        storeProduct: storeProducts,
+        product: products,
+      })
+      .from(storeProducts)
+      .innerJoin(stores, eq(stores.id, storeProducts.storeId))
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .where(and(eq(stores.erpType, "msp"), eq(storeProducts.storeProductCode, code)))
+      .limit(1);
+    return row ?? null;
+  },
+
+  async findStoreProductByBarcode(storeId: number, barcode: string) {
     const [row] = await db
       .select({ storeProduct: storeProducts })
       .from(productBarcodes)
@@ -249,8 +409,8 @@ export const productRepository = {
   },
 
   async findStoreProductBySupplierCode(
-    storeId: string,
-    supplierId: string,
+    storeId: number,
+    supplierId: number,
     supplierCode: string,
   ) {
     const [row] = await db
@@ -267,7 +427,17 @@ export const productRepository = {
     return row?.storeProduct ?? null;
   },
 
-  async getDepartments() {
+  async getDepartments(storeId?: number) {
+    if (storeId) {
+      const rows = await db
+        .selectDistinct({ department: products.department })
+        .from(storeProducts)
+        .innerJoin(products, eq(products.id, storeProducts.productId))
+        .where(eq(storeProducts.storeId, storeId))
+        .orderBy(products.department);
+      return rows.map((r) => r.department);
+    }
+
     const rows = await db
       .selectDistinct({ department: products.department })
       .from(products)
@@ -295,7 +465,7 @@ export const dailySalesRepository = {
   },
 
   async sumSalesInPeriod(
-    storeProductId: string,
+    storeProductId: number,
     startDate: string,
     endDate: string,
   ) {
@@ -314,7 +484,7 @@ export const dailySalesRepository = {
     return row?.total ?? "0";
   },
 
-  async getSalesForProduct(storeProductId: string) {
+  async getSalesForProduct(storeProductId: number) {
     return db
       .select()
       .from(dailySales)
@@ -337,7 +507,7 @@ export const supplierPriceRepository = {
     return db.insert(supplierPrices).values(rows).returning();
   },
 
-  async getLatestPrice(supplierProductId: string, asOfDate: string) {
+  async getLatestPrice(supplierProductId: number, asOfDate: string) {
     const [row] = await db
       .select()
       .from(supplierPrices)
@@ -352,7 +522,7 @@ export const supplierPriceRepository = {
     return row ?? null;
   },
 
-  async findSupplierProduct(supplierId: string, supplierCode: string) {
+  async findSupplierProduct(supplierId: number, supplierCode: string) {
     const [row] = await db
       .select()
       .from(supplierProducts)
@@ -363,6 +533,60 @@ export const supplierPriceRepository = {
         ),
       );
     return row ?? null;
+  },
+};
+
+export const bookStockRepository = {
+  async createImport(data: typeof bookStockImports.$inferInsert) {
+    const [row] = await db.insert(bookStockImports).values(data).returning();
+    return row;
+  },
+
+  async insertItems(rows: Array<typeof bookStockItems.$inferInsert>) {
+    if (!rows.length) return [];
+    return db.insert(bookStockItems).values(rows).returning();
+  },
+
+  async getImportById(importId: number) {
+    const [row] = await db
+      .select()
+      .from(bookStockImports)
+      .where(eq(bookStockImports.id, importId));
+    return row ?? null;
+  },
+
+  async getLatestForStore(storeId: number) {
+    const [row] = await db
+      .select()
+      .from(bookStockImports)
+      .where(eq(bookStockImports.storeId, storeId))
+      .orderBy(desc(bookStockImports.importedAt))
+      .limit(1);
+    return row ?? null;
+  },
+
+  async listForStore(storeId: number, limit = 50) {
+    return db
+      .select()
+      .from(bookStockImports)
+      .where(eq(bookStockImports.storeId, storeId))
+      .orderBy(desc(bookStockImports.importedAt))
+      .limit(limit);
+  },
+
+  async getItems(importId: number) {
+    return db
+      .select()
+      .from(bookStockItems)
+      .where(eq(bookStockItems.importId, importId));
+  },
+
+  async countItems(importId: number) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(bookStockItems)
+      .where(eq(bookStockItems.importId, importId));
+    return row?.count ?? 0;
   },
 };
 
@@ -378,7 +602,7 @@ export const orderRepository = {
       .orderBy(desc(orders.createdAt));
   },
 
-  async getById(orderId: string) {
+  async getById(orderId: number) {
     const [row] = await db.select().from(orders).where(eq(orders.id, orderId));
     return row ?? null;
   },
@@ -388,7 +612,7 @@ export const orderRepository = {
     return row;
   },
 
-  async update(orderId: string, data: Partial<typeof orders.$inferInsert>) {
+  async update(orderId: number, data: Partial<typeof orders.$inferInsert>) {
     const [row] = await db
       .update(orders)
       .set({ ...data, updatedAt: new Date() })
@@ -398,7 +622,7 @@ export const orderRepository = {
   },
 
   async replacePeriods(
-    orderId: string,
+    orderId: number,
     periods: Array<typeof orderSalesPeriods.$inferInsert>,
   ) {
     await db
@@ -409,7 +633,7 @@ export const orderRepository = {
     }
   },
 
-  async replacePriceSuppliers(orderId: string, supplierIds: string[]) {
+  async replacePriceSuppliers(orderId: number, supplierIds: number[]) {
     await db
       .delete(orderPriceSuppliers)
       .where(eq(orderPriceSuppliers.orderId, orderId));
@@ -420,14 +644,14 @@ export const orderRepository = {
     }
   },
 
-  async getPeriods(orderId: string) {
+  async getPeriods(orderId: number) {
     return db
       .select()
       .from(orderSalesPeriods)
       .where(eq(orderSalesPeriods.orderId, orderId));
   },
 
-  async getSelectedSuppliers(orderId: string) {
+  async getSelectedSuppliers(orderId: number) {
     return db
       .select({ supplier: suppliers })
       .from(orderPriceSuppliers)
@@ -453,7 +677,7 @@ export const orderRepository = {
     return db.insert(orderStockEventItems).values(rows).returning();
   },
 
-  async getStoreProductsForOrder(storeId: string, departments: string[]) {
+  async getStoreProductsForOrder(storeId: number, departments: string[]) {
     const conditions = [eq(storeProducts.storeId, storeId), eq(storeProducts.isActive, true)];
     if (departments.length) {
       conditions.push(inArray(products.department, departments));
@@ -469,7 +693,7 @@ export const orderRepository = {
       .orderBy(products.name);
   },
 
-  async getStockEvents(orderId: string) {
+  async getStockEvents(orderId: number) {
     return db
       .select({
         event: orderStockEvents,
@@ -484,7 +708,18 @@ export const orderRepository = {
       .orderBy(orderStockEvents.eventDate, orderStockEvents.sortOrder);
   },
 
-  async clearCalculatedItems(orderId: string) {
+  async clearBookStockEvents(orderId: number) {
+    await db
+      .delete(orderStockEvents)
+      .where(
+        and(
+          eq(orderStockEvents.orderId, orderId),
+          eq(orderStockEvents.eventType, "book_stock"),
+        ),
+      );
+  },
+
+  async clearCalculatedItems(orderId: number) {
     await db.delete(orderItems).where(eq(orderItems.orderId, orderId));
   },
 
@@ -500,7 +735,7 @@ export const orderRepository = {
     return db.insert(orderItemSupplierPrices).values(rows).returning();
   },
 
-  async getOrderItemsWithDetails(orderId: string) {
+  async getOrderItemsWithDetails(orderId: number) {
     return db
       .select({
         item: orderItems,
@@ -514,7 +749,7 @@ export const orderRepository = {
       .orderBy(storeProducts.storeProductCode);
   },
 
-  async getItemSupplierPrices(orderId: string) {
+  async getItemSupplierPrices(orderId: number) {
     return db
       .select({
         price: orderItemSupplierPrices,
@@ -526,7 +761,7 @@ export const orderRepository = {
       .where(eq(orderItems.orderId, orderId));
   },
 
-  async updateFinalQuantity(orderItemId: string, finalOrderQty: string) {
+  async updateFinalQuantity(orderItemId: number, finalOrderQty: string) {
     const [row] = await db
       .update(orderItems)
       .set({ finalOrderQty })
@@ -535,7 +770,7 @@ export const orderRepository = {
     return row;
   },
 
-  async getOrderItem(orderItemId: string) {
+  async getOrderItem(orderItemId: number) {
     const [row] = await db
       .select()
       .from(orderItems)

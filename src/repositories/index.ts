@@ -10,6 +10,7 @@ type RepoName = keyof Pick<
   | "productRepository"
   | "dailySalesRepository"
   | "supplierPriceRepository"
+  | "bookStockRepository"
   | "orderRepository"
 >;
 
@@ -48,6 +49,7 @@ export const departmentRepository = createRepositoryProxy("departmentRepository"
 export const productRepository = createRepositoryProxy("productRepository");
 export const dailySalesRepository = createRepositoryProxy("dailySalesRepository");
 export const supplierPriceRepository = createRepositoryProxy("supplierPriceRepository");
+export const bookStockRepository = createRepositoryProxy("bookStockRepository");
 export const orderRepository = createRepositoryProxy("orderRepository");
 
 export { MOCK_DEMO_ORDER_ID } from "@/repositories/mock";

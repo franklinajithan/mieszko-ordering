@@ -1,6 +1,7 @@
 import { parse } from "papaparse";
 import ExcelJS from "exceljs";
 import type { FilePreview, ParsedRow } from "@/types";
+import { BOOK_STOCK_COLUMNS, type ErpType } from "@/types";
 
 function normalizeCell(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return "";
@@ -176,6 +177,31 @@ export function detectDepartmentColumns(headers: string[]): {
       null,
     codeColumn: findExact(["code", "department code"]) ?? findPartial(["code"]),
   };
+}
+
+export function detectBookStockColumns(
+  headers: string[],
+  erpType: ErpType = "msp",
+): {
+  referenceColumn: string | null;
+  quantityColumn: string | null;
+} {
+  const known = BOOK_STOCK_COLUMNS[erpType];
+
+  const findExact = (names: string[]) =>
+    headers.find((h) =>
+      names.some((name) => h.toLowerCase() === name.toLowerCase()),
+    ) ?? null;
+
+  const referenceColumn =
+    findExact(known.reference) ?? detectSalesColumns(headers).productColumn;
+  const quantityColumn =
+    findExact(known.quantity) ??
+    (erpType === "glopos"
+      ? headers.find((h) => h.toLowerCase().includes("current stock")) ?? null
+      : detectSalesColumns(headers).quantityColumn);
+
+  return { referenceColumn, quantityColumn };
 }
 
 export function detectSalesColumns(headers: string[]): {

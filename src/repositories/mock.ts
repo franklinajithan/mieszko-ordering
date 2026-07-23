@@ -14,11 +14,16 @@ type SupplierProduct = typeof schema.supplierProducts.$inferSelect;
 
 const now = () => new Date();
 
-const MOCK_STORE_ID = "mock-store-001";
-const MOCK_MM_ID = "mock-supplier-mm";
-const MOCK_SP_ID = "mock-supplier-sp";
-const MOCK_WAB_ID = "mock-supplier-wab";
-export const MOCK_DEMO_ORDER_ID = "mock-order-demo-001";
+let nextId = 1000;
+function genId() {
+  return ++nextId;
+}
+
+const MOCK_STORE_ID = 1;
+const MOCK_MM_ID = 1;
+const MOCK_SP_ID = 2;
+const MOCK_WAB_ID = 3;
+export const MOCK_DEMO_ORDER_ID = 1;
 
 function row<T extends Record<string, unknown>>(value: T): T {
   return value;
@@ -27,17 +32,83 @@ function row<T extends Record<string, unknown>>(value: T): T {
 function seedState() {
   const stores: Store[] = [
     row({
-      id: MOCK_STORE_ID,
-      name: "Dublin Central",
-      code: "DUB01",
+      id: 1,
+      name: "Sudbury",
+      code: "SBH",
+      erpType: "glopos",
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
     }),
     row({
-      id: "mock-store-002",
-      name: "Cork South",
-      code: "CRK01",
+      id: 2,
+      name: "Hounslow",
+      code: "HNS",
+      erpType: "msp",
+      isActive: true,
+      createdAt: now(),
+      updatedAt: now(),
+    }),
+
+    row({
+      id: 3,
+      name: "Perivale",
+      code: "PVL",
+      erpType: "msp",
+      isActive: true,
+      createdAt: now(),
+      updatedAt: now(),
+    }),
+    row({
+      id: 4,
+      name: "Hayes",
+      code: "HYS",
+      erpType: "msp",
+      isActive: true,
+      createdAt: now(),
+      updatedAt: now(),
+    }),
+    row({
+      id: 5,
+      name: "Gravesend",
+      code: "GRV",
+      erpType: "msp",
+      isActive: true,
+      createdAt: now(),
+      updatedAt: now(),
+    }),
+    row({
+      id: 6,
+      name: "Streatham",
+      code: "STR",
+      erpType: "msp",
+      isActive: true,
+      createdAt: now(),
+      updatedAt: now(),
+    }),
+    row({
+      id: 7,
+      name: "Eastham",
+      code: "EAS",
+      erpType: "glopos",
+      isActive: true,
+      createdAt: now(),
+      updatedAt: now(),
+    }),
+    row({
+      id: 8,
+      name: "Watford",
+      code: "WTF",
+      erpType: "msp",
+      isActive: true,
+      createdAt: now(),
+      updatedAt: now(),
+    }),
+    row({
+      id: 9,
+      name: "Mitcham",
+      code: "MIT",
+      erpType: "glopos",
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
@@ -47,7 +118,7 @@ function seedState() {
   const suppliers: Supplier[] = [
     row({
       id: MOCK_MM_ID,
-      name: "MM",
+      name: "Master Media",
       code: "MM",
       priceTiePriority: 1,
       isActive: true,
@@ -56,7 +127,7 @@ function seedState() {
     }),
     row({
       id: MOCK_SP_ID,
-      name: "SP",
+      name: "Spizarnia",
       code: "SP",
       priceTiePriority: 2,
       isActive: true,
@@ -65,7 +136,7 @@ function seedState() {
     }),
     row({
       id: MOCK_WAB_ID,
-      name: "WAB",
+      name: "Wabar",
       code: "WAB",
       priceTiePriority: 3,
       isActive: false,
@@ -95,7 +166,7 @@ function seedState() {
 
   const products: Product[] = [
     row({
-      id: "mock-product-001",
+      id: 1,
       name: "Fresh Milk 2L",
       department: "Dairy",
       isActive: true,
@@ -103,7 +174,7 @@ function seedState() {
       updatedAt: now(),
     }),
     row({
-      id: "mock-product-002",
+      id: 2,
       name: "Cheddar Block 400g",
       department: "Cheese",
       isActive: true,
@@ -111,7 +182,7 @@ function seedState() {
       updatedAt: now(),
     }),
     row({
-      id: "mock-product-003",
+      id: 3,
       name: "Natural Yogurt 500g",
       department: "Dairy",
       isActive: true,
@@ -122,27 +193,27 @@ function seedState() {
 
   const storeProducts: StoreProduct[] = [
     row({
-      id: "mock-sp-001",
+      id: 1,
       storeId: MOCK_STORE_ID,
-      productId: "mock-product-001",
+      productId: 1,
       storeProductCode: "1001",
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
     }),
     row({
-      id: "mock-sp-002",
+      id: 2,
       storeId: MOCK_STORE_ID,
-      productId: "mock-product-002",
+      productId: 2,
       storeProductCode: "2001",
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
     }),
     row({
-      id: "mock-sp-003",
+      id: 3,
       storeId: MOCK_STORE_ID,
-      productId: "mock-product-003",
+      productId: 3,
       storeProductCode: "1002",
       isActive: true,
       createdAt: now(),
@@ -152,8 +223,8 @@ function seedState() {
 
   const barcodes: Barcode[] = [
     row({
-      id: "mock-bc-001",
-      productId: "mock-product-001",
+      id: 1,
+      productId: 1,
       barcode: "5012345678901",
       createdAt: now(),
     }),
@@ -161,8 +232,8 @@ function seedState() {
 
   const supplierProducts: SupplierProduct[] = [
     row({
-      id: "mock-sup-prod-001",
-      productId: "mock-product-001",
+      id: 1,
+      productId: 1,
       supplierId: MOCK_MM_ID,
       supplierCode: "MM1001",
       isActive: true,
@@ -170,8 +241,8 @@ function seedState() {
       updatedAt: now(),
     }),
     row({
-      id: "mock-sup-prod-002",
-      productId: "mock-product-001",
+      id: 2,
+      productId: 1,
       supplierId: MOCK_SP_ID,
       supplierCode: "SP1001",
       isActive: true,
@@ -196,9 +267,9 @@ function seedState() {
 
   const orderItems: OrderItem[] = [
     row({
-      id: "mock-oi-001",
+      id: 1,
       orderId: MOCK_DEMO_ORDER_ID,
-      storeProductId: "mock-sp-001",
+      storeProductId: 1,
       period1Sales: "120.0000",
       period2Sales: "98.0000",
       period3Sales: "110.0000",
@@ -220,9 +291,9 @@ function seedState() {
       warning: null,
     }),
     row({
-      id: "mock-oi-002",
+      id: 2,
       orderId: MOCK_DEMO_ORDER_ID,
-      storeProductId: "mock-sp-002",
+      storeProductId: 2,
       period1Sales: "60.0000",
       period2Sales: "55.0000",
       period3Sales: "58.0000",
@@ -244,9 +315,9 @@ function seedState() {
       warning: "SP: missing net price",
     }),
     row({
-      id: "mock-oi-003",
+      id: 3,
       orderId: MOCK_DEMO_ORDER_ID,
-      storeProductId: "mock-sp-003",
+      storeProductId: 3,
       period1Sales: "80.0000",
       period2Sales: "75.0000",
       period3Sales: "78.0000",
@@ -270,9 +341,9 @@ function seedState() {
   ];
 
   const orderItemSupplierPrices: Array<{
-    id: string;
-    orderItemId: string;
-    supplierId: string;
+    id: number;
+    orderItemId: number;
+    supplierId: number;
     supplierCode: string | null;
     netPrice: string | null;
     priceValidationStatus: string;
@@ -280,8 +351,8 @@ function seedState() {
     failureReason: string | null;
   }> = [
     {
-      id: "mock-oisp-001",
-      orderItemId: "mock-oi-001",
+      id: 1,
+      orderItemId: 1,
       supplierId: MOCK_MM_ID,
       supplierCode: "MM1001",
       netPrice: "1.9200",
@@ -290,8 +361,8 @@ function seedState() {
       failureReason: null,
     },
     {
-      id: "mock-oisp-002",
-      orderItemId: "mock-oi-001",
+      id: 2,
+      orderItemId: 1,
       supplierId: MOCK_SP_ID,
       supplierCode: "SP1001",
       netPrice: "1.8500",
@@ -300,8 +371,8 @@ function seedState() {
       failureReason: null,
     },
     {
-      id: "mock-oisp-003",
-      orderItemId: "mock-oi-002",
+      id: 3,
+      orderItemId: 2,
       supplierId: MOCK_MM_ID,
       supplierCode: null,
       netPrice: null,
@@ -310,8 +381,8 @@ function seedState() {
       failureReason: "MM: missing supplier product code mapping",
     },
     {
-      id: "mock-oisp-004",
-      orderItemId: "mock-oi-003",
+      id: 4,
+      orderItemId: 3,
       supplierId: MOCK_MM_ID,
       supplierCode: "MM1003",
       netPrice: "0.9500",
@@ -339,6 +410,7 @@ function seedState() {
     orderItemSupplierPrices,
     orderPriceSuppliers,
     orderSalesPeriods: [] as Array<typeof schema.orderSalesPeriods.$inferSelect>,
+    bookStockImports: [] as Array<typeof schema.bookStockImports.$inferSelect>,
   };
 }
 
@@ -358,14 +430,15 @@ export const storeRepository = {
   async list() {
     return [...getState().stores].sort((a, b) => a.name.localeCompare(b.name));
   },
-  async getById(id: string) {
+  async getById(id: number) {
     return getState().stores.find((s) => s.id === id) ?? null;
   },
   async create(data: typeof schema.stores.$inferInsert) {
     const store = row({
-      id: randomUUID(),
+      id: genId(),
       name: data.name,
       code: data.code,
+      erpType: data.erpType ?? "msp",
       isActive: data.isActive ?? true,
       createdAt: now(),
       updatedAt: now(),
@@ -373,7 +446,7 @@ export const storeRepository = {
     getState().stores.push(store);
     return store;
   },
-  async update(id: string, data: Partial<typeof schema.stores.$inferInsert>) {
+  async update(id: number, data: Partial<typeof schema.stores.$inferInsert>) {
     const store = getState().stores.find((s) => s.id === id);
     if (!store) throw new Error("Store not found");
     Object.assign(store, data, { updatedAt: now() });
@@ -392,7 +465,7 @@ export const supplierRepository = {
   },
   async create(data: typeof schema.suppliers.$inferInsert) {
     const supplier = row({
-      id: randomUUID(),
+      id: genId(),
       name: data.name,
       code: data.code,
       priceTiePriority: data.priceTiePriority ?? 0,
@@ -403,7 +476,7 @@ export const supplierRepository = {
     getState().suppliers.push(supplier);
     return supplier;
   },
-  async update(id: string, data: Partial<typeof schema.suppliers.$inferInsert>) {
+  async update(id: number, data: Partial<typeof schema.suppliers.$inferInsert>) {
     const supplier = getState().suppliers.find((s) => s.id === id);
     if (!supplier) throw new Error("Supplier not found");
     Object.assign(supplier, data, { updatedAt: now() });
@@ -468,12 +541,16 @@ export const departmentRepository = {
 };
 
 export const productRepository = {
-  async list(filters?: {
-    storeId?: string;
-    department?: string;
-    isActive?: boolean;
-  }) {
+  filterListItems(
+    filters?: {
+      storeId?: number;
+      department?: string;
+      isActive?: boolean;
+      search?: string;
+    },
+  ) {
     const state = getState();
+    const search = filters?.search?.trim().toLowerCase();
     return state.storeProducts
       .map((sp) => ({
         storeProduct: sp,
@@ -487,13 +564,44 @@ export const productRepository = {
           if (product.isActive !== filters.isActive) return false;
           if (storeProduct.isActive !== filters.isActive) return false;
         }
+        if (search) {
+          const haystack =
+            `${product.name} ${storeProduct.storeProductCode}`.toLowerCase();
+          if (!haystack.includes(search)) return false;
+        }
         return true;
       })
-      .sort((a, b) => a.product.name.localeCompare(b.product.name));
+      .sort((a, b) =>
+        a.storeProduct.storeProductCode.localeCompare(b.storeProduct.storeProductCode),
+      );
+  },
+
+  async list(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const rows = productRepository.filterListItems(filters);
+    const offset = filters?.offset ?? 0;
+    const limit = filters?.limit;
+    if (limit === undefined) return rows;
+    return rows.slice(offset, offset + limit);
+  },
+
+  async count(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+  }) {
+    return productRepository.filterListItems(filters).length;
   },
   async createProduct(data: typeof schema.products.$inferInsert) {
     const product = row({
-      id: randomUUID(),
+      id: genId(),
       name: data.name,
       department: data.department,
       isActive: data.isActive ?? true,
@@ -503,15 +611,29 @@ export const productRepository = {
     getState().products.push(product);
     return product;
   },
-  async updateProduct(id: string, data: Partial<typeof schema.products.$inferInsert>) {
+  async getById(id: number) {
+    return getState().products.find((product) => product.id === id) ?? null;
+  },
+  async updateProduct(id: number, data: Partial<typeof schema.products.$inferInsert>) {
     const product = getState().products.find((p) => p.id === id);
     if (!product) throw new Error("Product not found");
     Object.assign(product, data, { updatedAt: now() });
     return product;
   },
   async addStoreProduct(data: typeof schema.storeProducts.$inferInsert) {
+    const existing = getState().storeProducts.find(
+      (sp) =>
+        sp.storeId === data.storeId &&
+        sp.storeProductCode === data.storeProductCode,
+    );
+    if (existing) {
+      existing.productId = data.productId;
+      existing.isActive = data.isActive ?? true;
+      existing.updatedAt = now();
+      return existing;
+    }
     const sp = row({
-      id: randomUUID(),
+      id: genId(),
       storeId: data.storeId,
       productId: data.productId,
       storeProductCode: data.storeProductCode,
@@ -522,9 +644,12 @@ export const productRepository = {
     getState().storeProducts.push(sp);
     return sp;
   },
+  async upsertStoreProduct(data: typeof schema.storeProducts.$inferInsert) {
+    return productRepository.addStoreProduct(data);
+  },
   async addBarcode(data: typeof schema.productBarcodes.$inferInsert) {
     const bc = row({
-      id: randomUUID(),
+      id: genId(),
       productId: data.productId,
       barcode: data.barcode,
       createdAt: now(),
@@ -532,9 +657,14 @@ export const productRepository = {
     getState().barcodes.push(bc);
     return bc;
   },
+  async addBarcodeIfAbsent(data: typeof schema.productBarcodes.$inferInsert) {
+    const existing = getState().barcodes.find((b) => b.barcode === data.barcode);
+    if (existing) return null;
+    return productRepository.addBarcode(data);
+  },
   async addSupplierProduct(data: typeof schema.supplierProducts.$inferInsert) {
     const sp = row({
-      id: randomUUID(),
+      id: genId(),
       productId: data.productId,
       supplierId: data.supplierId,
       supplierCode: data.supplierCode,
@@ -545,10 +675,10 @@ export const productRepository = {
     getState().supplierProducts.push(sp);
     return sp;
   },
-  async getBarcodes(productId: string) {
+  async getBarcodes(productId: number) {
     return getState().barcodes.filter((b) => b.productId === productId);
   },
-  async getSupplierProducts(productId: string) {
+  async getSupplierProducts(productId: number) {
     const state = getState();
     return state.supplierProducts
       .filter((sp) => sp.productId === productId)
@@ -557,14 +687,24 @@ export const productRepository = {
         supplier: state.suppliers.find((s) => s.id === supplierProduct.supplierId)!,
       }));
   },
-  async findStoreProductByCode(storeId: string, code: string) {
+  async findStoreProductByCode(storeId: number, code: string) {
     return (
       getState().storeProducts.find(
         (sp) => sp.storeId === storeId && sp.storeProductCode === code,
       ) ?? null
     );
   },
-  async findStoreProductByBarcode(storeId: string, barcode: string) {
+  async findMspStoreProductByCode(code: string) {
+    const state = getState();
+    const storeProduct = state.storeProducts.find((sp) => {
+      const store = state.stores.find((s) => s.id === sp.storeId);
+      return store?.erpType === "msp" && sp.storeProductCode === code;
+    });
+    if (!storeProduct) return null;
+    const product = state.products.find((p) => p.id === storeProduct.productId)!;
+    return { storeProduct, product };
+  },
+  async findStoreProductByBarcode(storeId: number, barcode: string) {
     const state = getState();
     const bc = state.barcodes.find((b) => b.barcode === barcode);
     if (!bc) return null;
@@ -575,8 +715,8 @@ export const productRepository = {
     );
   },
   async findStoreProductBySupplierCode(
-    storeId: string,
-    supplierId: string,
+    storeId: number,
+    supplierId: number,
     supplierCode: string,
   ) {
     const state = getState();
@@ -590,14 +730,28 @@ export const productRepository = {
       ) ?? null
     );
   },
-  async getDepartments() {
-    return [...new Set(getState().products.map((p) => p.department))].sort();
+  async getDepartments(storeId?: number) {
+    const state = getState();
+    const productIds = storeId
+      ? new Set(
+          state.storeProducts
+            .filter((sp) => sp.storeId === storeId)
+            .map((sp) => sp.productId),
+        )
+      : null;
+    return [
+      ...new Set(
+        state.products
+          .filter((p) => !productIds || productIds.has(p.id))
+          .map((p) => p.department),
+      ),
+    ].sort();
   },
 };
 
 export const dailySalesRepository = {
   async upsertSale(_data: typeof schema.dailySales.$inferInsert) {
-    return row({ id: randomUUID() });
+    return row({ id: genId() });
   },
   async sumSalesInPeriod() {
     return "0";
@@ -607,9 +761,39 @@ export const dailySalesRepository = {
   },
 };
 
+export const bookStockRepository = {
+  async createImport(data: typeof schema.bookStockImports.$inferInsert) {
+    return row({ id: genId(), ...data, importedAt: now() });
+  },
+  async insertItems() {
+    return [];
+  },
+  async getImportById(importId: number) {
+    return getState().bookStockImports.find((i) => i.id === importId) ?? null;
+  },
+  async getLatestForStore(storeId: number) {
+    return (
+      getState()
+        .bookStockImports.filter((i) => i.storeId === storeId)
+        .sort((a, b) => b.importedAt.getTime() - a.importedAt.getTime())[0] ?? null
+    );
+  },
+  async listForStore(storeId: number) {
+    return getState()
+      .bookStockImports.filter((i) => i.storeId === storeId)
+      .sort((a, b) => b.importedAt.getTime() - a.importedAt.getTime());
+  },
+  async getItems() {
+    return [];
+  },
+  async countItems() {
+    return 0;
+  },
+};
+
 export const supplierPriceRepository = {
   async createImport(data: typeof schema.supplierPriceImports.$inferInsert) {
-    return row({ id: randomUUID(), ...data, importedAt: now() });
+    return row({ id: genId(), ...data, importedAt: now() });
   },
   async insertPrices() {
     return [];
@@ -617,7 +801,7 @@ export const supplierPriceRepository = {
   async getLatestPrice() {
     return null;
   },
-  async findSupplierProduct(supplierId: string, supplierCode: string) {
+  async findSupplierProduct(supplierId: number, supplierCode: string) {
     return (
       getState().supplierProducts.find(
         (sp) => sp.supplierId === supplierId && sp.supplierCode === supplierCode,
@@ -636,12 +820,12 @@ export const orderRepository = {
       }))
       .sort((a, b) => b.order.createdAt.getTime() - a.order.createdAt.getTime());
   },
-  async getById(orderId: string) {
+  async getById(orderId: number) {
     return getState().orders.find((o) => o.id === orderId) ?? null;
   },
   async create(data: typeof schema.orders.$inferInsert) {
     const order = row({
-      id: randomUUID(),
+      id: genId(),
       storeId: data.storeId,
       bookStockDate: data.bookStockDate,
       clientDeliveryDate: data.clientDeliveryDate,
@@ -654,14 +838,14 @@ export const orderRepository = {
     getState().orders.unshift(order);
     return order;
   },
-  async update(orderId: string, data: Partial<typeof schema.orders.$inferInsert>) {
+  async update(orderId: number, data: Partial<typeof schema.orders.$inferInsert>) {
     const order = getState().orders.find((o) => o.id === orderId);
     if (!order) throw new Error("Order not found");
     Object.assign(order, data, { updatedAt: now() });
     return order;
   },
   async replacePeriods(
-    orderId: string,
+    orderId: number,
     periods: Array<typeof schema.orderSalesPeriods.$inferInsert>,
   ) {
     const state = getState();
@@ -671,7 +855,7 @@ export const orderRepository = {
     state.orderSalesPeriods.push(
       ...periods.map((p) =>
         row({
-          id: randomUUID(),
+          id: genId(),
           orderId: p.orderId,
           periodKey: p.periodKey,
           startDate: p.startDate,
@@ -680,7 +864,7 @@ export const orderRepository = {
       ),
     );
   },
-  async replacePriceSuppliers(orderId: string, supplierIds: string[]) {
+  async replacePriceSuppliers(orderId: number, supplierIds: number[]) {
     const state = getState();
     state.orderPriceSuppliers = state.orderPriceSuppliers.filter(
       (p) => p.orderId !== orderId,
@@ -689,10 +873,10 @@ export const orderRepository = {
       ...supplierIds.map((supplierId) => ({ orderId, supplierId })),
     );
   },
-  async getPeriods(orderId: string) {
+  async getPeriods(orderId: number) {
     return getState().orderSalesPeriods.filter((p) => p.orderId === orderId);
   },
-  async getSelectedSuppliers(orderId: string) {
+  async getSelectedSuppliers(orderId: number) {
     const state = getState();
     return state.orderPriceSuppliers
       .filter((p) => p.orderId === orderId)
@@ -702,17 +886,17 @@ export const orderRepository = {
       .sort((a, b) => a.supplier.priceTiePriority - b.supplier.priceTiePriority);
   },
   async createUpload(data: typeof schema.orderUploads.$inferInsert) {
-    return row({ id: randomUUID(), ...data, createdAt: now() });
+    return row({ id: genId(), ...data, createdAt: now() });
   },
   async createStockEvent(data: typeof schema.orderStockEvents.$inferInsert) {
-    return row({ id: randomUUID(), ...data, createdAt: now() });
+    return row({ id: genId(), ...data, createdAt: now() });
   },
   async createStockEventItems(
     rows: Array<typeof schema.orderStockEventItems.$inferInsert>,
   ) {
-    return rows.map((r) => row({ id: randomUUID(), ...r }));
+    return rows.map((r) => row({ id: genId(), ...r }));
   },
-  async getStoreProductsForOrder(storeId: string, departments: string[]) {
+  async getStoreProductsForOrder(storeId: number, departments: string[]) {
     return productRepository.list({
       storeId,
       department: departments[0],
@@ -722,7 +906,10 @@ export const orderRepository = {
   async getStockEvents() {
     return [];
   },
-  async clearCalculatedItems(orderId: string) {
+  async clearBookStockEvents(_orderId: number) {
+    return;
+  },
+  async clearCalculatedItems(orderId: number) {
     const state = getState();
     const removed = state.orderItems.filter((i) => i.orderId === orderId);
     state.orderItems = state.orderItems.filter((i) => i.orderId !== orderId);
@@ -733,7 +920,7 @@ export const orderRepository = {
   },
   async insertOrderItems(rows: Array<typeof schema.orderItems.$inferInsert>) {
     const created = rows.map((r) =>
-      row({ id: randomUUID(), ...r }),
+      row({ id: genId(), ...r }),
     ) as OrderItem[];
     getState().orderItems.push(...created);
     return created;
@@ -742,7 +929,7 @@ export const orderRepository = {
     rows: Array<typeof schema.orderItemSupplierPrices.$inferInsert>,
   ) {
     const created = rows.map((r) => ({
-      id: randomUUID(),
+      id: genId(),
       orderItemId: r.orderItemId,
       supplierId: r.supplierId,
       supplierCode: r.supplierCode ?? null,
@@ -754,7 +941,7 @@ export const orderRepository = {
     getState().orderItemSupplierPrices.push(...created);
     return created;
   },
-  async getOrderItemsWithDetails(orderId: string) {
+  async getOrderItemsWithDetails(orderId: number) {
     const state = getState();
     return state.orderItems
       .filter((i) => i.orderId === orderId)
@@ -771,7 +958,7 @@ export const orderRepository = {
         a.storeProduct.storeProductCode.localeCompare(b.storeProduct.storeProductCode),
       );
   },
-  async getItemSupplierPrices(orderId: string) {
+  async getItemSupplierPrices(orderId: number) {
     const state = getState();
     const itemIds = new Set(
       state.orderItems.filter((i) => i.orderId === orderId).map((i) => i.id),
@@ -783,7 +970,7 @@ export const orderRepository = {
         supplier: state.suppliers.find((s) => s.id === price.supplierId)!,
       }));
   },
-  async updateFinalQuantity(orderItemId: string, finalOrderQty: string) {
+  async updateFinalQuantity(orderItemId: number, finalOrderQty: string) {
     const item = getState().orderItems.find((i) => i.id === orderItemId);
     if (!item) throw new Error("Order item not found");
     item.finalOrderQty = finalOrderQty;
@@ -794,10 +981,10 @@ export const orderRepository = {
     }
     return item;
   },
-  async getOrderItem(orderItemId: string) {
+  async getOrderItem(orderItemId: number) {
     return getState().orderItems.find((i) => i.id === orderItemId) ?? null;
   },
-  async simulateCalculate(orderId: string) {
+  async simulateCalculate(orderId: number) {
     await orderRepository.clearCalculatedItems(orderId);
     const state = getState();
     const products = state.storeProducts.filter((sp) => {

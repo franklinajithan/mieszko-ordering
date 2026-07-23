@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { detectKnownColumns } from "@/parsers/file-parser";
 import type { FilePreview, ImportResult } from "@/types";
 
-type Supplier = { id: string; code: string; name: string };
+type Supplier = { id: number; code: string; name: string };
 
 export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }) {
   const [preview, setPreview] = useState<FilePreview | null>(null);
@@ -32,7 +32,7 @@ export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }
       const data = await previewUpload(formData);
       setPreview(data);
 
-      const supplier = suppliers.find((s) => s.id === supplierId);
+      const supplier = suppliers.find((s) => s.id === Number(supplierId));
       if (supplier) {
         const detected = detectKnownColumns(supplier.code, data.headers);
         setReferenceColumn(detected.referenceColumn ?? data.headers[0] ?? "");
@@ -45,8 +45,9 @@ export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }
 
   function onSupplierChange(id: string) {
     setSupplierId(id);
+    const numericId = Number(id);
     if (preview) {
-      const supplier = suppliers.find((s) => s.id === id);
+      const supplier = suppliers.find((s) => s.id === numericId);
       if (supplier) {
         const detected = detectKnownColumns(supplier.code, preview.headers);
         setReferenceColumn(detected.referenceColumn ?? preview.headers[0] ?? "");

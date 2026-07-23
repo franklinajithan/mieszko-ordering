@@ -4,13 +4,13 @@ import { toDecimal, decimalToDb } from "@/utils/decimal";
 import { supplierPriceRepository } from "@/repositories/postgres";
 
 export async function importSupplierPriceRows(input: {
-  supplierId: string;
+  supplierId: number;
   referenceColumn: string;
   priceColumn: string;
   effectiveDate: string;
   fileName: string;
   rows: ParsedRow[];
-}): Promise<ImportResult & { importId?: string }> {
+}): Promise<ImportResult & { importId?: number }> {
   const result: ImportResult = {
     totalRows: input.rows.length,
     matchedRows: 0,
@@ -19,7 +19,7 @@ export async function importSupplierPriceRows(input: {
     errors: [],
   };
 
-  let importId: string | undefined;
+  let importId: number | undefined;
 
   await db.transaction(async () => {
     const priceImport = await supplierPriceRepository.createImport({
@@ -30,9 +30,9 @@ export async function importSupplierPriceRows(input: {
     importId = priceImport.id;
 
     const validRows: Array<{
-      importId: string;
-      supplierId: string;
-      supplierProductId: string | null;
+      importId: number;
+      supplierId: number;
+      supplierProductId: number | null;
       supplierCode: string;
       netPrice: string;
       effectiveDate: string;

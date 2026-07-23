@@ -6,13 +6,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { calculateOrderAction } from "@/app/actions";
 import { orderRepository, storeRepository } from "@/repositories";
+import { parseRouteId } from "@/utils/parse-route-id";
 
 export default async function OrderDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
+  const { id: idParam } = await params;
+  const id = parseRouteId(idParam);
+  if (id === null) notFound();
+
   const order = await orderRepository.getById(id);
   if (!order) notFound();
 

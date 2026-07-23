@@ -93,7 +93,7 @@ describe("simulateStockTimeline", () => {
 
 describe("compareSupplierPrices", () => {
   const mm = {
-    supplierId: "mm",
+    supplierId: 1,
     supplierCode: "MM001",
     supplierName: "MM",
     priceTiePriority: 1,
@@ -101,7 +101,7 @@ describe("compareSupplierPrices", () => {
     netPrice: "10.00",
   };
   const sp = {
-    supplierId: "sp",
+    supplierId: 2,
     supplierCode: "SP001",
     supplierName: "SP",
     priceTiePriority: 2,
@@ -109,7 +109,7 @@ describe("compareSupplierPrices", () => {
     netPrice: "9.50",
   };
   const wabMissing = {
-    supplierId: "wab",
+    supplierId: 3,
     supplierCode: "",
     supplierName: "WAB",
     priceTiePriority: 3,
@@ -120,7 +120,7 @@ describe("compareSupplierPrices", () => {
   it("excludes WAB when not selected", () => {
     const result = compareSupplierPrices([mm, sp], d(10));
     expect(result.priceStatus).toBe("complete");
-    expect(result.cheapestSupplierId).toBe("sp");
+    expect(result.cheapestSupplierId).toBe(2);
   });
 
   it("CHECK when WAB included with missing code", () => {
@@ -146,9 +146,9 @@ describe("compareSupplierPrices", () => {
       ],
       d(5),
     );
-    expect(result.cheapestSupplierId).toBe("mm");
+    expect(result.cheapestSupplierId).toBe(1);
     expect(
-      result.snapshots.find((s) => s.supplierId === "mm")?.isCheapest,
+      result.snapshots.find((s) => s.supplierId === 1)?.isCheapest,
     ).toBe(true);
   });
 

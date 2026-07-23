@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { exportOrder, updateFinalOrderQuantity } from "@/app/actions";
+import { exportHoDairyWithTemplate, exportOrder, updateFinalOrderQuantity } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { formatMoney } from "@/utils/format";
 
 type OrderItemRow = {
   item: {
-    id: string;
+    id: number;
     period1Sales: string;
     period2Sales: string;
     period3Sales: string;
@@ -34,12 +34,12 @@ type OrderItemRow = {
 
 type SupplierPriceRow = {
   price: {
-    orderItemId: string;
+    orderItemId: number;
     netPrice: string | null;
     isCheapest: boolean;
     failureReason: string | null;
   };
-  supplier: { id: string; code: string };
+  supplier: { id: number; code: string };
 };
 
 export function OrderReviewTable({
@@ -48,10 +48,10 @@ export function OrderReviewTable({
   supplierPrices,
   selectedSuppliers,
 }: {
-  orderId: string;
+  orderId: number;
   items: OrderItemRow[];
   supplierPrices: SupplierPriceRow[];
-  selectedSuppliers: Array<{ supplier: { id: string; code: string } }>;
+  selectedSuppliers: Array<{ supplier: { id: number; code: string } }>;
 }) {
   const [showCheckOnly, setShowCheckOnly] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -64,10 +64,20 @@ export function OrderReviewTable({
     [items, showCheckOnly],
   );
 
-  function onQuantityChange(orderItemId: string, value: string) {
+  function onQuantityChange(orderItemId: number, value: string) {
     startTransition(async () => {
       await updateFinalOrderQuantity({ orderItemId, finalOrderQty: value });
     });
+  }
+
+  async function downloadExport(base64: string, fileName: string) {
+    const blob = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([blob]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   async function onExport() {
@@ -76,13 +86,17 @@ export function OrderReviewTable({
       alert(result.error);
       return;
     }
-    const blob = Uint8Array.from(atob(result.data.base64), (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([blob]));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.data.fileName;
-    link.click();
-    URL.revokeObjectURL(url);
+    await downloadExport(result.data.base64, result.data.fileName);
+  }
+
+  async function onExportHoDairyTemplate(formData: FormData) {
+    formData.set("orderId", String(orderId));
+    const result = await exportHoDairyWithTemplate(formData);
+    if (!result.success) {
+      alert(result.error);
+      return;
+    }
+    await downloadExport(result.data.base64, result.data.fileName);
   }
 
   return (
@@ -99,6 +113,12 @@ export function OrderReviewTable({
         <Button type="button" onClick={onExport} disabled={isPending}>
           Export to Excel
         </Button>
+        <form action={onExportHoDairyTemplate} className="flex items-center gap-2">
+          <Input name="template" type="file" accept=".xlsx,.xls" required />
+          <Button type="submit" variant="outline" disabled={isPending}>
+            Fill HO Dairy template
+          </Button>
+        </form>
       </div>
 
       <div className="overflow-x-auto rounded-xl border bg-white">

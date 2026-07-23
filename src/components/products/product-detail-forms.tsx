@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type Barcode = { id: string; barcode: string };
+type Barcode = { id: number; barcode: string };
 type SupplierProduct = {
   supplierProduct: { supplierCode: string };
   supplier: { code: string; name: string };
 };
-type Supplier = { id: string; code: string; name: string };
+type Supplier = { id: number; code: string; name: string };
 
 export function ProductDetailForms({
   productId,
@@ -20,7 +20,7 @@ export function ProductDetailForms({
   supplierProducts,
   suppliers,
 }: {
-  productId: string;
+  productId: number;
   barcodes: Barcode[];
   supplierProducts: SupplierProduct[];
   suppliers: Supplier[];

@@ -4,7 +4,7 @@ import { toDecimal, decimalToDb } from "@/utils/decimal";
 import { dailySalesRepository, productRepository } from "@/repositories/postgres";
 
 export async function importDailySalesRows(input: {
-  storeId: string;
+  storeId: number;
   mappingType: SalesMappingType;
   productColumn: string;
   quantityColumn: string;
