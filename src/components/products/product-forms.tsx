@@ -1,19 +1,29 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
+import { flushSync } from "react-dom";
 import {
   addStoreProduct,
+  beginProductImportFromRows,
   createProduct,
-  importProducts,
+  runProductImportBatch,
 } from "@/app/actions";
 import { ImportSummary } from "@/components/layout/app-shell";
+import {
+  ProductImportProgressInline,
+  useProductImport,
+} from "@/components/products/product-import-context";
+import {
+  detectProductFileColumns,
+  parseProductFileBuffer,
+} from "@/parsers/product-file-parser";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ImportResult } from "@/types";
 
-type Store = { id: number; name: string };
+type Store = { id: number; name: string; erpType: string };
 
 export function ProductForms({
   stores,
@@ -21,8 +31,11 @@ export function ProductForms({
   stores: Store[];
 }) {
   const router = useRouter();
+  const { updateProgress, resetStatus } = useProductImport();
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [storeId, setStoreId] = useState("");
+  const [importing, setImporting] = useState(false);
 
   async function createMasterProduct(formData: FormData) {
     setError(null);
@@ -51,15 +64,159 @@ export function ProductForms({
     router.refresh();
   }
 
-  async function onImport(formData: FormData) {
-    setError(null);
-    const result = await importProducts(formData);
-    if (!result.success) {
-      setError(result.error);
+  async function onImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    const selectedStoreId = String(formData.get("storeId") ?? storeId);
+    const file = formData.get("file");
+    const storeName =
+      stores.find((store) => String(store.id) === selectedStoreId)?.name ??
+      "Store";
+
+    if (!(file instanceof File) || !file.size) {
+      setError("Please choose an Excel file to import.");
       return;
     }
-    setImportResult(result.data);
-    router.refresh();
+
+    if (!selectedStoreId) {
+      setError("Please select a store.");
+      return;
+    }
+
+    flushSync(() => {
+      setError(null);
+      setImportResult(null);
+      setImporting(true);
+      resetStatus();
+      updateProgress({
+        phase: "parsing",
+        fileName: file.name,
+        storeName,
+        processed: 0,
+        total: 0,
+        estimated: false,
+        message: `Reading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`,
+      });
+    });
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const { headers, rows } = parseProductFileBuffer(buffer, file.name);
+      const columns = detectProductFileColumns(headers);
+
+      if (!columns.codeColumn || !columns.nameColumn) {
+        const message =
+          "Could not detect product columns. Expected ID and Name (GloPOS) or ProductCode and ItemName1 (MSP).";
+        setError(message);
+        updateProgress({ phase: "error", message });
+        return;
+      }
+
+      const keepColumns = [
+        columns.codeColumn,
+        columns.nameColumn,
+        columns.departmentColumn,
+        columns.barcodeColumn,
+      ].filter((column): column is string => Boolean(column));
+
+      const slimRows = rows.map((row) => {
+        const slim: Record<string, string> = {
+          __rowNumber: row.__rowNumber ?? "",
+        };
+        for (const column of keepColumns) {
+          slim[column] = row[column] ?? "";
+        }
+        return slim;
+      });
+
+      updateProgress({
+        phase: "parsing",
+        message: `Found ${slimRows.length.toLocaleString()} products — preparing import…`,
+      });
+
+      const begin = await beginProductImportFromRows({
+        storeId: Number(selectedStoreId),
+        fileName: file.name,
+        codeColumn: columns.codeColumn,
+        nameColumn: columns.nameColumn,
+        departmentColumn: columns.departmentColumn ?? undefined,
+        barcodeColumn: columns.barcodeColumn ?? undefined,
+        shareAcrossMspStores: columns.shareAcrossMspStores,
+        rows: slimRows,
+      });
+
+      if (!begin.success) {
+        setError(begin.error);
+        updateProgress({ phase: "error", message: begin.error });
+        return;
+      }
+
+      const { jobId, totalRows, batchSize } = begin.data;
+      if (totalRows === 0) {
+        const message =
+          "No valid products found in the file. Check that ID and Name columns are present.";
+        setError(message);
+        updateProgress({ phase: "error", message });
+        return;
+      }
+
+      updateProgress({
+        phase: "importing",
+        estimated: false,
+        fileName: file.name,
+        storeName,
+        total: totalRows,
+        processed: 0,
+        message: `Saving ${totalRows.toLocaleString()} products…`,
+      });
+
+      const batchCount = Math.ceil(totalRows / batchSize);
+      let finalResult: ImportResult | null = null;
+
+      for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
+        const batch = await runProductImportBatch({ jobId, batchIndex });
+        if (!batch.success) {
+          setError(batch.error);
+          updateProgress({ phase: "error", message: batch.error });
+          return;
+        }
+
+        finalResult = batch.data.result;
+        updateProgress({
+          phase: batch.data.done ? "done" : "importing",
+          estimated: false,
+          processed: batch.data.processed,
+          total: batch.data.total,
+          result: batch.data.done ? batch.data.result : undefined,
+          message: batch.data.done
+            ? `Imported ${batch.data.result.matchedRows.toLocaleString()} products.`
+            : `Saved ${batch.data.processed.toLocaleString()} of ${batch.data.total.toLocaleString()} products…`,
+        });
+
+        if (batch.data.done) break;
+      }
+
+      if (!finalResult) {
+        const message = "Import finished without a result. Please try again.";
+        setError(message);
+        updateProgress({ phase: "error", message });
+        return;
+      }
+
+      setImportResult(finalResult);
+      router.push(`/products?storeId=${encodeURIComponent(selectedStoreId)}`);
+    } catch (importError) {
+      const message =
+        importError instanceof Error
+          ? importError.message
+          : "Import failed unexpectedly";
+      setError(message);
+      updateProgress({ phase: "error", message });
+    } finally {
+      setImporting(false);
+    }
   }
 
   return (
@@ -94,17 +251,31 @@ export function ProductForms({
         <Button type="submit">Create product</Button>
       </form>
 
-      <form action={onImport} className="space-y-3 rounded-xl border bg-white p-4">
+      <form
+        onSubmit={onImport}
+        className="space-y-3 rounded-xl border bg-white p-4"
+      >
         <h3 className="font-semibold">Import products from Excel</h3>
+        <p className="text-sm text-zinc-600">
+          GloPOS exports (Mitcham, Sudbury) use <strong>ID</strong>,{" "}
+          <strong>Name</strong>, and <strong>Barcode</strong>. The file is read
+          in your browser first, then saved in batches of 2,000. Large catalogs
+          (50,000+ products) may take 3–5 minutes to save.
+        </p>
         <div>
           <Label>Store</Label>
-          <Select name="storeId" required defaultValue="">
+          <Select
+            name="storeId"
+            required
+            value={storeId}
+            onChange={(e) => setStoreId(e.target.value)}
+          >
             <option value="" disabled>
               Select store
             </option>
             {stores.map((store) => (
               <option key={store.id} value={store.id}>
-                {store.name}
+                {store.name} ({store.erpType === "glopos" ? "GloPOS" : "MSP"})
               </option>
             ))}
           </Select>
@@ -113,7 +284,10 @@ export function ProductForms({
           <Label>File</Label>
           <Input name="file" type="file" accept=".csv,.xlsx,.xls" required />
         </div>
-        <Button type="submit">Import</Button>
+        <Button type="submit" disabled={importing}>
+          {importing ? "Importing… please wait" : "Import"}
+        </Button>
+        <ProductImportProgressInline />
         {importResult ? <ImportSummary result={importResult} /> : null}
       </form>
 

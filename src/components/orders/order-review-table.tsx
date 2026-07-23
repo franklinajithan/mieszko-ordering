@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { exportOrder, updateFinalOrderQuantity } from "@/app/actions";
+import { exportHoDairyWithTemplate, exportOrder, updateFinalOrderQuantity } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,19 +70,33 @@ export function OrderReviewTable({
     });
   }
 
+  async function downloadExport(base64: string, fileName: string) {
+    const blob = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([blob]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function onExport() {
     const result = await exportOrder({ orderId });
     if (!result.success) {
       alert(result.error);
       return;
     }
-    const blob = Uint8Array.from(atob(result.data.base64), (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([blob]));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.data.fileName;
-    link.click();
-    URL.revokeObjectURL(url);
+    await downloadExport(result.data.base64, result.data.fileName);
+  }
+
+  async function onExportHoDairyTemplate(formData: FormData) {
+    formData.set("orderId", String(orderId));
+    const result = await exportHoDairyWithTemplate(formData);
+    if (!result.success) {
+      alert(result.error);
+      return;
+    }
+    await downloadExport(result.data.base64, result.data.fileName);
   }
 
   return (
@@ -99,6 +113,12 @@ export function OrderReviewTable({
         <Button type="button" onClick={onExport} disabled={isPending}>
           Export to Excel
         </Button>
+        <form action={onExportHoDairyTemplate} className="flex items-center gap-2">
+          <Input name="template" type="file" accept=".xlsx,.xls" required />
+          <Button type="submit" variant="outline" disabled={isPending}>
+            Fill HO Dairy template
+          </Button>
+        </form>
       </div>
 
       <div className="overflow-x-auto rounded-xl border bg-white">

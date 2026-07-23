@@ -13,6 +13,21 @@ export type ImportResult = {
   errors: ImportError[];
 };
 
+export type ProductImportProgress = {
+  jobId: string;
+  totalRows: number;
+  fileName: string;
+  storeName: string;
+  batchSize: number;
+};
+
+export type ProductImportBatchStatus = {
+  processed: number;
+  total: number;
+  done: boolean;
+  result: ImportResult;
+};
+
 export type ActionResult<T = void> =
   | { success: true; data: T }
   | { success: false; error: string };

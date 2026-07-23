@@ -4,6 +4,8 @@ import {
 
   date,
 
+  index,
+
   integer,
 
   jsonb,
@@ -148,7 +150,10 @@ export const storeProducts = pgTable(
 
   },
 
-  (t) => [unique("store_products_store_code_unique").on(t.storeId, t.storeProductCode)],
+  (t) => [
+    unique("store_products_store_code_unique").on(t.storeId, t.storeProductCode),
+    index("store_products_store_id_idx").on(t.storeId),
+  ],
 
 );
 

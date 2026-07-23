@@ -33,7 +33,7 @@ function seedState() {
       id: 1,
       name: "Sudbury",
       code: "SBH",
-      erpType: "msp",
+      erpType: "glopos",
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
@@ -116,7 +116,7 @@ function seedState() {
   const suppliers: Supplier[] = [
     row({
       id: MOCK_MM_ID,
-      name: "MM",
+      name: "Master Media",
       code: "MM",
       priceTiePriority: 1,
       isActive: true,
@@ -125,7 +125,7 @@ function seedState() {
     }),
     row({
       id: MOCK_SP_ID,
-      name: "SP",
+      name: "Spizarnia",
       code: "SP",
       priceTiePriority: 2,
       isActive: true,
@@ -134,7 +134,7 @@ function seedState() {
     }),
     row({
       id: MOCK_WAB_ID,
-      name: "WAB",
+      name: "Wabar",
       code: "WAB",
       priceTiePriority: 3,
       isActive: false,
@@ -463,12 +463,16 @@ export const supplierRepository = {
 };
 
 export const productRepository = {
-  async list(filters?: {
-    storeId?: number;
-    department?: string;
-    isActive?: boolean;
-  }) {
+  filterListItems(
+    filters?: {
+      storeId?: number;
+      department?: string;
+      isActive?: boolean;
+      search?: string;
+    },
+  ) {
     const state = getState();
+    const search = filters?.search?.trim().toLowerCase();
     return state.storeProducts
       .map((sp) => ({
         storeProduct: sp,
@@ -482,9 +486,40 @@ export const productRepository = {
           if (product.isActive !== filters.isActive) return false;
           if (storeProduct.isActive !== filters.isActive) return false;
         }
+        if (search) {
+          const haystack =
+            `${product.name} ${storeProduct.storeProductCode}`.toLowerCase();
+          if (!haystack.includes(search)) return false;
+        }
         return true;
       })
-      .sort((a, b) => a.product.name.localeCompare(b.product.name));
+      .sort((a, b) =>
+        a.storeProduct.storeProductCode.localeCompare(b.storeProduct.storeProductCode),
+      );
+  },
+
+  async list(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const rows = productRepository.filterListItems(filters);
+    const offset = filters?.offset ?? 0;
+    const limit = filters?.limit;
+    if (limit === undefined) return rows;
+    return rows.slice(offset, offset + limit);
+  },
+
+  async count(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+  }) {
+    return productRepository.filterListItems(filters).length;
   },
   async createProduct(data: typeof schema.products.$inferInsert) {
     const product = row({
@@ -498,6 +533,9 @@ export const productRepository = {
     getState().products.push(product);
     return product;
   },
+  async getById(id: number) {
+    return getState().products.find((product) => product.id === id) ?? null;
+  },
   async updateProduct(id: number, data: Partial<typeof schema.products.$inferInsert>) {
     const product = getState().products.find((p) => p.id === id);
     if (!product) throw new Error("Product not found");
@@ -505,6 +543,17 @@ export const productRepository = {
     return product;
   },
   async addStoreProduct(data: typeof schema.storeProducts.$inferInsert) {
+    const existing = getState().storeProducts.find(
+      (sp) =>
+        sp.storeId === data.storeId &&
+        sp.storeProductCode === data.storeProductCode,
+    );
+    if (existing) {
+      existing.productId = data.productId;
+      existing.isActive = data.isActive ?? true;
+      existing.updatedAt = now();
+      return existing;
+    }
     const sp = row({
       id: genId(),
       storeId: data.storeId,
@@ -517,6 +566,9 @@ export const productRepository = {
     getState().storeProducts.push(sp);
     return sp;
   },
+  async upsertStoreProduct(data: typeof schema.storeProducts.$inferInsert) {
+    return productRepository.addStoreProduct(data);
+  },
   async addBarcode(data: typeof schema.productBarcodes.$inferInsert) {
     const bc = row({
       id: genId(),
@@ -526,6 +578,11 @@ export const productRepository = {
     });
     getState().barcodes.push(bc);
     return bc;
+  },
+  async addBarcodeIfAbsent(data: typeof schema.productBarcodes.$inferInsert) {
+    const existing = getState().barcodes.find((b) => b.barcode === data.barcode);
+    if (existing) return null;
+    return productRepository.addBarcode(data);
   },
   async addSupplierProduct(data: typeof schema.supplierProducts.$inferInsert) {
     const sp = row({
@@ -559,6 +616,16 @@ export const productRepository = {
       ) ?? null
     );
   },
+  async findMspStoreProductByCode(code: string) {
+    const state = getState();
+    const storeProduct = state.storeProducts.find((sp) => {
+      const store = state.stores.find((s) => s.id === sp.storeId);
+      return store?.erpType === "msp" && sp.storeProductCode === code;
+    });
+    if (!storeProduct) return null;
+    const product = state.products.find((p) => p.id === storeProduct.productId)!;
+    return { storeProduct, product };
+  },
   async findStoreProductByBarcode(storeId: number, barcode: string) {
     const state = getState();
     const bc = state.barcodes.find((b) => b.barcode === barcode);
@@ -585,8 +652,22 @@ export const productRepository = {
       ) ?? null
     );
   },
-  async getDepartments() {
-    return [...new Set(getState().products.map((p) => p.department))].sort();
+  async getDepartments(storeId?: number) {
+    const state = getState();
+    const productIds = storeId
+      ? new Set(
+          state.storeProducts
+            .filter((sp) => sp.storeId === storeId)
+            .map((sp) => sp.productId),
+        )
+      : null;
+    return [
+      ...new Set(
+        state.products
+          .filter((p) => !productIds || productIds.has(p.id))
+          .map((p) => p.department),
+      ),
+    ].sort();
   },
 };
 

@@ -4,20 +4,20 @@ import { getDb } from "./client";
 import { stores, suppliers } from "./schema";
 
 const STORE_SEED = [
-  { id: 1, name: "Sudbury", code: "SBH", erpType: "msp" as const },
+  { id: 1, name: "Sudbury", code: "SBH", erpType: "glopos" as const },
   { id: 2, name: "Hounslow", code: "HNS", erpType: "msp" as const },
   { id: 3, name: "Perivale", code: "PVL", erpType: "msp" as const },
   { id: 4, name: "Hayes", code: "HYS", erpType: "msp" as const },
   { id: 5, name: "Gravesend", code: "GRV", erpType: "msp" as const },
   { id: 6, name: "Streatham", code: "STR", erpType: "msp" as const },
-  { id: 7, name: "Eastham", code: "EAS", erpType: "glopos" as const },
+  { id: 7, name: "Eastham", code: "EAS", erpType: "msp" as const },
   { id: 8, name: "Watford", code: "WTF", erpType: "msp" as const },
   { id: 9, name: "Mitcham", code: "MIT", erpType: "glopos" as const },
 ] as const;
 const SUPPLIER_SEED = [
-  { id: 1, name: "MM", code: "MM" },
-  { id: 2, name: "SP", code: "SP" },
-  { id: 3, name: "WAB", code: "WAB" },
+  { id: 1, name: "Master Media", code: "MM" },
+  { id: 2, name: "Spizarnia", code: "SP" },
+  { id: 3, name: "Wabar", code: "WAB" },
 ] as const;
 
 async function seed() {

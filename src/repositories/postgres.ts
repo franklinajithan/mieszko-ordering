@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   dailySales,
@@ -77,22 +77,12 @@ export const supplierRepository = {
 };
 
 export const productRepository = {
-  async list(filters?: {
+  buildListConditions(filters?: {
     storeId?: number;
     department?: string;
     isActive?: boolean;
+    search?: string;
   }) {
-    let query = db
-      .select({
-        product: products,
-        storeProduct: storeProducts,
-        store: stores,
-      })
-      .from(products)
-      .innerJoin(storeProducts, eq(storeProducts.productId, products.id))
-      .innerJoin(stores, eq(stores.id, storeProducts.storeId))
-      .$dynamic();
-
     const conditions = [];
     if (filters?.storeId) {
       conditions.push(eq(storeProducts.storeId, filters.storeId));
@@ -104,17 +94,84 @@ export const productRepository = {
       conditions.push(eq(products.isActive, filters.isActive));
       conditions.push(eq(storeProducts.isActive, filters.isActive));
     }
+    const search = filters?.search?.trim();
+    if (search) {
+      const pattern = `%${search}%`;
+      conditions.push(
+        or(
+          ilike(products.name, pattern),
+          ilike(storeProducts.storeProductCode, pattern),
+        )!,
+      );
+    }
+    return conditions;
+  },
 
+  async list(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    let query = db
+      .select({
+        product: products,
+        storeProduct: storeProducts,
+        store: stores,
+      })
+      .from(storeProducts)
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .innerJoin(stores, eq(stores.id, storeProducts.storeId))
+      .$dynamic();
+
+    const conditions = productRepository.buildListConditions(filters);
     if (conditions.length) {
       query = query.where(and(...conditions));
     }
 
-    return query.orderBy(products.name);
+    query = query.orderBy(storeProducts.storeProductCode);
+
+    if (filters?.limit !== undefined) {
+      query = query.limit(filters.limit);
+    }
+    if (filters?.offset !== undefined) {
+      query = query.offset(filters.offset);
+    }
+
+    return query;
+  },
+
+  async count(filters?: {
+    storeId?: number;
+    department?: string;
+    isActive?: boolean;
+    search?: string;
+  }) {
+    let query = db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(storeProducts)
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .$dynamic();
+
+    const conditions = productRepository.buildListConditions(filters);
+    if (conditions.length) {
+      query = query.where(and(...conditions));
+    }
+
+    const [row] = await query;
+    return row?.count ?? 0;
   },
 
   async createProduct(data: typeof products.$inferInsert) {
     const [row] = await db.insert(products).values(data).returning();
     return row;
+  },
+
+  async getById(id: number) {
+    const [row] = await db.select().from(products).where(eq(products.id, id));
+    return row ?? null;
   },
 
   async updateProduct(id: number, data: Partial<typeof products.$inferInsert>) {
@@ -131,9 +188,96 @@ export const productRepository = {
     return row;
   },
 
+  async upsertStoreProduct(data: typeof storeProducts.$inferInsert) {
+    const [row] = await db
+      .insert(storeProducts)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [storeProducts.storeId, storeProducts.storeProductCode],
+        set: {
+          productId: data.productId,
+          isActive: data.isActive ?? true,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  },
+
   async addBarcode(data: typeof productBarcodes.$inferInsert) {
     const [row] = await db.insert(productBarcodes).values(data).returning();
     return row;
+  },
+
+  async addBarcodeIfAbsent(data: typeof productBarcodes.$inferInsert) {
+    const [row] = await db
+      .insert(productBarcodes)
+      .values(data)
+      .onConflictDoNothing({ target: productBarcodes.barcode })
+      .returning();
+    return row ?? null;
+  },
+
+  async listStoreProductsForStore(storeId: number) {
+    return db
+      .select({
+        storeProduct: storeProducts,
+        product: products,
+      })
+      .from(storeProducts)
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .where(eq(storeProducts.storeId, storeId));
+  },
+
+  async listMspStoreProductsByCodes(codes: string[]) {
+    if (!codes.length) return [];
+    return db
+      .select({
+        storeProduct: storeProducts,
+        product: products,
+      })
+      .from(storeProducts)
+      .innerJoin(stores, eq(stores.id, storeProducts.storeId))
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .where(
+        and(eq(stores.erpType, "msp"), inArray(storeProducts.storeProductCode, codes)),
+      );
+  },
+
+  async createProductsBatch(data: Array<typeof products.$inferInsert>) {
+    if (!data.length) return [];
+    return db.insert(products).values(data).returning();
+  },
+
+  async upsertStoreProductsBatch(data: Array<typeof storeProducts.$inferInsert>) {
+    if (!data.length) return [];
+    return db
+      .insert(storeProducts)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [storeProducts.storeId, storeProducts.storeProductCode],
+        set: {
+          productId: sql`excluded.product_id`,
+          isActive: sql`excluded.is_active`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+  },
+
+  async listBarcodeSet() {
+    const rows = await db
+      .select({ barcode: productBarcodes.barcode })
+      .from(productBarcodes);
+    return new Set(rows.map((row) => row.barcode));
+  },
+
+  async insertBarcodesBatch(data: Array<typeof productBarcodes.$inferInsert>) {
+    if (!data.length) return [];
+    return db
+      .insert(productBarcodes)
+      .values(data)
+      .onConflictDoNothing({ target: productBarcodes.barcode });
   },
 
   async addSupplierProduct(data: typeof supplierProducts.$inferInsert) {
@@ -166,6 +310,20 @@ export const productRepository = {
           eq(storeProducts.storeProductCode, code),
         ),
       );
+    return row ?? null;
+  },
+
+  async findMspStoreProductByCode(code: string) {
+    const [row] = await db
+      .select({
+        storeProduct: storeProducts,
+        product: products,
+      })
+      .from(storeProducts)
+      .innerJoin(stores, eq(stores.id, storeProducts.storeId))
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .where(and(eq(stores.erpType, "msp"), eq(storeProducts.storeProductCode, code)))
+      .limit(1);
     return row ?? null;
   },
 
@@ -203,7 +361,17 @@ export const productRepository = {
     return row?.storeProduct ?? null;
   },
 
-  async getDepartments() {
+  async getDepartments(storeId?: number) {
+    if (storeId) {
+      const rows = await db
+        .selectDistinct({ department: products.department })
+        .from(storeProducts)
+        .innerJoin(products, eq(products.id, storeProducts.productId))
+        .where(eq(storeProducts.storeId, storeId))
+        .orderBy(products.department);
+      return rows.map((r) => r.department);
+    }
+
     const rows = await db
       .selectDistinct({ department: products.department })
       .from(products)
