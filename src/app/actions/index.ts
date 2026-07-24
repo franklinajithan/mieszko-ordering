@@ -14,6 +14,16 @@ import { importDepartmentRows } from "@/services/department-import.service";
 import { importDailySalesRows } from "@/services/daily-sales-import.service";
 import { importBookStockRows } from "@/services/book-stock-import.service";
 import {
+  importRtcRows,
+  listRtcImportsForStore,
+  type RtcImportSummary,
+} from "@/services/rtc-import.service";
+import {
+  importWastageRows,
+  listWastageImportsForStore,
+  type WastageImportSummary,
+} from "@/services/wastage-import.service";
+import {
   applyBookStockImportToOrder,
   getLatestBookStockSummary,
   listBookStockImportsForStore,
@@ -64,6 +74,8 @@ import {
   barcodeSchema,
   applyStoredBookStockSchema,
   bookStockImportSchema,
+  rtcImportSchema,
+  wastageImportSchema,
   calculateOrderSchema,
   createOrderSchema,
   createProductSchema,
@@ -497,6 +509,116 @@ export async function importBookStock(
   const result = await importBookStockRows({ ...meta.data, rows, erpType });
   revalidatePath("/book-stock");
   return { success: true, data: result };
+}
+
+export async function importRtc(
+  formData: FormData,
+): Promise<ActionResult<ImportResult & { importId: number }>> {
+  const file = formData.get("file") as File | null;
+  if (!file) return { success: false, error: "No file uploaded" };
+
+  const meta = rtcImportSchema.safeParse({
+    storeId: formData.get("storeId"),
+    rtcDate: formData.get("rtcDate"),
+    referenceColumn: formData.get("referenceColumn"),
+    quantityColumn: formData.get("quantityColumn"),
+    fileName: file.name,
+  });
+
+  if (!meta.success) return { success: false, error: meta.error.message };
+
+  const store = await storeRepository.getById(meta.data.storeId);
+  if (!store) return { success: false, error: "Store not found" };
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { headers, rows } = await parseAllRows(buffer, file.name);
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const fileErpType = detectBookStockFileErpType(headers);
+  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+  if (mismatch) return { success: false, error: mismatch };
+
+  if (isDemoMode()) {
+    return {
+      success: true,
+      data: { ...demoImportResult(rows.length), importId: Date.now() },
+    };
+  }
+
+  const result = await importRtcRows({
+    ...meta.data,
+    rows,
+    erpType: storeErpType,
+  });
+  revalidatePath("/rtc");
+  return { success: true, data: result };
+}
+
+export async function listRtcImports(
+  storeId: number,
+): Promise<ActionResult<RtcImportSummary[]>> {
+  const parsed = idSchema.safeParse(storeId);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+  if (isDemoMode()) {
+    return { success: true, data: [] };
+  }
+  const imports = await listRtcImportsForStore(parsed.data);
+  return { success: true, data: imports };
+}
+
+export async function importWastage(
+  formData: FormData,
+): Promise<ActionResult<ImportResult & { importId: number }>> {
+  const file = formData.get("file") as File | null;
+  if (!file) return { success: false, error: "No file uploaded" };
+
+  const meta = wastageImportSchema.safeParse({
+    storeId: formData.get("storeId"),
+    wastageDate: formData.get("wastageDate"),
+    referenceColumn: formData.get("referenceColumn"),
+    quantityColumn: formData.get("quantityColumn"),
+    fileName: file.name,
+  });
+
+  if (!meta.success) return { success: false, error: meta.error.message };
+
+  const store = await storeRepository.getById(meta.data.storeId);
+  if (!store) return { success: false, error: "Store not found" };
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { headers, rows } = await parseAllRows(buffer, file.name);
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const fileErpType = detectBookStockFileErpType(headers);
+  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+  if (mismatch) return { success: false, error: mismatch };
+
+  if (isDemoMode()) {
+    return {
+      success: true,
+      data: { ...demoImportResult(rows.length), importId: Date.now() },
+    };
+  }
+
+  const result = await importWastageRows({
+    ...meta.data,
+    rows,
+    erpType: storeErpType,
+  });
+  revalidatePath("/wastage");
+  return { success: true, data: result };
+}
+
+export async function listWastageImports(
+  storeId: number,
+): Promise<ActionResult<WastageImportSummary[]>> {
+  const parsed = idSchema.safeParse(storeId);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+  if (isDemoMode()) {
+    return { success: true, data: [] };
+  }
+  const imports = await listWastageImportsForStore(parsed.data);
+  return { success: true, data: imports };
 }
 
 export async function listBookStockImports(

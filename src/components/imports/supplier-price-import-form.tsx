@@ -4,6 +4,8 @@ import { useState } from "react";
 import { importSupplierPrices, previewUpload } from "@/app/actions";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
+import { DateField } from "@/components/ui/date-field";
+import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { detectKnownColumns } from "@/parsers/file-parser";
@@ -100,7 +102,7 @@ export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }
         </div>
         <div>
           <Label>CSV or XLSX file</Label>
-          <Input name="file" type="file" accept=".csv,.xlsx,.xls" required />
+          <FileUploadField name="file" accept=".csv,.xlsx,.xls" required />
         </div>
         <div className="md:col-span-2">
           <Button type="submit">Preview file</Button>
@@ -136,8 +138,7 @@ export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }
             </div>
             <div>
               <Label>Effective date</Label>
-              <Input
-                type="date"
+              <DateField
                 value={effectiveDate}
                 onChange={(e) => setEffectiveDate(e.target.value)}
               />

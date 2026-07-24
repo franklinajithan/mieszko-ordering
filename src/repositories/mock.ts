@@ -411,6 +411,8 @@ function seedState() {
     orderPriceSuppliers,
     orderSalesPeriods: [] as Array<typeof schema.orderSalesPeriods.$inferSelect>,
     bookStockImports: [] as Array<typeof schema.bookStockImports.$inferSelect>,
+    rtcImports: [] as Array<typeof schema.rtcImports.$inferSelect>,
+    wastageImports: [] as Array<typeof schema.wastageImports.$inferSelect>,
   };
 }
 
@@ -805,6 +807,66 @@ export const bookStockRepository = {
   async listForStore(storeId: number) {
     return getState()
       .bookStockImports.filter((i) => i.storeId === storeId)
+      .sort((a, b) => b.importedAt.getTime() - a.importedAt.getTime());
+  },
+  async getItems() {
+    return [];
+  },
+  async countItems() {
+    return 0;
+  },
+};
+
+export const rtcRepository = {
+  async createImport(data: typeof schema.rtcImports.$inferInsert) {
+    const created = row({
+      id: genId(),
+      ...data,
+      fileName: data.fileName ?? null,
+      importedAt: now(),
+    });
+    getState().rtcImports.push(created);
+    return created;
+  },
+  async insertItems() {
+    return [];
+  },
+  async getImportById(importId: number) {
+    return getState().rtcImports.find((i) => i.id === importId) ?? null;
+  },
+  async listForStore(storeId: number) {
+    return getState()
+      .rtcImports.filter((i) => i.storeId === storeId)
+      .sort((a, b) => b.importedAt.getTime() - a.importedAt.getTime());
+  },
+  async getItems() {
+    return [];
+  },
+  async countItems() {
+    return 0;
+  },
+};
+
+export const wastageRepository = {
+  async createImport(data: typeof schema.wastageImports.$inferInsert) {
+    const created = row({
+      id: genId(),
+      ...data,
+      fileName: data.fileName ?? null,
+      importedAt: now(),
+    });
+    getState().wastageImports.push(created);
+    return created;
+  },
+  async insertItems() {
+    return [];
+  },
+  async getImportById(importId: number) {
+    return getState().wastageImports.find((i) => i.id === importId) ?? null;
+  },
+  async listForStore(storeId: number) {
+    return getState()
+      .wastageImports.filter((i) => i.storeId === storeId)
       .sort((a, b) => b.importedAt.getTime() - a.importedAt.getTime());
   },
   async getItems() {

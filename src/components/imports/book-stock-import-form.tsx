@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { importBookStock, listBookStockImports, previewUpload } from "@/app/actions";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
+import { DateField } from "@/components/ui/date-field";
+import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { detectBookStockColumns } from "@/parsers/file-parser";
@@ -204,9 +206,8 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
         </div>
         <div>
           <Label>Book-stock date</Label>
-          <Input
+          <DateField
             name="bookStockDate"
-            type="date"
             value={bookStockDate}
             onChange={(e) => setBookStockDate(e.target.value)}
             required
@@ -214,9 +215,8 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
         </div>
         <div className="md:col-span-2">
           <Label>BK file (CSV or XLSX)</Label>
-          <Input
+          <FileUploadField
             name="file"
-            type="file"
             accept=".csv,.xlsx,.xls"
             required
             onChange={onFileChange}

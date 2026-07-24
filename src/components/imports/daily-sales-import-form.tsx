@@ -4,6 +4,8 @@ import { useState, type ChangeEvent } from "react";
 import { importDailySales, previewDailySalesUpload } from "@/app/actions";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
+import { DateField } from "@/components/ui/date-field";
+import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { detectSalesColumns } from "@/parsers/file-parser";
@@ -185,9 +187,8 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
         </div>
         <div>
           <Label>CSV or XLSX file</Label>
-          <Input
+          <FileUploadField
             name="file"
-            type="file"
             accept=".csv,.xlsx,.xls"
             required
             onChange={onFileChange}
@@ -255,8 +256,7 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
             ) : null}
             <div>
               <Label>{isRetailFormat ? "Detected sales date" : "Manual sales date"}</Label>
-              <Input
-                type="date"
+              <DateField
                 value={manualSalesDate}
                 onChange={(e) => setManualSalesDate(e.target.value)}
                 required={isRetailFormat}

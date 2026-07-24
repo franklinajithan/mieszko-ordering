@@ -5,6 +5,7 @@ import { useState } from "react";
 import { importDepartments, previewUpload } from "@/app/actions";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
+import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { detectDepartmentColumns } from "@/parsers/file-parser";
@@ -66,7 +67,7 @@ export function DepartmentImportForm() {
       <form action={onPreview} className="grid gap-4 md:grid-cols-2">
         <div className="md:col-span-2">
           <Label>File</Label>
-          <Input name="file" type="file" accept=".csv,.xlsx,.xls" required />
+          <FileUploadField name="file" accept=".csv,.xlsx,.xls" required />
         </div>
         <Button type="submit" variant="outline">
           Preview columns

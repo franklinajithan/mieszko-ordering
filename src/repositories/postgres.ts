@@ -6,6 +6,10 @@ import {
   departments,
   bookStockImports,
   bookStockItems,
+  rtcImports,
+  rtcItems,
+  wastageImports,
+  wastageItems,
   orderItemSupplierPrices,
   orderItems,
   orders,
@@ -657,6 +661,88 @@ export const bookStockRepository = {
       .select({ count: sql<number>`count(*)::int` })
       .from(bookStockItems)
       .where(eq(bookStockItems.importId, importId));
+    return row?.count ?? 0;
+  },
+};
+
+export const rtcRepository = {
+  async createImport(data: typeof rtcImports.$inferInsert) {
+    const [row] = await db.insert(rtcImports).values(data).returning();
+    return row;
+  },
+
+  async insertItems(rows: Array<typeof rtcItems.$inferInsert>) {
+    if (!rows.length) return [];
+    return db.insert(rtcItems).values(rows).returning();
+  },
+
+  async getImportById(importId: number) {
+    const [row] = await db
+      .select()
+      .from(rtcImports)
+      .where(eq(rtcImports.id, importId));
+    return row ?? null;
+  },
+
+  async listForStore(storeId: number, limit = 50) {
+    return db
+      .select()
+      .from(rtcImports)
+      .where(eq(rtcImports.storeId, storeId))
+      .orderBy(desc(rtcImports.importedAt))
+      .limit(limit);
+  },
+
+  async getItems(importId: number) {
+    return db.select().from(rtcItems).where(eq(rtcItems.importId, importId));
+  },
+
+  async countItems(importId: number) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(rtcItems)
+      .where(eq(rtcItems.importId, importId));
+    return row?.count ?? 0;
+  },
+};
+
+export const wastageRepository = {
+  async createImport(data: typeof wastageImports.$inferInsert) {
+    const [row] = await db.insert(wastageImports).values(data).returning();
+    return row;
+  },
+
+  async insertItems(rows: Array<typeof wastageItems.$inferInsert>) {
+    if (!rows.length) return [];
+    return db.insert(wastageItems).values(rows).returning();
+  },
+
+  async getImportById(importId: number) {
+    const [row] = await db
+      .select()
+      .from(wastageImports)
+      .where(eq(wastageImports.id, importId));
+    return row ?? null;
+  },
+
+  async listForStore(storeId: number, limit = 50) {
+    return db
+      .select()
+      .from(wastageImports)
+      .where(eq(wastageImports.storeId, storeId))
+      .orderBy(desc(wastageImports.importedAt))
+      .limit(limit);
+  },
+
+  async getItems(importId: number) {
+    return db.select().from(wastageItems).where(eq(wastageItems.importId, importId));
+  },
+
+  async countItems(importId: number) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(wastageItems)
+      .where(eq(wastageItems.importId, importId));
     return row?.count ?? 0;
   },
 };

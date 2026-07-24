@@ -217,6 +217,22 @@ export const bookStockImportSchema = z.object({
   fileName: z.string().min(1),
 });
 
+export const rtcImportSchema = z.object({
+  storeId: idSchema,
+  rtcDate: z.string().date(),
+  referenceColumn: z.string().min(1),
+  quantityColumn: z.string().min(1),
+  fileName: z.string().min(1),
+});
+
+export const wastageImportSchema = z.object({
+  storeId: idSchema,
+  wastageDate: z.string().date(),
+  referenceColumn: z.string().min(1),
+  quantityColumn: z.string().min(1),
+  fileName: z.string().min(1),
+});
+
 export const applyStoredBookStockSchema = z.object({
   orderId: idSchema,
   importId: idSchema,

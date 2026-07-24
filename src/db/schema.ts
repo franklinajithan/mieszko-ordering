@@ -415,6 +415,60 @@ export const bookStockItems = pgTable("book_stock_items", {
 
 
 
+export const rtcImports = pgTable("rtc_imports", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  storeId: integer("store_id")
+    .notNull()
+    .references(() => stores.id),
+  rtcDate: date("rtc_date").notNull(),
+  fileName: varchar("file_name", { length: 500 }),
+  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
+  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
+  importedAt: timestamp("imported_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const rtcItems = pgTable("rtc_items", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  importId: integer("import_id")
+    .notNull()
+    .references(() => rtcImports.id, { onDelete: "cascade" }),
+  storeProductId: integer("store_product_id")
+    .notNull()
+    .references(() => storeProducts.id),
+  storeProductCode: varchar("store_product_code", { length: 100 }).notNull(),
+  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+});
+
+export const wastageImports = pgTable("wastage_imports", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  storeId: integer("store_id")
+    .notNull()
+    .references(() => stores.id),
+  wastageDate: date("wastage_date").notNull(),
+  fileName: varchar("file_name", { length: 500 }),
+  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
+  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
+  importedAt: timestamp("imported_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const wastageItems = pgTable("wastage_items", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  importId: integer("import_id")
+    .notNull()
+    .references(() => wastageImports.id, { onDelete: "cascade" }),
+  storeProductId: integer("store_product_id")
+    .notNull()
+    .references(() => storeProducts.id),
+  storeProductCode: varchar("store_product_code", { length: 100 }).notNull(),
+  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+});
+
+
+
 export const orders = pgTable("orders", {
 
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),

@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { exportHoDairyWithTemplate, exportOrder, updateFinalOrderQuantity } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/utils/format";
 
@@ -113,8 +114,15 @@ export function OrderReviewTable({
         <Button type="button" onClick={onExport} disabled={isPending}>
           Export to Excel
         </Button>
-        <form action={onExportHoDairyTemplate} className="flex items-center gap-2">
-          <Input name="template" type="file" accept=".xlsx,.xls" required />
+        <form action={onExportHoDairyTemplate} className="flex flex-wrap items-center gap-2">
+          <FileUploadField
+            name="template"
+            accept=".xlsx,.xls"
+            required
+            variant="compact"
+            hint="Excel template (.xlsx, .xls)"
+            className="min-w-[220px] max-w-sm flex-1"
+          />
           <Button type="submit" variant="outline" disabled={isPending}>
             Fill HO Dairy template
           </Button>

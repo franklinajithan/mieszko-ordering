@@ -20,6 +20,7 @@ import {
   parseProductFileBuffer,
 } from "@/parsers/product-file-parser";
 import { Button } from "@/components/ui/button";
+import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ImportResult } from "@/types";
@@ -385,9 +386,8 @@ export function ProductForms({
         </div>
         <div>
           <Label>File</Label>
-          <Input
+          <FileUploadField
             name="file"
-            type="file"
             accept=".csv,.xlsx,.xls"
             required
             onChange={onImportFileChange}

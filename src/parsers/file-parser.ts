@@ -204,6 +204,54 @@ export function detectBookStockColumns(
   return { referenceColumn, quantityColumn };
 }
 
+export function detectRtcColumns(
+  headers: string[],
+  erpType: ErpType = "msp",
+): {
+  referenceColumn: string | null;
+  quantityColumn: string | null;
+} {
+  const lower = headers.map((h) => h.toLowerCase());
+  const findHeader = (patterns: string[]) => {
+    const idx = lower.findIndex((h) => patterns.some((p) => h.includes(p)));
+    return idx >= 0 ? headers[idx] : null;
+  };
+
+  const rtcQty =
+    findHeader(["rtc qty", "rtc quantity", "reduce qty", "clear qty"]) ??
+    findHeader(["rtc", "reduce", "clear"]);
+
+  const bookStock = detectBookStockColumns(headers, erpType);
+  return {
+    referenceColumn: bookStock.referenceColumn,
+    quantityColumn: rtcQty ?? bookStock.quantityColumn,
+  };
+}
+
+export function detectWastageColumns(
+  headers: string[],
+  erpType: ErpType = "msp",
+): {
+  referenceColumn: string | null;
+  quantityColumn: string | null;
+} {
+  const lower = headers.map((h) => h.toLowerCase());
+  const findHeader = (patterns: string[]) => {
+    const idx = lower.findIndex((h) => patterns.some((p) => h.includes(p)));
+    return idx >= 0 ? headers[idx] : null;
+  };
+
+  const wastageQty =
+    findHeader(["wastage qty", "wastage quantity", "waste qty", "waste quantity"]) ??
+    findHeader(["wastage", "waste"]);
+
+  const bookStock = detectBookStockColumns(headers, erpType);
+  return {
+    referenceColumn: bookStock.referenceColumn,
+    quantityColumn: wastageQty ?? bookStock.quantityColumn,
+  };
+}
+
 export function detectSalesColumns(headers: string[]): {
   productColumn: string | null;
   dateColumn: string | null;

@@ -14,6 +14,8 @@ import { ImportSummary } from "@/components/layout/app-shell";
 import { DepartmentFilterDropdown } from "@/components/orders/department-filter-dropdown";
 import { OrderBookStockSection } from "@/components/orders/order-book-stock-section";
 import { Button } from "@/components/ui/button";
+import { DateField } from "@/components/ui/date-field";
+import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ImportResult } from "@/types";
@@ -162,11 +164,11 @@ export function OrderWizard({
           </div>
           <div>
             <Label>Book-stock date</Label>
-            <Input name="bookStockDate" type="date" required />
+            <DateField name="bookStockDate" required />
           </div>
           <div>
             <Label>Client delivery date</Label>
-            <Input name="clientDeliveryDate" type="date" required />
+            <DateField name="clientDeliveryDate" required />
           </div>
           <DepartmentFilterDropdown
             departments={departments}
@@ -199,11 +201,11 @@ export function OrderWizard({
               </div>
               <div>
                 <Label>Start</Label>
-                <Input name={`${key}_start`} type="date" required={required} />
+                <DateField name={`${key}_start`} required={required} variant="compact" />
               </div>
               <div>
                 <Label>End</Label>
-                <Input name={`${key}_end`} type="date" required={required} />
+                <DateField name={`${key}_end`} required={required} variant="compact" />
               </div>
             </div>
           ))}
@@ -318,7 +320,7 @@ function StockUploadSection({
       <div className="grid gap-3 md:grid-cols-2">
         <div>
           <Label>File</Label>
-          <Input name="file" type="file" accept=".csv,.xlsx,.xls" required />
+          <FileUploadField name="file" accept=".csv,.xlsx,.xls" required />
         </div>
         <div>
           <Label>Mapping type</Label>
@@ -361,7 +363,7 @@ function StockUploadSection({
         {requireDeliveryDate ? (
           <div>
             <Label>Delivery date</Label>
-            <Input name="deliveryDate" type="date" required />
+            <DateField name="deliveryDate" required />
           </div>
         ) : null}
       </div>

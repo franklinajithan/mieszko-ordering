@@ -7,6 +7,7 @@ import {
   uploadOrderStockFile,
 } from "@/app/actions";
 import { Button } from "@/components/ui/button";
+import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BOOK_STOCK_COLUMNS, type ErpType, type ImportResult } from "@/types";
@@ -219,9 +220,8 @@ export function OrderBookStockSection({
         <form action={handleUpload} className="grid gap-3 md:grid-cols-2">
           <div>
             <Label>BK file</Label>
-            <Input
+            <FileUploadField
               name="file"
-              type="file"
               accept=".csv,.xlsx,.xls"
               required
               onChange={onUploadFileChange}
