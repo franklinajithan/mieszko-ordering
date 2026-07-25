@@ -1,19 +1,7 @@
 import ExcelJS from "exceljs";
-import { isDemoMode } from "@/lib/runtime-config";
-
-type OrderRepo =
-  | typeof import("@/repositories/postgres").orderRepository
-  | typeof import("@/repositories/mock").orderRepository;
-
-async function getOrderRepo(): Promise<OrderRepo> {
-  if (isDemoMode()) {
-    return (await import("@/repositories/mock")).orderRepository;
-  }
-  return (await import("@/repositories/postgres")).orderRepository;
-}
+import { orderRepository } from "@/repositories";
 
 export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
-  const orderRepository = await getOrderRepo();
   const order = await orderRepository.getById(orderId);
   if (!order) throw new Error("Order not found");
 

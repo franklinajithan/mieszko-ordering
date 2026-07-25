@@ -8,8 +8,7 @@ import {
   TrendingUp,
   Truck,
 } from "lucide-react";
-import { AppShell, NavCard, StatCard } from "@/components/layout/app-shell";
-import { MOCK_DEMO_ORDER_ID } from "@/repositories";
+import { AppShell, NavCard } from "@/components/layout/app-shell";
 
 export function HomePageView() {
   return (
@@ -38,19 +37,13 @@ export function HomePageView() {
                 Start new order
               </Link>
               <Link
-                href={`/orders/${MOCK_DEMO_ORDER_ID}`}
+                href="/orders"
                 className="inline-flex items-center rounded-lg border border-white/30 bg-white/10 px-4 py-2.5 text-sm font-medium text-white backdrop-blur transition hover:bg-white/20"
               >
-                View sample order
+                Order history
               </Link>
             </div>
           </div>
-        </section>
-
-        <section className="grid gap-4 sm:grid-cols-3">
-          <StatCard label="Active products" value="3" hint="Demo catalog" />
-          <StatCard label="Suppliers" value="3" hint="MM, SP, WAB" />
-          <StatCard label="Orders" value="1" hint="Sample calculated order" />
         </section>
 
         <section>

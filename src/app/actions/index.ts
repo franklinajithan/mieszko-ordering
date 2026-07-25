@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { isDemoMode } from "@/lib/runtime-config";
 import {
   departmentRepository,
   orderRepository,
@@ -106,25 +105,6 @@ import {
   idSchema,
 } from "@/validators/schemas";
 
-function demoImportResult(rowCount: number): ImportResult {
-  const matched = Math.max(0, rowCount - 1);
-  return {
-    totalRows: rowCount,
-    matchedRows: matched,
-    unmatchedRows: rowCount > matched ? 1 : 0,
-    invalidRows: 0,
-    errors:
-      rowCount > matched
-        ? [
-            {
-              rowNumber: 2,
-              reference: "DEMO-001",
-              message: "Demo mode: unmatched example row",
-            },
-          ]
-        : [],
-  };
-}
 
 export async function toggleStoreActive(
   id: number,
@@ -223,9 +203,6 @@ export async function importDepartments(
   const buffer = Buffer.from(await file.arrayBuffer());
   const { rows } = await parseAllRows(buffer, file.name);
 
-  if (isDemoMode() && rows.length === 0) {
-    return { success: true, data: demoImportResult(0) };
-  }
 
   const result = await importDepartmentRows(rows, {
     nameColumn: parsedMeta.data.nameColumn,
@@ -498,12 +475,6 @@ export async function importDailySales(
   const mismatch = validateErpFileMatch(fileErpType, storeErpType);
   if (mismatch) return { success: false, error: mismatch };
 
-  if (isDemoMode()) {
-    return {
-      success: true,
-      data: { ...demoImportResult(rows.length), duplicateRows },
-    };
-  }
 
   const result = await importDailySalesRows({ ...importMeta, rows });
   revalidatePath("/daily-sales");
@@ -528,9 +499,6 @@ export async function importSupplierPrices(
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const { rows } = await parseAllRows(buffer, file.name);
-  if (isDemoMode()) {
-    return { success: true, data: demoImportResult(rows.length) };
-  }
   const result = await importSupplierPriceRows({ ...meta.data, rows });
   return { success: true, data: result };
 }
@@ -562,12 +530,6 @@ export async function importBookStock(
   const mismatch = validateErpFileMatch(fileErpType, storeErpType);
   if (mismatch) return { success: false, error: mismatch };
 
-  if (isDemoMode()) {
-    return {
-      success: true,
-      data: { ...demoImportResult(rows.length), importId: Date.now() },
-    };
-  }
 
   const erpType = storeErpType;
 
@@ -604,12 +566,6 @@ export async function importRtc(
   const mismatch = validateErpFileMatch(fileErpType, storeErpType);
   if (mismatch) return { success: false, error: mismatch };
 
-  if (isDemoMode()) {
-    return {
-      success: true,
-      data: { ...demoImportResult(rows.length), importId: Date.now() },
-    };
-  }
 
   const result = await importRtcRows({
     ...meta.data,
@@ -625,9 +581,6 @@ export async function listRtcImports(
 ): Promise<ActionResult<RtcImportSummary[]>> {
   const parsed = idSchema.safeParse(storeId);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  if (isDemoMode()) {
-    return { success: true, data: [] };
-  }
   const imports = await listRtcImportsForStore(parsed.data);
   return { success: true, data: imports };
 }
@@ -660,12 +613,6 @@ export async function importWastage(
   const mismatch = validateErpFileMatch(fileErpType, storeErpType);
   if (mismatch) return { success: false, error: mismatch };
 
-  if (isDemoMode()) {
-    return {
-      success: true,
-      data: { ...demoImportResult(rows.length), importId: Date.now() },
-    };
-  }
 
   const result = await importWastageRows({
     ...meta.data,
@@ -681,9 +628,6 @@ export async function listWastageImports(
 ): Promise<ActionResult<WastageImportSummary[]>> {
   const parsed = idSchema.safeParse(storeId);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  if (isDemoMode()) {
-    return { success: true, data: [] };
-  }
   const imports = await listWastageImportsForStore(parsed.data);
   return { success: true, data: imports };
 }
@@ -716,12 +660,6 @@ export async function importPromo(
   const mismatch = validateErpFileMatch(fileErpType, storeErpType);
   if (mismatch) return { success: false, error: mismatch };
 
-  if (isDemoMode()) {
-    return {
-      success: true,
-      data: { ...demoImportResult(rows.length), importId: Date.now() },
-    };
-  }
 
   const result = await importPromoRows({
     ...meta.data,
@@ -737,9 +675,6 @@ export async function listPromoImports(
 ): Promise<ActionResult<PromoImportSummary[]>> {
   const parsed = idSchema.safeParse(storeId);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  if (isDemoMode()) {
-    return { success: true, data: [] };
-  }
   const imports = await listPromoImportsForStore(parsed.data);
   return { success: true, data: imports };
 }
@@ -749,9 +684,6 @@ export async function listBookStockImports(
 ): Promise<ActionResult<BookStockImportSummary[]>> {
   const parsed = idSchema.safeParse(storeId);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  if (isDemoMode()) {
-    return { success: true, data: [] };
-  }
   const imports = await listBookStockImportsForStore(parsed.data);
   return { success: true, data: imports };
 }
@@ -761,9 +693,6 @@ export async function getLatestBookStockForStore(
 ): Promise<ActionResult<LatestBookStockSummary | null>> {
   const parsed = idSchema.safeParse(storeId);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  if (isDemoMode()) {
-    return { success: true, data: null };
-  }
   const summary = await getLatestBookStockSummary(parsed.data);
   return { success: true, data: summary };
 }
@@ -773,12 +702,6 @@ export async function applyStoredBookStockToOrder(
 ): Promise<ActionResult<ImportResult & { uploadId: number }>> {
   const parsed = applyStoredBookStockSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  if (isDemoMode()) {
-    return {
-      success: true,
-      data: { ...demoImportResult(10), uploadId: Date.now() },
-    };
-  }
   const result = await applyBookStockImportToOrder(parsed.data);
   return { success: true, data: result };
 }
@@ -860,12 +783,6 @@ export async function uploadOrderStockFile(
     if (mismatch) return { success: false, error: mismatch };
   }
 
-  if (isDemoMode()) {
-    return {
-      success: true,
-      data: { ...demoImportResult(rows.length), uploadId: Date.now() },
-    };
-  }
   const result = await processStockUpload({
     ...meta.data,
     storeId: order.storeId,
@@ -881,12 +798,6 @@ export async function calculateOrderAction(
 ): Promise<ActionResult> {
   const parsed = calculateOrderSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  if (isDemoMode()) {
-    const mock = await import("@/repositories/mock");
-    await mock.orderRepository.simulateCalculate(parsed.data.orderId);
-    revalidatePath(`/orders/${parsed.data.orderId}`);
-    return { success: true, data: undefined };
-  }
   await calculateOrder(parsed.data.orderId);
   return { success: true, data: undefined };
 }
@@ -908,7 +819,7 @@ export async function updateFinalOrderQuantity(
     : null;
 
   await orderRepository.updateFinalQuantity(parsed.data.orderItemId, parsed.data.finalOrderQty);
-  if (!isDemoMode() && estimatedLineCost !== null) {
+  if (estimatedLineCost !== null) {
     const { db } = await import("@/db");
     const { orderItems } = await import("@/db/schema");
     const { eq } = await import("drizzle-orm");
@@ -1000,9 +911,6 @@ export async function importProducts(
   const mismatch = validateErpFileMatch(fileErpType, storeErpType);
   if (mismatch) return { success: false, error: mismatch };
 
-  if (isDemoMode()) {
-    return { success: true, data: demoImportResult(rows.length) };
-  }
 
   const result = await importProductRows({
     storeId: parsedStoreId.data,
@@ -1050,18 +958,6 @@ async function createProductImportJob(input: {
   const mismatch = validateErpFileMatch(fileErpType, storeErpType);
   if (mismatch) return { success: false, error: mismatch };
 
-  if (isDemoMode()) {
-    return {
-      success: true,
-      data: {
-        jobId: "demo",
-        totalRows: input.rows.length,
-        fileName: input.fileName,
-        storeName: store.name,
-        batchSize: IMPORT_JOB_BATCH_SIZE,
-      },
-    };
-  }
 
   const prepared = await prepareProductImportJob({
     storeId: input.storeId,
@@ -1155,17 +1051,6 @@ export async function runProductImportBatch(input: {
   jobId: string;
   batchIndex: number;
 }): Promise<ActionResult<ProductImportBatchStatus>> {
-  if (isDemoMode()) {
-    return {
-      success: true,
-      data: {
-        processed: input.batchIndex + 1,
-        total: 1,
-        done: true,
-        result: demoImportResult(100),
-      },
-    };
-  }
 
   const job = getProductImportJob(input.jobId);
   if (!job) {
@@ -1204,9 +1089,6 @@ export async function runProductImportBatch(input: {
 export async function finishProductImport(
   jobId: string,
 ): Promise<ActionResult<ImportResult>> {
-  if (isDemoMode()) {
-    return { success: true, data: demoImportResult(100) };
-  }
 
   const job = getProductImportJob(jobId);
   if (!job) {

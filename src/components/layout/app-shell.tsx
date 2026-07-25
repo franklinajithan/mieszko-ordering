@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight } from "lucide-react";
-import { isDemoMode } from "@/lib/runtime-config";
 import { DesktopSidebar, MobileSidebar } from "@/components/layout/sidebar";
 import { cn } from "@/utils/cn";
 
@@ -19,14 +18,6 @@ export function AppShell({
       <DesktopSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {isDemoMode() ? (
-          <div className="border-b border-amber-200/80 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-2 text-center text-sm text-amber-950">
-            <span className="font-medium">Demo mode</span> — sample data only. Add{" "}
-            <code className="rounded bg-white/80 px-1.5 py-0.5 text-xs">DATABASE_URL</code> to
-            persist changes.
-          </div>
-        ) : null}
-
         <header className="sticky top-0 z-10 border-b border-zinc-200/80 bg-white/80 px-4 py-4 backdrop-blur-md sm:px-6 lg:px-8">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">

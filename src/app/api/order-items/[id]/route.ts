@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { orderRepository } from "@/repositories";
-import { isDemoMode } from "@/lib/runtime-config";
 import { recalculateLineCost } from "@/services/supplier-price.service";
 import { decimalToDb, parseDbDecimal } from "@/utils/decimal";
 import { apiError, apiOk, numericParam, parseJson, route } from "@/lib/api/http";
@@ -32,7 +31,7 @@ export const PATCH = route(
       parsed.data.finalOrderQty,
     );
 
-    if (!isDemoMode() && estimatedLineCost !== null) {
+    if (estimatedLineCost !== null) {
       const { db } = await import("@/db");
       const { orderItems } = await import("@/db/schema");
       const { eq } = await import("drizzle-orm");

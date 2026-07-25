@@ -1,3 +1,6 @@
+export type { Store } from "./store";
+export type { Supplier } from "./supplier";
+
 export type ImportError = {
   rowNumber: number;
   reference: string | null;

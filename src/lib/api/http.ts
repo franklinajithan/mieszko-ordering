@@ -45,6 +45,17 @@ export async function parseJson<T>(
   return { ok: true, data: parsed.data };
 }
 
+/** Postgres unique_violation (23505), including drizzle "Failed query" wrappers. */
+export function isUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { code?: string; message?: string; cause?: unknown };
+  if (e.code === "23505") return true;
+  if (typeof e.message === "string" && /unique|duplicate key/i.test(e.message)) {
+    return true;
+  }
+  return isUniqueViolation(e.cause);
+}
+
 /** Wrap a route handler with uniform error handling. */
 export function route<Args extends unknown[]>(
   handler: (req: Request, ...args: Args) => Promise<NextResponse>,
@@ -53,8 +64,15 @@ export function route<Args extends unknown[]>(
     try {
       return await handler(req, ...args);
     } catch (error) {
+      if (isUniqueViolation(error)) {
+        return apiError("A record with this value already exists", 409);
+      }
       const message =
         error instanceof Error ? error.message : "Internal server error";
+      // Never leak raw SQL / drizzle "Failed query" text to the client.
+      if (/failed query|insert into|update "|select /i.test(message)) {
+        return apiError("Something went wrong. Please try again.", 500);
+      }
       return apiError(message, 500);
     }
   };

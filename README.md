@@ -11,7 +11,7 @@ Dairy ordering and supplier price comparison MVP built with Next.js App Router, 
 - Tailwind CSS
 - Vitest for calculation engine tests
 
-## Quick start (UI only — no database)
+## Quick start
 
 1. Install dependencies:
 
@@ -19,13 +19,26 @@ Dairy ordering and supplier price comparison MVP built with Next.js App Router, 
 npm install
 ```
 
-2. Create a `.env` file in the project root:
+2. Start PostgreSQL (Docker):
+
+```bash
+npm run db:up
+```
+
+3. Create a `.env` / `.env.local` file with your database URL:
 
 ```
-USE_MOCK_DATA=true
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mieszko
 ```
 
-3. Run the dev server:
+4. Apply schema and seed suppliers:
+
+```bash
+npm run db:push
+npm run db:seed
+```
+
+5. Run the dev server:
 
 ```bash
 npm run dev
@@ -33,11 +46,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The app runs in **demo mode** with sample stores, products, suppliers, and a pre-built order at `/orders/mock-order-demo-001`. A yellow banner confirms demo mode is active.
-
-## PostgreSQL (optional, later)
-
-When you are ready to persist data, set `DATABASE_URL` in `.env` and remove or set `USE_MOCK_DATA=false`:
+Without `DATABASE_URL`, the app redirects to `/setup` with configuration instructions.
 
 ## Scripts
 
@@ -46,6 +55,7 @@ When you are ready to persist data, set `DATABASE_URL` in `.env` and remove or s
 | `npm run dev` | Start development server |
 | `npm run build` | Production build |
 | `npm test` | Run unit tests |
+| `npm run db:up` | Start PostgreSQL via Docker Compose |
 | `npm run db:push` | Push Drizzle schema to database |
 | `npm run db:seed` | Seed MM, SP, WAB suppliers |
 
@@ -53,10 +63,10 @@ When you are ready to persist data, set `DATABASE_URL` in `.env` and remove or s
 
 ```
 src/
-  app/           Route handlers and server actions
+  app/           Route handlers and API routes
   components/    UI only — no business logic
   db/            Drizzle schema and connection
-  repositories/  Database access
+  repositories/  Database access (postgres/)
   services/      Business logic (stock sim, pricing, imports)
   parsers/       CSV/XLSX parsing
   validators/    Zod schemas

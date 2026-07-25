@@ -1,5 +1,4 @@
 import ExcelJS from "exceljs";
-import { isDemoMode } from "@/lib/runtime-config";
 import {
   dailySalesRepository,
   orderRepository,
@@ -29,23 +28,15 @@ function cellText(value: ExcelJS.CellValue): string {
   return String(value).trim();
 }
 
-async function getRepos() {
-  if (isDemoMode()) {
-    return import("@/repositories/mock");
-  }
-  return import("@/repositories/postgres");
-}
-
 export async function exportHoDairyOrderToExcel(orderId: number): Promise<Buffer> {
-  const repos = await getRepos();
-  const order = await repos.orderRepository.getById(orderId);
+  const order = await orderRepository.getById(orderId);
   if (!order) throw new Error("Order not found");
 
-  const [items, periods, dailySalesRepo] = await Promise.all([
-    repos.orderRepository.getOrderItemsWithDetails(orderId),
-    repos.orderRepository.getPeriods(orderId),
-    isDemoMode() ? null : dailySalesRepository,
+  const [items, periods] = await Promise.all([
+    orderRepository.getOrderItemsWithDetails(orderId),
+    orderRepository.getPeriods(orderId),
   ]);
+  const dailySalesRepo = dailySalesRepository;
 
   const itemByCode = new Map(
     items.map(({ item, storeProduct, product }) => [
@@ -165,13 +156,12 @@ export async function fillHoDairyTemplate(
   orderId: number,
   templateBuffer: Buffer,
 ): Promise<Buffer> {
-  const repos = await getRepos();
-  const order = await repos.orderRepository.getById(orderId);
+  const order = await orderRepository.getById(orderId);
   if (!order) throw new Error("Order not found");
 
   const [items, periods] = await Promise.all([
-    repos.orderRepository.getOrderItemsWithDetails(orderId),
-    repos.orderRepository.getPeriods(orderId),
+    orderRepository.getOrderItemsWithDetails(orderId),
+    orderRepository.getPeriods(orderId),
   ]);
 
   const itemByCode = new Map(
@@ -198,7 +188,7 @@ export async function fillHoDairyTemplate(
     ]),
   );
 
-  const dailySalesRepo = isDemoMode() ? null : dailySalesRepository;
+  const dailySalesRepo = dailySalesRepository;
 
   for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
     const row = sheet.getRow(rowNumber);
