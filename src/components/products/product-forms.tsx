@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { flushSync } from "react-dom";
@@ -36,10 +35,8 @@ type Store = { id: number; name: string; erpType: string };
 
 export function ProductForms({
   stores,
-  departments,
 }: {
   stores: Store[];
-  departments: string[];
 }) {
   const router = useRouter();
   const { updateProgress, resetStatus } = useProductImport();
@@ -305,28 +302,16 @@ export function ProductForms({
         </div>
         <div>
           <Label>Department</Label>
-          {departments.length > 0 ? (
-            <Select name="department" required defaultValue="">
-              <option value="" disabled>
-                Select department
-              </option>
-              {departments.map((department) => (
-                <option key={department} value={department}>
-                  {department}
-                </option>
-              ))}
-            </Select>
-          ) : (
-            <>
-              <Input name="department" required placeholder="Dairy" />
-              <p className="mt-1 text-xs text-zinc-500">
-                No departments configured yet.{" "}
-                <Link href="/departments" className="underline">
-                  Add departments
-                </Link>
-              </p>
-            </>
-          )}
+          <Input
+            name="department"
+            required
+            placeholder="e.g. Dairy"
+          />
+          <p className="mt-1 text-xs text-zinc-500">
+            Saved as the imported department and used as the initial order
+            department. You can change order department later on the product
+            list.
+          </p>
         </div>
         <div>
           <Label>Store</Label>

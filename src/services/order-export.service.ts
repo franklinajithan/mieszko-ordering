@@ -80,7 +80,7 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
     sheet.addRow([
       storeProduct.storeProductCode,
       product.name,
-      product.department,
+      product.orderDepartment ?? product.department,
       Number(item.period1Sales),
       Number(item.period2Sales),
       Number(item.period3Sales),

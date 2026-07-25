@@ -153,6 +153,25 @@ export const departmentRepository = {
     return row;
   },
 
+  /** Create the department if missing; reactivate if it exists but is inactive. */
+  async ensureByName(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+
+    const existing = await departmentRepository.getByName(trimmed);
+    if (existing) {
+      if (!existing.isActive) {
+        return departmentRepository.update(existing.id, { isActive: true });
+      }
+      return existing;
+    }
+
+    return departmentRepository.create({
+      name: trimmed,
+      isActive: true,
+    });
+  },
+
   async update(id: string, data: Partial<typeof departments.$inferInsert>) {
     await ensureDepartmentsTable();
     const existing = await departmentRepository.getById(id);
@@ -167,8 +186,8 @@ export const departmentRepository = {
     if (data.name && data.name !== existing.name) {
       await db
         .update(products)
-        .set({ department: data.name, updatedAt: new Date() })
-        .where(eq(products.department, existing.name));
+        .set({ orderDepartment: data.name, updatedAt: new Date() })
+        .where(eq(products.orderDepartment, existing.name));
     }
 
     return row;
@@ -206,7 +225,7 @@ export const productRepository = {
       conditions.push(eq(storeProducts.storeId, filters.storeId));
     }
     if (filters?.department) {
-      conditions.push(eq(products.department, filters.department));
+      conditions.push(eq(products.orderDepartment, filters.department));
     }
     if (filters?.isActive !== undefined) {
       conditions.push(eq(products.isActive, filters.isActive));
@@ -324,6 +343,19 @@ export const productRepository = {
       .where(eq(products.id, id))
       .returning();
     return row;
+  },
+
+  /** Assign ordering department only — never touches imported `department`. */
+  async assignOrderDepartment(id: number, orderDepartment: string | null) {
+    const [row] = await db
+      .update(products)
+      .set({
+        orderDepartment,
+        updatedAt: new Date(),
+      })
+      .where(eq(products.id, id))
+      .returning();
+    return row ?? null;
   },
 
   async addStoreProduct(data: typeof storeProducts.$inferInsert) {
@@ -969,7 +1001,7 @@ export const orderRepository = {
   async getStoreProductsForOrder(storeId: number, departments: string[]) {
     const conditions = [eq(storeProducts.storeId, storeId), eq(storeProducts.isActive, true)];
     if (departments.length) {
-      conditions.push(inArray(products.department, departments));
+      conditions.push(inArray(products.orderDepartment, departments));
     }
     return db
       .select({

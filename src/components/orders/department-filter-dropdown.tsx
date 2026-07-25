@@ -40,14 +40,14 @@ export function DepartmentFilterDropdown({
 
   const label =
     selected.length === 0
-      ? "All departments"
+      ? "All order departments"
       : selected.length === 1
         ? selected[0]
-        : `${selected.length} departments selected`;
+        : `${selected.length} order departments selected`;
 
   return (
     <div ref={containerRef} className="relative">
-      <Label>Department filters</Label>
+      <Label>Order department filters</Label>
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}

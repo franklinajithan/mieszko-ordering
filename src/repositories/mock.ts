@@ -169,6 +169,7 @@ function seedState() {
       id: 1,
       name: "Fresh Milk 2L",
       department: "Dairy",
+      orderDepartment: "Dairy",
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
@@ -177,6 +178,7 @@ function seedState() {
       id: 2,
       name: "Cheddar Block 400g",
       department: "Cheese",
+      orderDepartment: "Cheese",
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
@@ -185,6 +187,7 @@ function seedState() {
       id: 3,
       name: "Natural Yogurt 500g",
       department: "Dairy",
+      orderDepartment: null,
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
@@ -514,6 +517,23 @@ export const departmentRepository = {
     getState().departments.push(department);
     return department;
   },
+  async ensureByName(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+
+    const existing = await departmentRepository.getByName(trimmed);
+    if (existing) {
+      if (!existing.isActive) {
+        return departmentRepository.update(existing.id, { isActive: true });
+      }
+      return existing;
+    }
+
+    return departmentRepository.create({
+      name: trimmed,
+      isActive: true,
+    });
+  },
   async update(
     id: string,
     data: Partial<typeof schema.departments.$inferInsert>,
@@ -527,8 +547,8 @@ export const departmentRepository = {
 
     if (data.name && data.name !== previousName) {
       for (const product of state.products) {
-        if (product.department === previousName) {
-          product.department = data.name;
+        if (product.orderDepartment === previousName) {
+          product.orderDepartment = data.name;
           product.updatedAt = now();
         }
       }
@@ -565,7 +585,7 @@ export const productRepository = {
       }))
       .filter(({ storeProduct, product }) => {
         if (filters?.storeId && storeProduct.storeId !== filters.storeId) return false;
-        if (filters?.department && product.department !== filters.department) return false;
+        if (filters?.department && product.orderDepartment !== filters.department) return false;
         if (filters?.isActive !== undefined) {
           if (product.isActive !== filters.isActive) return false;
           if (storeProduct.isActive !== filters.isActive) return false;
@@ -634,11 +654,20 @@ export const productRepository = {
       id: genId(),
       name: data.name,
       department: data.department,
+      orderDepartment: data.orderDepartment ?? null,
       isActive: data.isActive ?? true,
       createdAt: now(),
       updatedAt: now(),
     });
     getState().products.push(product);
+    return product;
+  },
+
+  async assignOrderDepartment(id: number, orderDepartment: string | null) {
+    const product = getState().products.find((p) => p.id === id);
+    if (!product) return null;
+    product.orderDepartment = orderDepartment;
+    product.updatedAt = now();
     return product;
   },
   async getById(id: number) {

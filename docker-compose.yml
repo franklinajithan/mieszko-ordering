@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: mieszko-ordering-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mieszko
+      POSTGRES_PASSWORD: mieszko
+      POSTGRES_DB: mieszko_ordering
+    ports:
+      - "5432:5432"
+    volumes:
+      - mieszko_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mieszko -d mieszko_ordering"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mieszko_pg_data:

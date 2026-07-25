@@ -133,7 +133,7 @@ export async function exportHoDairyOrderToExcel(orderId: number): Promise<Buffer
       storeProduct.storeProductCode,
       "",
       product.name,
-      product.department,
+      product.orderDepartment ?? product.department,
       ...periodValues,
       ...dailyValues,
       Number(item.highestSoldQty),

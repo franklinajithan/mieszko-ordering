@@ -10,6 +10,7 @@ type ProductRow = {
     id: number;
     name: string;
     department: string;
+    orderDepartment: string | null;
     isActive: boolean;
   };
   storeProduct: {
@@ -109,6 +110,7 @@ export function ProductCatalogPanel({
       <div className="overflow-x-auto">
         <ProductListGrid
           products={products}
+          departments={departments}
           duplicateNames={duplicateNames}
           lineOffset={lineOffset}
           search={search}

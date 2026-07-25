@@ -30,7 +30,7 @@ type OrderItemRow = {
     warning: string | null;
   };
   storeProduct: { storeProductCode: string };
-  product: { name: string; department: string };
+  product: { name: string; department: string; orderDepartment: string | null };
 };
 
 type SupplierPriceRow = {
@@ -135,7 +135,7 @@ export function OrderReviewTable({
             <tr>
               <th className="px-2 py-2">Code</th>
               <th className="px-2 py-2">Product</th>
-              <th className="px-2 py-2">Dept</th>
+              <th className="px-2 py-2">Order dept</th>
               <th className="px-2 py-2">P1</th>
               <th className="px-2 py-2">P2</th>
               <th className="px-2 py-2">P3</th>
@@ -170,7 +170,9 @@ export function OrderReviewTable({
                 <tr key={item.id}>
                   <td className="px-2 py-2">{storeProduct.storeProductCode}</td>
                   <td className="px-2 py-2">{product.name}</td>
-                  <td className="px-2 py-2">{product.department}</td>
+                  <td className="px-2 py-2">
+                    {product.orderDepartment ?? "—"}
+                  </td>
                   <td className="px-2 py-2">{item.period1Sales}</td>
                   <td className="px-2 py-2">{item.period2Sales}</td>
                   <td className="px-2 py-2">{item.period3Sales}</td>

@@ -2,7 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { addBarcode, addSupplierProductMapping } from "@/app/actions";
+import {
+  addBarcode,
+  addSupplierProductMapping,
+  assignOrderDepartment,
+} from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,14 +17,24 @@ type SupplierProduct = {
   supplier: { code: string; name: string };
 };
 type Supplier = { id: number; code: string; name: string };
+type Product = {
+  id: number;
+  name: string;
+  department: string;
+  orderDepartment: string | null;
+};
 
 export function ProductDetailForms({
   productId,
+  product,
+  departments,
   barcodes,
   supplierProducts,
   suppliers,
 }: {
   productId: number;
+  product: Product;
+  departments: string[];
   barcodes: Barcode[];
   supplierProducts: SupplierProduct[];
   suppliers: Supplier[];
@@ -50,8 +64,49 @@ export function ProductDetailForms({
     else router.refresh();
   }
 
+  async function onOrderDepartment(formData: FormData) {
+    setError(null);
+    const value = String(formData.get("orderDepartment") ?? "").trim();
+    const result = await assignOrderDepartment({
+      productId,
+      orderDepartment: value || null,
+    });
+    if (!result.success) setError(result.error);
+    else router.refresh();
+  }
+
   return (
     <div className="grid gap-6 lg:grid-cols-2">
+      <section className="space-y-4 rounded-xl border bg-white p-4 lg:col-span-2">
+        <h2 className="font-semibold">Departments</h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label>Imported department</Label>
+            <Input value={product.department} readOnly className="bg-zinc-50" />
+            <p className="mt-1 text-xs text-zinc-500">
+              From ERP/import. Re-import updates this, not order department.
+            </p>
+          </div>
+          <form action={onOrderDepartment} className="space-y-2">
+            <div>
+              <Label>Order department</Label>
+              <Select
+                name="orderDepartment"
+                defaultValue={product.orderDepartment ?? ""}
+              >
+                <option value="">Unassigned</option>
+                {departments.map((department) => (
+                  <option key={department} value={department}>
+                    {department}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Button type="submit">Save order department</Button>
+          </form>
+        </div>
+      </section>
+
       <section className="space-y-4 rounded-xl border bg-white p-4">
         <h2 className="font-semibold">Barcodes</h2>
         <ul className="space-y-1 text-sm">

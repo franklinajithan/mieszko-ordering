@@ -99,6 +99,7 @@ import {
   updateOrderPeriodsSchema,
   updateOrderSuppliersSchema,
   updateProductSchema,
+  assignOrderDepartmentSchema,
   updateStoreSchema,
   updateSupplierSchema,
   updateDepartmentSchema,
@@ -295,7 +296,20 @@ export async function createProduct(
 ): Promise<ActionResult<{ id: number }>> {
   const parsed = createProductSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  const product = await productRepository.createProduct(parsed.data);
+
+  const department = parsed.data.department.trim();
+  const orderDepartment =
+    parsed.data.orderDepartment?.trim() || department;
+  await departmentRepository.ensureByName(orderDepartment);
+
+  const product = await productRepository.createProduct({
+    name: parsed.data.name,
+    department,
+    orderDepartment,
+    isActive: parsed.data.isActive,
+  });
+  revalidatePath("/products");
+  revalidatePath("/orders/new");
   return { success: true, data: { id: product.id } };
 }
 
@@ -303,7 +317,52 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
   const parsed = updateProductSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const { id, ...data } = parsed.data;
+
+  // Imported/source department can be edited manually, but order department is separate.
+  if (data.department !== undefined) {
+    data.department = data.department.trim();
+  }
+  if (data.orderDepartment !== undefined) {
+    const orderDepartment = data.orderDepartment?.trim() || null;
+    if (orderDepartment) {
+      await departmentRepository.ensureByName(orderDepartment);
+    }
+    data.orderDepartment = orderDepartment;
+  }
+
   await productRepository.updateProduct(id, data);
+  revalidatePath("/products");
+  revalidatePath("/orders/new");
+  return { success: true, data: undefined };
+}
+
+/** Assign ordering department without changing the imported department value. */
+export async function assignOrderDepartment(
+  input: unknown,
+): Promise<ActionResult> {
+  const parsed = assignOrderDepartmentSchema.safeParse(input);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+
+  const orderDepartment = parsed.data.orderDepartment?.trim() || null;
+  if (orderDepartment) {
+    const known = await departmentRepository.getByName(orderDepartment);
+    if (!known || !known.isActive) {
+      return {
+        success: false,
+        error: "Choose an active department from the departments list",
+      };
+    }
+  }
+
+  const updated = await productRepository.assignOrderDepartment(
+    parsed.data.productId,
+    orderDepartment,
+  );
+  if (!updated) return { success: false, error: "Product not found" };
+
+  revalidatePath("/products");
+  revalidatePath(`/products/${parsed.data.productId}`);
+  revalidatePath("/orders/new");
   return { success: true, data: undefined };
 }
 

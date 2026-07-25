@@ -67,7 +67,7 @@ export function ProductFilters({
   const chips = useMemo(() => {
     const items: Array<{ key: string; label: string }> = [];
     if (activeSearch) items.push({ key: "search", label: `Search: ${activeSearch}` });
-    if (activeDepartment) items.push({ key: "department", label: activeDepartment });
+    if (activeDepartment) items.push({ key: "department", label: `Order: ${activeDepartment}` });
     if (statusValue && statusValue !== "true") {
       items.push({
         key: "active",
@@ -121,13 +121,13 @@ export function ProductFilters({
           </div>
         </FilterField>
 
-        <FilterField label="Department">
+        <FilterField label="Order department">
           <Select
             defaultValue={searchParams.get("department") ?? ""}
             onChange={(e) => update("department", e.target.value)}
             disabled={!storeSelected}
           >
-            <option value="">All departments</option>
+            <option value="">All order departments</option>
             {departments.map((department) => (
               <option key={department} value={department}>
                 {department}

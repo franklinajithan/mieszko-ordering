@@ -106,7 +106,11 @@ export const products = pgTable("products", {
 
   name: varchar("name", { length: 500 }).notNull(),
 
+  /** Source/ERP department from import — never overwritten by order-department assignment. */
   department: varchar("department", { length: 100 }).notNull(),
+
+  /** App ordering department from the departments table; optional and independent of import. */
+  orderDepartment: varchar("order_department", { length: 100 }),
 
   isActive: boolean("is_active").notNull().default(true),
 

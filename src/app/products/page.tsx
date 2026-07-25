@@ -150,7 +150,7 @@ export default async function ProductsPage({
               </div>
             </div>
             <div className="p-5">
-              <ProductForms stores={stores} departments={departments} />
+              <ProductForms stores={stores} />
             </div>
           </section>
         </div>

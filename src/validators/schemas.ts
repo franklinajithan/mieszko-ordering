@@ -43,11 +43,17 @@ export const departmentImportSchema = z.object({
 export const createProductSchema = z.object({
   name: z.string().min(1).max(500),
   department: z.string().min(1).max(100),
+  orderDepartment: z.string().min(1).max(100).nullable().optional(),
   isActive: z.boolean().default(true),
 });
 
 export const updateProductSchema = createProductSchema.partial().extend({
   id: idSchema,
+});
+
+export const assignOrderDepartmentSchema = z.object({
+  productId: idSchema,
+  orderDepartment: z.string().min(1).max(100).nullable(),
 });
 
 export const storeProductSchema = z.object({
