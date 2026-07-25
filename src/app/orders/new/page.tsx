@@ -1,5 +1,4 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { OrderWizard } from "@/components/orders/order-wizard";
+import { NewOrderPageView } from "@/components/orders/new-order-page";
 import {
   departmentRepository,
   storeRepository,
@@ -14,11 +13,10 @@ export default async function NewOrderPage() {
   ]);
 
   return (
-    <AppShell
-      title="New Order"
-      description="Step through periods, supplier selection, stock uploads, and calculation."
-    >
-      <OrderWizard stores={stores} suppliers={suppliers} departments={departments} />
-    </AppShell>
+    <NewOrderPageView
+      stores={stores}
+      suppliers={suppliers}
+      departments={departments}
+    />
   );
 }

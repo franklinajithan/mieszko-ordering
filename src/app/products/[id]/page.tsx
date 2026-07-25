@@ -1,7 +1,5 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AppShell } from "@/components/layout/app-shell";
-import { ProductDetailForms } from "@/components/products/product-detail-forms";
+import { ProductDetailPageView } from "@/components/products/product-detail-page";
 import {
   departmentRepository,
   productRepository,
@@ -36,27 +34,13 @@ export default async function ProductDetailPage({
     : "/products";
 
   return (
-    <AppShell
-      title={product.name}
-      description={`Imported: ${product.department}${
-        product.orderDepartment
-          ? ` · Order: ${product.orderDepartment}`
-          : " · Order department unassigned"
-      }`}
-    >
-      <div className="mb-4">
-        <Link href={backHref} className="text-sm text-zinc-600 underline">
-          ← Back to products
-        </Link>
-      </div>
-      <ProductDetailForms
-        productId={id}
-        product={product}
-        departments={departments}
-        barcodes={barcodes}
-        supplierProducts={supplierProducts}
-        suppliers={suppliers}
-      />
-    </AppShell>
+    <ProductDetailPageView
+      product={product}
+      backHref={backHref}
+      departments={departments}
+      barcodes={barcodes}
+      supplierProducts={supplierProducts}
+      suppliers={suppliers}
+    />
   );
 }

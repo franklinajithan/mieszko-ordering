@@ -1,5 +1,4 @@
 "use client";
-
 import { useRouter } from "next/navigation";
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { flushSync } from "react-dom";
@@ -8,7 +7,7 @@ import {
   beginProductImportFromRows,
   createProduct,
   runProductImportBatch,
-} from "@/app/actions";
+} from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import {
   ProductImportProgressInline,

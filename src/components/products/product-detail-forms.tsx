@@ -6,7 +6,7 @@ import {
   addBarcode,
   addSupplierProductMapping,
   assignOrderDepartment,
-} from "@/app/actions";
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

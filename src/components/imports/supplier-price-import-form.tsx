@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { importSupplierPrices, previewUpload } from "@/app/actions";
+import { importSupplierPrices, previewUpload } from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";

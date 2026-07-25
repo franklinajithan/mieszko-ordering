@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { ArrowUpRight, PackageSearch } from "lucide-react";
-import { assignOrderDepartment } from "@/app/actions";
+import { assignOrderDepartment } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/input";
 import { cn } from "@/utils/cn";

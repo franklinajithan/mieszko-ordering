@@ -9,7 +9,7 @@ import {
   updateOrderPeriods,
   updateOrderSelectedSuppliers,
   uploadOrderStockFile,
-} from "@/app/actions";
+} from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { DepartmentFilterDropdown } from "@/components/orders/department-filter-dropdown";
 import { OrderBookStockSection } from "@/components/orders/order-book-stock-section";
