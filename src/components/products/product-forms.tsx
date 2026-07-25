@@ -192,6 +192,7 @@ export function ProductForms({
         columns.nameColumn,
         columns.departmentColumn,
         columns.barcodeColumn,
+        columns.retailPriceColumn,
       ].filter((column): column is string => Boolean(column));
 
       const slimRows = rows.map((row) => {
@@ -216,6 +217,7 @@ export function ProductForms({
         nameColumn: columns.nameColumn,
         departmentColumn: columns.departmentColumn ?? undefined,
         barcodeColumn: columns.barcodeColumn ?? undefined,
+        retailPriceColumn: columns.retailPriceColumn ?? undefined,
         shareAcrossMspStores: columns.shareAcrossMspStores,
         rows: slimRows,
       });

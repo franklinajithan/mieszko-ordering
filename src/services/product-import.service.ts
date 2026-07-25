@@ -4,6 +4,7 @@ import {
   normalizeProductCode,
 } from "@/parsers/product-file-parser";
 import { productRepository, storeRepository } from "@/repositories/postgres";
+import { decimalToDb, toDecimal } from "@/utils/decimal";
 
 const BATCH_SIZE = 2000;
 const UPDATE_BATCH_SIZE = 200;
@@ -14,6 +15,7 @@ type NormalizedImportRow = {
   name: string;
   department: string;
   barcode?: string;
+  retailPrice?: string;
 };
 
 export type { NormalizedImportRow };
@@ -28,12 +30,25 @@ function chunk<T>(items: T[], size: number): T[][] {
   return batches;
 }
 
+function parseRetailPrice(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = toDecimal(trimmed);
+    if (!parsed.isFinite() || parsed.isNegative()) return undefined;
+    return decimalToDb(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function prepareProductImportJob(input: {
   storeId: number;
   codeColumn: string;
   nameColumn: string;
   departmentColumn?: string;
   barcodeColumn?: string;
+  retailPriceColumn?: string;
   shareAcrossMspStores?: boolean;
   rows: ParsedRow[];
 }): Promise<{
@@ -95,6 +110,7 @@ function normalizeImportRows(
     nameColumn: string;
     departmentColumn?: string;
     barcodeColumn?: string;
+    retailPriceColumn?: string;
   },
   rows: ParsedRow[],
   result: ImportResult,
@@ -111,6 +127,9 @@ function normalizeImportRows(
     const barcode = input.barcodeColumn
       ? String(row[input.barcodeColumn] ?? "").trim()
       : "";
+    const retailPrice = input.retailPriceColumn
+      ? parseRetailPrice(String(row[input.retailPriceColumn] ?? ""))
+      : undefined;
 
     if (!productCode || !name) {
       result.invalidRows += 1;
@@ -130,6 +149,7 @@ function normalizeImportRows(
       name,
       department,
       barcode: barcode || undefined,
+      retailPrice,
     });
   }
 
@@ -142,6 +162,7 @@ export async function importProductRows(input: {
   nameColumn: string;
   departmentColumn?: string;
   barcodeColumn?: string;
+  retailPriceColumn?: string;
   shareAcrossMspStores?: boolean;
   rows: ParsedRow[];
 }): Promise<ImportResult> {
@@ -171,6 +192,11 @@ async function importPerStoreProductsBulk(input: {
   const toCreate: NormalizedImportRow[] = [];
   const toUpdate: Array<{ productId: number; name: string; department: string }> =
     [];
+  const toUpdateStoreProducts: Array<{
+    productId: number;
+    productCode: string;
+    retailPrice?: string;
+  }> = [];
 
   for (const row of input.rows) {
     const existing = existingByCode.get(row.productCode);
@@ -179,6 +205,11 @@ async function importPerStoreProductsBulk(input: {
         productId: existing.product.id,
         name: row.name,
         department: row.department,
+      });
+      toUpdateStoreProducts.push({
+        productId: existing.product.id,
+        productCode: row.productCode,
+        retailPrice: row.retailPrice,
       });
       input.result.duplicateRows = (input.result.duplicateRows ?? 0) + 1;
     } else {
@@ -197,6 +228,18 @@ async function importPerStoreProductsBulk(input: {
     );
   }
 
+  for (const batch of chunk(toUpdateStoreProducts, BATCH_SIZE)) {
+    await productRepository.upsertStoreProductsBatch(
+      batch.map((row) => ({
+        storeId: input.storeId,
+        productId: row.productId,
+        storeProductCode: row.productCode,
+        retailPrice: row.retailPrice ?? null,
+        isActive: true,
+      })),
+    );
+  }
+
   for (const batch of chunk(toCreate, BATCH_SIZE)) {
     const createdProducts = await productRepository.createProductsBatch(
       batch.map((row) => ({
@@ -211,6 +254,7 @@ async function importPerStoreProductsBulk(input: {
         storeId: input.storeId,
         productId: product.id,
         storeProductCode: batch[index]!.productCode,
+        retailPrice: batch[index]?.retailPrice ?? null,
         isActive: true,
       })),
     );
@@ -262,6 +306,12 @@ async function importMspSharedProductsBulk(input: {
     name: string;
     department: string;
     barcode?: string;
+    retailPrice?: string;
+  }> = [];
+  const toUpdateStoreProducts: Array<{
+    productId: number;
+    productCode: string;
+    retailPrice?: string;
   }> = [];
 
   for (const row of input.rows) {
@@ -271,6 +321,11 @@ async function importMspSharedProductsBulk(input: {
         productId: existing.product.id,
         name: row.name,
         department: row.department,
+      });
+      toUpdateStoreProducts.push({
+        productId: existing.product.id,
+        productCode: row.productCode,
+        retailPrice: row.retailPrice,
       });
       input.result.duplicateRows = (input.result.duplicateRows ?? 0) + 1;
       continue;
@@ -284,6 +339,7 @@ async function importMspSharedProductsBulk(input: {
         name: row.name,
         department: row.department,
         barcode: row.barcode,
+        retailPrice: row.retailPrice,
       });
       continue;
     }
@@ -302,6 +358,18 @@ async function importMspSharedProductsBulk(input: {
     );
   }
 
+  for (const batch of chunk(toUpdateStoreProducts, BATCH_SIZE)) {
+    await productRepository.upsertStoreProductsBatch(
+      batch.map((row) => ({
+        storeId: input.storeId,
+        productId: row.productId,
+        storeProductCode: row.productCode,
+        retailPrice: row.retailPrice ?? null,
+        isActive: true,
+      })),
+    );
+  }
+
   for (const batch of chunk(toLink, BATCH_SIZE)) {
     await Promise.all(
       batch.map((row) =>
@@ -316,6 +384,7 @@ async function importMspSharedProductsBulk(input: {
         storeId: input.storeId,
         productId: row.productId,
         storeProductCode: row.productCode,
+        retailPrice: row.retailPrice ?? null,
         isActive: true,
       })),
     );
@@ -336,6 +405,7 @@ async function importMspSharedProductsBulk(input: {
         storeId: input.storeId,
         productId: product.id,
         storeProductCode: batch[index]!.productCode,
+        retailPrice: batch[index]?.retailPrice ?? null,
         isActive: true,
       })),
     );

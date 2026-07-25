@@ -197,6 +197,7 @@ function seedState() {
       storeId: MOCK_STORE_ID,
       productId: 1,
       storeProductCode: "1001",
+      retailPrice: null,
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
@@ -206,6 +207,7 @@ function seedState() {
       storeId: MOCK_STORE_ID,
       productId: 2,
       storeProductCode: "2001",
+      retailPrice: null,
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
@@ -215,6 +217,7 @@ function seedState() {
       storeId: MOCK_STORE_ID,
       productId: 3,
       storeProductCode: "1002",
+      retailPrice: null,
       isActive: true,
       createdAt: now(),
       updatedAt: now(),
@@ -412,6 +415,7 @@ function seedState() {
     orderSalesPeriods: [] as Array<typeof schema.orderSalesPeriods.$inferSelect>,
     bookStockImports: [] as Array<typeof schema.bookStockImports.$inferSelect>,
     rtcImports: [] as Array<typeof schema.rtcImports.$inferSelect>,
+    promoImports: [] as Array<typeof schema.promoImports.$inferSelect>,
     wastageImports: [] as Array<typeof schema.wastageImports.$inferSelect>,
   };
 }
@@ -655,6 +659,9 @@ export const productRepository = {
     if (existing) {
       existing.productId = data.productId;
       existing.isActive = data.isActive ?? true;
+      if (data.retailPrice !== undefined) {
+        existing.retailPrice = data.retailPrice;
+      }
       existing.updatedAt = now();
       return existing;
     }
@@ -663,6 +670,7 @@ export const productRepository = {
       storeId: data.storeId,
       productId: data.productId,
       storeProductCode: data.storeProductCode,
+      retailPrice: data.retailPrice ?? null,
       isActive: data.isActive ?? true,
       createdAt: now(),
       updatedAt: now(),
@@ -823,13 +831,16 @@ export const rtcRepository = {
       id: genId(),
       ...data,
       fileName: data.fileName ?? null,
+      matchedRows: data.matchedRows ?? null,
       importedAt: now(),
     });
     getState().rtcImports.push(created);
     return created;
   },
-  async insertItems() {
-    return [];
+  async updateMatchedRows(importId: number, matchedRows: number) {
+    const entry = getState().rtcImports.find((i) => i.id === importId);
+    if (entry) entry.matchedRows = matchedRows;
+    return entry ?? null;
   },
   async getImportById(importId: number) {
     return getState().rtcImports.find((i) => i.id === importId) ?? null;
@@ -839,11 +850,32 @@ export const rtcRepository = {
       .rtcImports.filter((i) => i.storeId === storeId)
       .sort((a, b) => b.importedAt.getTime() - a.importedAt.getTime());
   },
-  async getItems() {
-    return [];
+};
+
+export const promoRepository = {
+  async createImport(data: typeof schema.promoImports.$inferInsert) {
+    const created = row({
+      id: genId(),
+      ...data,
+      fileName: data.fileName ?? null,
+      matchedRows: data.matchedRows ?? null,
+      importedAt: now(),
+    });
+    getState().promoImports.push(created);
+    return created;
   },
-  async countItems() {
-    return 0;
+  async updateMatchedRows(importId: number, matchedRows: number) {
+    const entry = getState().promoImports.find((i) => i.id === importId);
+    if (entry) entry.matchedRows = matchedRows;
+    return entry ?? null;
+  },
+  async getImportById(importId: number) {
+    return getState().promoImports.find((i) => i.id === importId) ?? null;
+  },
+  async listForStore(storeId: number) {
+    return getState()
+      .promoImports.filter((i) => i.storeId === storeId)
+      .sort((a, b) => b.importedAt.getTime() - a.importedAt.getTime());
   },
 };
 
@@ -853,13 +885,16 @@ export const wastageRepository = {
       id: genId(),
       ...data,
       fileName: data.fileName ?? null,
+      matchedRows: data.matchedRows ?? null,
       importedAt: now(),
     });
     getState().wastageImports.push(created);
     return created;
   },
-  async insertItems() {
-    return [];
+  async updateMatchedRows(importId: number, matchedRows: number) {
+    const entry = getState().wastageImports.find((i) => i.id === importId);
+    if (entry) entry.matchedRows = matchedRows;
+    return entry ?? null;
   },
   async getImportById(importId: number) {
     return getState().wastageImports.find((i) => i.id === importId) ?? null;
@@ -868,12 +903,6 @@ export const wastageRepository = {
     return getState()
       .wastageImports.filter((i) => i.storeId === storeId)
       .sort((a, b) => b.importedAt.getTime() - a.importedAt.getTime());
-  },
-  async getItems() {
-    return [];
-  },
-  async countItems() {
-    return 0;
   },
 };
 

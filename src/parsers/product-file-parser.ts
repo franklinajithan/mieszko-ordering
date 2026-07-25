@@ -25,6 +25,7 @@ export function detectProductFileColumns(headers: string[]): {
   nameColumn: string | null;
   departmentColumn: string | null;
   barcodeColumn: string | null;
+  retailPriceColumn: string | null;
   supplierColumn: string | null;
   supplierCodeColumn: string | null;
   shareAcrossMspStores: boolean;
@@ -60,6 +61,11 @@ export function detectProductFileColumns(headers: string[]): {
       ]) ?? null,
     barcodeColumn:
       findExact(headers, ["InnerEan", "EAN", "Barcode", "Inner EAN"]) ?? null,
+    retailPriceColumn:
+      findExact(headers, ["Selling Price", "Retail Price"]) ??
+      findExact(headers, ["Max Retail", "Max\n Retail"]) ??
+      findExact(headers, ["Min Retail", "Min\n Retail"]) ??
+      null,
     supplierColumn: findExact(headers, ["Supplier"]) ?? null,
     supplierCodeColumn:
       findExact(headers, ["SupplierCode", "Supplier Code"]) ?? null,

@@ -148,6 +148,8 @@ export const storeProducts = pgTable(
 
     storeProductCode: varchar("store_product_code", { length: 100 }).notNull(),
 
+    retailPrice: numeric("retail_price", { precision: 18, scale: 4 }),
+
     isActive: boolean("is_active").notNull().default(true),
 
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -267,10 +269,6 @@ export const dailySales = pgTable(
 
     soldQty: numeric("sold_qty", { precision: 18, scale: 4 }).notNull(),
 
-    rtcQty: numeric("rtc_qty", { precision: 18, scale: 4 }),
-
-    promoQty: numeric("promo_qty", { precision: 18, scale: 4 }),
-
     createdAt: timestamp("created_at", { withTimezone: true })
 
       .notNull()
@@ -297,6 +295,80 @@ export const dailySales = pgTable(
 
   ],
 
+);
+
+
+
+export const rtcSales = pgTable(
+  "rtc_sales",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    rtcDate: date("rtc_date").notNull(),
+    rtcQty: numeric("rtc_qty", { precision: 18, scale: 4 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("rtc_sales_store_product_date_unique").on(
+      t.storeProductId,
+      t.rtcDate,
+    ),
+  ],
+);
+
+export const promoSales = pgTable(
+  "promo_sales",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    promoDate: date("promo_date").notNull(),
+    promoQty: numeric("promo_qty", { precision: 18, scale: 4 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("promo_sales_store_product_date_unique").on(
+      t.storeProductId,
+      t.promoDate,
+    ),
+  ],
+);
+
+export const storeWastage = pgTable(
+  "store_wastage",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    wastageDate: date("wastage_date").notNull(),
+    wastageQty: numeric("wastage_qty", { precision: 18, scale: 4 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("store_wastage_store_product_date_unique").on(
+      t.storeProductId,
+      t.wastageDate,
+    ),
+  ],
 );
 
 
@@ -424,21 +496,25 @@ export const rtcImports = pgTable("rtc_imports", {
   fileName: varchar("file_name", { length: 500 }),
   referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
   quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
+  matchedRows: integer("matched_rows"),
   importedAt: timestamp("imported_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
 
-export const rtcItems = pgTable("rtc_items", {
+export const promoImports = pgTable("promo_imports", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  importId: integer("import_id")
+  storeId: integer("store_id")
     .notNull()
-    .references(() => rtcImports.id, { onDelete: "cascade" }),
-  storeProductId: integer("store_product_id")
+    .references(() => stores.id),
+  promoDate: date("promo_date").notNull(),
+  fileName: varchar("file_name", { length: 500 }),
+  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
+  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
+  matchedRows: integer("matched_rows"),
+  importedAt: timestamp("imported_at", { withTimezone: true })
     .notNull()
-    .references(() => storeProducts.id),
-  storeProductCode: varchar("store_product_code", { length: 100 }).notNull(),
-  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    .defaultNow(),
 });
 
 export const wastageImports = pgTable("wastage_imports", {
@@ -450,24 +526,11 @@ export const wastageImports = pgTable("wastage_imports", {
   fileName: varchar("file_name", { length: 500 }),
   referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
   quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
+  matchedRows: integer("matched_rows"),
   importedAt: timestamp("imported_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
-
-export const wastageItems = pgTable("wastage_items", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  importId: integer("import_id")
-    .notNull()
-    .references(() => wastageImports.id, { onDelete: "cascade" }),
-  storeProductId: integer("store_product_id")
-    .notNull()
-    .references(() => storeProducts.id),
-  storeProductCode: varchar("store_product_code", { length: 100 }).notNull(),
-  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-});
-
-
 
 export const orders = pgTable("orders", {
 
@@ -914,6 +977,12 @@ export const storeProductsRelations = relations(storeProducts, ({ one, many }) =
   }),
 
   dailySales: many(dailySales),
+
+  rtcSales: many(rtcSales),
+
+  promoSales: many(promoSales),
+
+  storeWastage: many(storeWastage),
 
 }));
 

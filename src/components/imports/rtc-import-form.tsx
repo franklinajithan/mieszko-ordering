@@ -36,6 +36,9 @@ export function RtcImportForm({ stores }: { stores: Store[] }) {
   const [quantityColumn, setQuantityColumn] = useState("");
   const [imports, setImports] = useState<RtcImport[]>([]);
   const [rtcDate, setRtcDate] = useState(new Date().toISOString().slice(0, 10));
+  const [mappingType, setMappingType] = useState<"store_product_code" | "barcode">(
+    "store_product_code",
+  );
 
   const selectedStore = useMemo(
     () => stores.find((store) => String(store.id) === storeId) ?? null,
@@ -136,6 +139,7 @@ export function RtcImportForm({ stores }: { stores: Store[] }) {
     formData.set("file", file);
     formData.set("storeId", storeId);
     formData.set("rtcDate", rtcDate);
+    formData.set("mappingType", mappingType);
     formData.set("referenceColumn", referenceColumn);
     formData.set("quantityColumn", quantityColumn);
 
@@ -257,7 +261,19 @@ export function RtcImportForm({ stores }: { stores: Store[] }) {
           <h3 className="font-semibold text-zinc-900">Column mapping</h3>
           <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <Label>Product code column</Label>
+              <Label>Match products by</Label>
+              <Select
+                value={mappingType}
+                onChange={(e) =>
+                  setMappingType(e.target.value as "store_product_code" | "barcode")
+                }
+              >
+                <option value="store_product_code">Item code / ID</option>
+                <option value="barcode">Barcode</option>
+              </Select>
+            </div>
+            <div>
+              <Label>Product reference column</Label>
               <Select
                 value={referenceColumn}
                 onChange={(e) => setReferenceColumn(e.target.value)}

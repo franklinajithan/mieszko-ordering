@@ -14,6 +14,11 @@ import { importDepartmentRows } from "@/services/department-import.service";
 import { importDailySalesRows } from "@/services/daily-sales-import.service";
 import { importBookStockRows } from "@/services/book-stock-import.service";
 import {
+  importPromoRows,
+  listPromoImportsForStore,
+  type PromoImportSummary,
+} from "@/services/promo-import.service";
+import {
   importRtcRows,
   listRtcImportsForStore,
   type RtcImportSummary,
@@ -74,6 +79,7 @@ import {
   barcodeSchema,
   applyStoredBookStockSchema,
   bookStockImportSchema,
+  promoImportSchema,
   rtcImportSchema,
   wastageImportSchema,
   calculateOrderSchema,
@@ -520,6 +526,7 @@ export async function importRtc(
   const meta = rtcImportSchema.safeParse({
     storeId: formData.get("storeId"),
     rtcDate: formData.get("rtcDate"),
+    mappingType: formData.get("mappingType") || "store_product_code",
     referenceColumn: formData.get("referenceColumn"),
     quantityColumn: formData.get("quantityColumn"),
     fileName: file.name,
@@ -575,6 +582,7 @@ export async function importWastage(
   const meta = wastageImportSchema.safeParse({
     storeId: formData.get("storeId"),
     wastageDate: formData.get("wastageDate"),
+    mappingType: formData.get("mappingType") || "store_product_code",
     referenceColumn: formData.get("referenceColumn"),
     quantityColumn: formData.get("quantityColumn"),
     fileName: file.name,
@@ -618,6 +626,62 @@ export async function listWastageImports(
     return { success: true, data: [] };
   }
   const imports = await listWastageImportsForStore(parsed.data);
+  return { success: true, data: imports };
+}
+
+export async function importPromo(
+  formData: FormData,
+): Promise<ActionResult<ImportResult & { importId: number }>> {
+  const file = formData.get("file") as File | null;
+  if (!file) return { success: false, error: "No file uploaded" };
+
+  const meta = promoImportSchema.safeParse({
+    storeId: formData.get("storeId"),
+    promoDate: formData.get("promoDate"),
+    mappingType: formData.get("mappingType") || "store_product_code",
+    referenceColumn: formData.get("referenceColumn"),
+    quantityColumn: formData.get("quantityColumn"),
+    fileName: file.name,
+  });
+
+  if (!meta.success) return { success: false, error: meta.error.message };
+
+  const store = await storeRepository.getById(meta.data.storeId);
+  if (!store) return { success: false, error: "Store not found" };
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { headers, rows } = await parseAllRows(buffer, file.name);
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const fileErpType = detectBookStockFileErpType(headers);
+  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+  if (mismatch) return { success: false, error: mismatch };
+
+  if (isDemoMode()) {
+    return {
+      success: true,
+      data: { ...demoImportResult(rows.length), importId: Date.now() },
+    };
+  }
+
+  const result = await importPromoRows({
+    ...meta.data,
+    rows,
+    erpType: storeErpType,
+  });
+  revalidatePath("/promo-sales");
+  return { success: true, data: result };
+}
+
+export async function listPromoImports(
+  storeId: number,
+): Promise<ActionResult<PromoImportSummary[]>> {
+  const parsed = idSchema.safeParse(storeId);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+  if (isDemoMode()) {
+    return { success: true, data: [] };
+  }
+  const imports = await listPromoImportsForStore(parsed.data);
   return { success: true, data: imports };
 }
 
@@ -887,6 +951,7 @@ export async function importProducts(
     nameColumn: columns.nameColumn,
     departmentColumn: columns.departmentColumn ?? undefined,
     barcodeColumn: columns.barcodeColumn ?? undefined,
+    retailPriceColumn: columns.retailPriceColumn ?? undefined,
     shareAcrossMspStores: columns.shareAcrossMspStores,
     rows,
   });
@@ -902,6 +967,7 @@ const beginProductImportFromRowsSchema = z.object({
   nameColumn: z.string().min(1),
   departmentColumn: z.string().optional(),
   barcodeColumn: z.string().optional(),
+  retailPriceColumn: z.string().optional(),
   shareAcrossMspStores: z.boolean().optional(),
   rows: z.array(z.record(z.string(), z.string())).min(1),
 });
@@ -913,6 +979,7 @@ async function createProductImportJob(input: {
   nameColumn: string;
   departmentColumn?: string;
   barcodeColumn?: string;
+  retailPriceColumn?: string;
   shareAcrossMspStores?: boolean;
   rows: ParsedRow[];
 }): Promise<ActionResult<ProductImportProgress>> {
@@ -943,6 +1010,7 @@ async function createProductImportJob(input: {
     nameColumn: input.nameColumn,
     departmentColumn: input.departmentColumn,
     barcodeColumn: input.barcodeColumn,
+    retailPriceColumn: input.retailPriceColumn,
     shareAcrossMspStores: input.shareAcrossMspStores,
     rows: input.rows,
   });
@@ -1018,6 +1086,7 @@ export async function beginProductImport(
     nameColumn: columns.nameColumn,
     departmentColumn: columns.departmentColumn ?? undefined,
     barcodeColumn: columns.barcodeColumn ?? undefined,
+    retailPriceColumn: columns.retailPriceColumn ?? undefined,
     shareAcrossMspStores: columns.shareAcrossMspStores,
     rows,
   });

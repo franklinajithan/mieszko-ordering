@@ -15,6 +15,7 @@ import {
   Trash2,
   TrendingUp,
   Truck,
+  BadgePercent,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
@@ -65,6 +66,12 @@ export const navGroups: NavGroup[] = [
     title: "Imports",
     items: [
       { href: "/daily-sales", label: "Daily Sales", icon: TrendingUp },
+      {
+        href: "/promo-sales",
+        label: "Promo Sales",
+        icon: BadgePercent,
+        match: (p) => p.startsWith("/promo-sales"),
+      },
       { href: "/supplier-prices", label: "Supplier Prices", icon: Truck },
       {
         href: "/book-stock",

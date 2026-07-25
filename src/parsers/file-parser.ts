@@ -252,6 +252,30 @@ export function detectWastageColumns(
   };
 }
 
+export function detectPromoColumns(
+  headers: string[],
+  erpType: ErpType = "msp",
+): {
+  referenceColumn: string | null;
+  quantityColumn: string | null;
+} {
+  const lower = headers.map((h) => h.toLowerCase());
+  const findHeader = (patterns: string[]) => {
+    const idx = lower.findIndex((h) => patterns.some((p) => h.includes(p)));
+    return idx >= 0 ? headers[idx] : null;
+  };
+
+  const promoQty =
+    findHeader(["promo qty", "promo quantity", "promotion qty"]) ??
+    findHeader(["promo", "promotion"]);
+
+  const bookStock = detectBookStockColumns(headers, erpType);
+  return {
+    referenceColumn: bookStock.referenceColumn,
+    quantityColumn: promoQty ?? bookStock.quantityColumn,
+  };
+}
+
 export function detectSalesColumns(headers: string[]): {
   productColumn: string | null;
   dateColumn: string | null;

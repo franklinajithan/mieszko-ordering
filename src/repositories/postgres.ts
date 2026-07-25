@@ -7,9 +7,11 @@ import {
   bookStockImports,
   bookStockItems,
   rtcImports,
-  rtcItems,
+  rtcSales,
+  promoImports,
+  promoSales,
+  storeWastage,
   wastageImports,
-  wastageItems,
   orderItemSupplierPrices,
   orderItems,
   orders,
@@ -338,6 +340,9 @@ export const productRepository = {
         set: {
           productId: data.productId,
           isActive: data.isActive ?? true,
+          ...(data.retailPrice !== undefined && data.retailPrice !== null
+            ? { retailPrice: data.retailPrice }
+            : {}),
           updatedAt: new Date(),
         },
       })
@@ -400,6 +405,7 @@ export const productRepository = {
         set: {
           productId: sql`excluded.product_id`,
           isActive: sql`excluded.is_active`,
+          retailPrice: sql`COALESCE(excluded.retail_price, ${storeProducts.retailPrice})`,
           updatedAt: new Date(),
         },
       })
@@ -530,8 +536,6 @@ export const dailySalesRepository = {
         target: [dailySales.storeProductId, dailySales.salesDate],
         set: {
           soldQty: data.soldQty,
-          rtcQty: null,
-          promoQty: null,
           updatedAt: new Date(),
         },
       })
@@ -665,15 +669,130 @@ export const bookStockRepository = {
   },
 };
 
+export const rtcSalesRepository = {
+  async upsert(data: typeof rtcSales.$inferInsert) {
+    const [row] = await db
+      .insert(rtcSales)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [rtcSales.storeProductId, rtcSales.rtcDate],
+        set: {
+          rtcQty: data.rtcQty,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  },
+
+  async sumInPeriod(
+    storeProductId: number,
+    startDate: string,
+    endDate: string,
+  ) {
+    const [row] = await db
+      .select({
+        total: sql<string>`coalesce(sum(${rtcSales.rtcQty}), 0)`,
+      })
+      .from(rtcSales)
+      .where(
+        and(
+          eq(rtcSales.storeProductId, storeProductId),
+          gte(rtcSales.rtcDate, startDate),
+          lte(rtcSales.rtcDate, endDate),
+        ),
+      );
+    return row?.total ?? "0";
+  },
+};
+
+export const promoSalesRepository = {
+  async upsert(data: typeof promoSales.$inferInsert) {
+    const [row] = await db
+      .insert(promoSales)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [promoSales.storeProductId, promoSales.promoDate],
+        set: {
+          promoQty: data.promoQty,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  },
+
+  async sumInPeriod(
+    storeProductId: number,
+    startDate: string,
+    endDate: string,
+  ) {
+    const [row] = await db
+      .select({
+        total: sql<string>`coalesce(sum(${promoSales.promoQty}), 0)`,
+      })
+      .from(promoSales)
+      .where(
+        and(
+          eq(promoSales.storeProductId, storeProductId),
+          gte(promoSales.promoDate, startDate),
+          lte(promoSales.promoDate, endDate),
+        ),
+      );
+    return row?.total ?? "0";
+  },
+};
+
+export const storeWastageRepository = {
+  async upsert(data: typeof storeWastage.$inferInsert) {
+    const [row] = await db
+      .insert(storeWastage)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [storeWastage.storeProductId, storeWastage.wastageDate],
+        set: {
+          wastageQty: data.wastageQty,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  },
+
+  async sumInPeriod(
+    storeProductId: number,
+    startDate: string,
+    endDate: string,
+  ) {
+    const [row] = await db
+      .select({
+        total: sql<string>`coalesce(sum(${storeWastage.wastageQty}), 0)`,
+      })
+      .from(storeWastage)
+      .where(
+        and(
+          eq(storeWastage.storeProductId, storeProductId),
+          gte(storeWastage.wastageDate, startDate),
+          lte(storeWastage.wastageDate, endDate),
+        ),
+      );
+    return row?.total ?? "0";
+  },
+};
+
 export const rtcRepository = {
   async createImport(data: typeof rtcImports.$inferInsert) {
     const [row] = await db.insert(rtcImports).values(data).returning();
     return row;
   },
 
-  async insertItems(rows: Array<typeof rtcItems.$inferInsert>) {
-    if (!rows.length) return [];
-    return db.insert(rtcItems).values(rows).returning();
+  async updateMatchedRows(importId: number, matchedRows: number) {
+    const [row] = await db
+      .update(rtcImports)
+      .set({ matchedRows })
+      .where(eq(rtcImports.id, importId))
+      .returning();
+    return row ?? null;
   },
 
   async getImportById(importId: number) {
@@ -692,17 +811,38 @@ export const rtcRepository = {
       .orderBy(desc(rtcImports.importedAt))
       .limit(limit);
   },
+};
 
-  async getItems(importId: number) {
-    return db.select().from(rtcItems).where(eq(rtcItems.importId, importId));
+export const promoRepository = {
+  async createImport(data: typeof promoImports.$inferInsert) {
+    const [row] = await db.insert(promoImports).values(data).returning();
+    return row;
   },
 
-  async countItems(importId: number) {
+  async updateMatchedRows(importId: number, matchedRows: number) {
     const [row] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(rtcItems)
-      .where(eq(rtcItems.importId, importId));
-    return row?.count ?? 0;
+      .update(promoImports)
+      .set({ matchedRows })
+      .where(eq(promoImports.id, importId))
+      .returning();
+    return row ?? null;
+  },
+
+  async getImportById(importId: number) {
+    const [row] = await db
+      .select()
+      .from(promoImports)
+      .where(eq(promoImports.id, importId));
+    return row ?? null;
+  },
+
+  async listForStore(storeId: number, limit = 50) {
+    return db
+      .select()
+      .from(promoImports)
+      .where(eq(promoImports.storeId, storeId))
+      .orderBy(desc(promoImports.importedAt))
+      .limit(limit);
   },
 };
 
@@ -712,9 +852,13 @@ export const wastageRepository = {
     return row;
   },
 
-  async insertItems(rows: Array<typeof wastageItems.$inferInsert>) {
-    if (!rows.length) return [];
-    return db.insert(wastageItems).values(rows).returning();
+  async updateMatchedRows(importId: number, matchedRows: number) {
+    const [row] = await db
+      .update(wastageImports)
+      .set({ matchedRows })
+      .where(eq(wastageImports.id, importId))
+      .returning();
+    return row ?? null;
   },
 
   async getImportById(importId: number) {
@@ -732,18 +876,6 @@ export const wastageRepository = {
       .where(eq(wastageImports.storeId, storeId))
       .orderBy(desc(wastageImports.importedAt))
       .limit(limit);
-  },
-
-  async getItems(importId: number) {
-    return db.select().from(wastageItems).where(eq(wastageItems.importId, importId));
-  },
-
-  async countItems(importId: number) {
-    const [row] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(wastageItems)
-      .where(eq(wastageItems.importId, importId));
-    return row?.count ?? 0;
   },
 };
 

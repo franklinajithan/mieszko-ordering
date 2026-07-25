@@ -14,20 +14,16 @@ export default function DatabaseSetupPage() {
         </p>
         <ol className="list-decimal space-y-2 pl-5">
           <li>
-            Copy{" "}
-            <code className="rounded bg-white px-1">.env.example</code> to{" "}
-            <code className="rounded bg-white px-1">.env</code>
-          </li>
-          <li>
-            Start PostgreSQL:{" "}
-            <code className="rounded bg-white px-1">docker compose up -d</code>
+            Add{" "}
+            <code className="rounded bg-white px-1">DATABASE_URL</code> to your{" "}
+            <code className="rounded bg-white px-1">.env</code> file
           </li>
           <li>
             Apply schema:{" "}
             <code className="rounded bg-white px-1">npm run db:push</code>
           </li>
           <li>
-            Seed suppliers:{" "}
+            Seed stores and suppliers:{" "}
             <code className="rounded bg-white px-1">npm run db:seed</code>
           </li>
           <li>

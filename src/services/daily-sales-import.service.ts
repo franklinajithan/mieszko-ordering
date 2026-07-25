@@ -105,8 +105,6 @@ export async function importDailySalesRows(input: {
         storeProductId: storeProduct.id,
         salesDate,
         soldQty: decimalToDb(qty),
-        rtcQty: null,
-        promoQty: null,
       });
 
       result.matchedRows += 1;

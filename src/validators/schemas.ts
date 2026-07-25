@@ -54,6 +54,7 @@ export const storeProductSchema = z.object({
   storeId: idSchema,
   productId: idSchema,
   storeProductCode: z.string().min(1).max(100),
+  retailPrice: z.string().regex(/^\d+(\.\d+)?$/).optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -220,6 +221,16 @@ export const bookStockImportSchema = z.object({
 export const rtcImportSchema = z.object({
   storeId: idSchema,
   rtcDate: z.string().date(),
+  mappingType: z.enum(["store_product_code", "barcode"]).default("store_product_code"),
+  referenceColumn: z.string().min(1),
+  quantityColumn: z.string().min(1),
+  fileName: z.string().min(1),
+});
+
+export const promoImportSchema = z.object({
+  storeId: idSchema,
+  promoDate: z.string().date(),
+  mappingType: z.enum(["store_product_code", "barcode"]).default("store_product_code"),
   referenceColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
   fileName: z.string().min(1),
@@ -228,6 +239,7 @@ export const rtcImportSchema = z.object({
 export const wastageImportSchema = z.object({
   storeId: idSchema,
   wastageDate: z.string().date(),
+  mappingType: z.enum(["store_product_code", "barcode"]).default("store_product_code"),
   referenceColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
   fileName: z.string().min(1),

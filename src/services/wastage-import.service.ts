@@ -1,12 +1,16 @@
 import { db } from "@/db";
-import type { ErpType, ImportResult, ParsedRow } from "@/types";
-import { toDecimal, decimalToDb } from "@/utils/decimal";
-import { productRepository, wastageRepository } from "@/repositories/postgres";
+import type { ErpType, ImportResult, ParsedRow, SalesMappingType } from "@/types";
+import {
+  storeWastageRepository,
+  wastageRepository,
+} from "@/repositories/postgres";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
+import { importStoreQuantityRows } from "@/services/store-quantity-import.service";
 
 export async function importWastageRows(input: {
   storeId: number;
   wastageDate: string;
+  mappingType: SalesMappingType;
   referenceColumn: string;
   quantityColumn: string;
   fileName: string;
@@ -26,7 +30,8 @@ export async function importWastageRows(input: {
     duplicateRows = pivoted.duplicateRows;
   }
 
-  const result: ImportResult = {
+  let importId = 0;
+  let result: ImportResult = {
     totalRows: rows.length,
     matchedRows: 0,
     unmatchedRows: 0,
@@ -34,8 +39,6 @@ export async function importWastageRows(input: {
     duplicateRows,
     errors: [],
   };
-
-  let importId = 0;
 
   await db.transaction(async () => {
     const wastageImport = await wastageRepository.createImport({
@@ -47,69 +50,24 @@ export async function importWastageRows(input: {
     });
     importId = wastageImport.id;
 
-    const validRows: Array<{
-      importId: number;
-      storeProductId: number;
-      storeProductCode: string;
-      quantity: string;
-    }> = [];
-
-    for (const row of rows) {
-      const rowNumber = Number(row.__rowNumber ?? 0);
-      const reference = row[input.referenceColumn]?.trim() ?? "";
-      const qtyRaw = row[input.quantityColumn]?.trim() ?? "";
-
-      if (!reference) {
-        result.invalidRows += 1;
-        result.errors.push({
-          rowNumber,
-          reference: null,
-          message: "Missing product code",
+    result = await importStoreQuantityRows({
+      storeId: input.storeId,
+      mappingType: input.mappingType,
+      productColumn: input.referenceColumn,
+      quantityColumn: input.quantityColumn,
+      recordDate: input.wastageDate,
+      rows,
+      upsert: async ({ storeProductId, quantity }) => {
+        await storeWastageRepository.upsert({
+          storeProductId,
+          wastageDate: input.wastageDate,
+          wastageQty: quantity,
         });
-        continue;
-      }
+      },
+    });
 
-      let qty;
-      try {
-        qty = toDecimal(qtyRaw);
-        if (!qty.isFinite()) throw new Error("invalid");
-      } catch {
-        result.invalidRows += 1;
-        result.errors.push({
-          rowNumber,
-          reference,
-          message: "Invalid quantity",
-        });
-        continue;
-      }
-
-      const storeProduct = await productRepository.findStoreProductByCode(
-        input.storeId,
-        reference,
-      );
-
-      if (!storeProduct) {
-        result.unmatchedRows += 1;
-        result.errors.push({
-          rowNumber,
-          reference,
-          message: "No matching store product",
-        });
-        continue;
-      }
-
-      validRows.push({
-        importId: wastageImport.id,
-        storeProductId: storeProduct.id,
-        storeProductCode: reference,
-        quantity: decimalToDb(qty),
-      });
-      result.matchedRows += 1;
-    }
-
-    if (validRows.length) {
-      await wastageRepository.insertItems(validRows);
-    }
+    result.duplicateRows = (result.duplicateRows ?? 0) + duplicateRows;
+    await wastageRepository.updateMatchedRows(importId, result.matchedRows);
   });
 
   return { ...result, importId };
@@ -127,15 +85,11 @@ export async function listWastageImportsForStore(
   storeId: number,
 ): Promise<WastageImportSummary[]> {
   const imports = await wastageRepository.listForStore(storeId);
-  const summaries: WastageImportSummary[] = [];
-  for (const entry of imports) {
-    summaries.push({
-      importId: entry.id,
-      fileName: entry.fileName,
-      wastageDate: entry.wastageDate,
-      importedAt: entry.importedAt,
-      itemCount: await wastageRepository.countItems(entry.id),
-    });
-  }
-  return summaries;
+  return imports.map((entry) => ({
+    importId: entry.id,
+    fileName: entry.fileName,
+    wastageDate: entry.wastageDate,
+    importedAt: entry.importedAt,
+    itemCount: entry.matchedRows ?? 0,
+  }));
 }
