@@ -91,7 +91,7 @@ export async function exportHoDairyOrderToExcel(orderId: number): Promise<Buffer
   headerRow.font = { bold: true };
   sheet.views = [{ state: "frozen", ySplit: 1 }];
 
-  for (const { item, storeProduct, product } of items) {
+  for (const { item, storeProduct, product, orderDepartmentName } of items) {
     const periodValues = await Promise.all(
       periodColumns.map(async (column) => {
         if (column.key === "period_1") return Number(item.period1Sales);
@@ -124,7 +124,7 @@ export async function exportHoDairyOrderToExcel(orderId: number): Promise<Buffer
       storeProduct.storeProductCode,
       "",
       product.name,
-      product.orderDepartment ?? product.department,
+      orderDepartmentName ?? product.department,
       ...periodValues,
       ...dailyValues,
       Number(item.highestSoldQty),

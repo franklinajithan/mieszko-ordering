@@ -4,7 +4,7 @@ import {
   normalizeProductCode,
 } from "@/parsers/product-file-parser";
 import {
-  departmentRepository,
+  departmentMappingRepository,
   productRepository,
   storeRepository,
 } from "@/repositories/postgres";
@@ -34,13 +34,8 @@ function chunk<T>(items: T[], size: number): T[][] {
   return batches;
 }
 
-async function ensureOrderDepartments(names: string[]) {
-  const unique = [
-    ...new Set(names.map((name) => name.trim()).filter(Boolean)),
-  ];
-  for (const name of unique) {
-    await departmentRepository.ensureByName(name);
-  }
+async function resolveOrderDepartmentIds(names: string[]) {
+  return departmentMappingRepository.resolveOrderDepartmentIds(names);
 }
 
 /** Imported department is always updated; order department is seeded once, then left alone. */
@@ -48,15 +43,17 @@ function productUpdateFromImport(input: {
   productId: number;
   name: string;
   department: string;
-  existingOrderDepartment: string | null;
+  existingOrderDepartmentId: number | null;
+  defaultOrderDepartmentId: number | null;
 }) {
   return {
     productId: input.productId,
     name: input.name,
     department: input.department,
-    orderDepartment: input.existingOrderDepartment?.trim()
-      ? undefined
-      : input.department,
+    orderDepartment:
+      input.existingOrderDepartmentId != null
+        ? undefined
+        : input.defaultOrderDepartmentId ?? undefined,
   };
 }
 
@@ -214,7 +211,9 @@ async function importPerStoreProductsBulk(input: {
   rows: NormalizedImportRow[];
   result: ImportResult;
 }) {
-  await ensureOrderDepartments(input.rows.map((row) => row.department));
+  const departmentIds = await resolveOrderDepartmentIds(
+    input.rows.map((row) => row.department),
+  );
 
   const existingRows = await productRepository.listStoreProductsForStore(input.storeId);
   const existingByCode = new Map(
@@ -226,7 +225,7 @@ async function importPerStoreProductsBulk(input: {
     productId: number;
     name: string;
     department: string;
-    orderDepartment?: string;
+    orderDepartment?: number;
   }> = [];
   const toUpdateStoreProducts: Array<{
     productId: number;
@@ -236,13 +235,16 @@ async function importPerStoreProductsBulk(input: {
 
   for (const row of input.rows) {
     const existing = existingByCode.get(row.productCode);
+    const defaultOrderDepartmentId = departmentIds.get(row.department) ?? null;
+
     if (existing) {
       toUpdate.push(
         productUpdateFromImport({
           productId: existing.product.id,
           name: row.name,
           department: row.department,
-          existingOrderDepartment: existing.product.orderDepartment,
+          existingOrderDepartmentId: existing.product.orderDepartment,
+          defaultOrderDepartmentId,
         }),
       );
       toUpdateStoreProducts.push({
@@ -287,7 +289,7 @@ async function importPerStoreProductsBulk(input: {
       batch.map((row) => ({
         name: row.name,
         department: row.department,
-        orderDepartment: row.department,
+        orderDepartment: departmentIds.get(row.department) ?? null,
         isActive: true,
       })),
     );
@@ -323,7 +325,9 @@ async function importMspSharedProductsBulk(input: {
   rows: NormalizedImportRow[];
   result: ImportResult;
 }) {
-  await ensureOrderDepartments(input.rows.map((row) => row.department));
+  const departmentIds = await resolveOrderDepartmentIds(
+    input.rows.map((row) => row.department),
+  );
 
   const existingRows = await productRepository.listStoreProductsForStore(input.storeId);
   const existingByCode = new Map(
@@ -347,14 +351,14 @@ async function importMspSharedProductsBulk(input: {
     productId: number;
     name: string;
     department: string;
-    orderDepartment?: string;
+    orderDepartment?: number;
   }> = [];
   const toLink: Array<{
     productId: number;
     productCode: string;
     name: string;
     department: string;
-    orderDepartment?: string;
+    orderDepartment?: number;
     barcode?: string;
     retailPrice?: string;
   }> = [];
@@ -365,6 +369,8 @@ async function importMspSharedProductsBulk(input: {
   }> = [];
 
   for (const row of input.rows) {
+    const defaultOrderDepartmentId = departmentIds.get(row.department) ?? null;
+
     const existing = existingByCode.get(row.productCode);
     if (existing) {
       toUpdate.push(
@@ -372,7 +378,8 @@ async function importMspSharedProductsBulk(input: {
           productId: existing.product.id,
           name: row.name,
           department: row.department,
-          existingOrderDepartment: existing.product.orderDepartment,
+          existingOrderDepartmentId: existing.product.orderDepartment,
+          defaultOrderDepartmentId,
         }),
       );
       toUpdateStoreProducts.push({
@@ -391,7 +398,8 @@ async function importMspSharedProductsBulk(input: {
           productId: shared.product.id,
           name: row.name,
           department: row.department,
-          existingOrderDepartment: shared.product.orderDepartment,
+          existingOrderDepartmentId: shared.product.orderDepartment,
+          defaultOrderDepartmentId,
         }),
         productCode: row.productCode,
         barcode: row.barcode,
@@ -458,7 +466,7 @@ async function importMspSharedProductsBulk(input: {
       batch.map((row) => ({
         name: row.name,
         department: row.department,
-        orderDepartment: row.department,
+        orderDepartment: departmentIds.get(row.department) ?? null,
         isActive: true,
       })),
     );

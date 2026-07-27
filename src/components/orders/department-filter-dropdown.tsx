@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
+import type { DepartmentOption } from "@/types/department";
 import { cn } from "@/utils/cn";
 import { Label } from "@/components/ui/label";
 
@@ -10,9 +11,9 @@ export function DepartmentFilterDropdown({
   selected,
   onChange,
 }: {
-  departments: string[];
-  selected: string[];
-  onChange: (departments: string[]) => void;
+  departments: DepartmentOption[];
+  selected: number[];
+  onChange: (departments: number[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -30,19 +31,23 @@ export function DepartmentFilterDropdown({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  function toggleDepartment(department: string) {
+  function toggleDepartment(departmentId: number) {
     onChange(
-      selected.includes(department)
-        ? selected.filter((d) => d !== department)
-        : [...selected, department],
+      selected.includes(departmentId)
+        ? selected.filter((id) => id !== departmentId)
+        : [...selected, departmentId],
     );
   }
+
+  const selectedNames = departments
+    .filter((department) => selected.includes(department.id))
+    .map((department) => department.name);
 
   const label =
     selected.length === 0
       ? "All order departments"
       : selected.length === 1
-        ? selected[0]
+        ? selectedNames[0]
         : `${selected.length} order departments selected`;
 
   return (
@@ -77,7 +82,7 @@ export function DepartmentFilterDropdown({
                 <button
                   type="button"
                   className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
-                  onClick={() => onChange(departments)}
+                  onClick={() => onChange(departments.map((department) => department.id))}
                 >
                   Select all
                 </button>
@@ -91,9 +96,9 @@ export function DepartmentFilterDropdown({
               </div>
               <ul className="max-h-48 overflow-y-auto py-1" role="listbox">
                 {departments.map((department) => {
-                  const checked = selected.includes(department);
+                  const checked = selected.includes(department.id);
                   return (
-                    <li key={department}>
+                    <li key={department.id}>
                       <label
                         className={cn(
                           "flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-zinc-50",
@@ -114,9 +119,9 @@ export function DepartmentFilterDropdown({
                           type="checkbox"
                           className="sr-only"
                           checked={checked}
-                          onChange={() => toggleDepartment(department)}
+                          onChange={() => toggleDepartment(department.id)}
                         />
-                        <span className="text-zinc-800">{department}</span>
+                        <span className="text-zinc-800">{department.name}</span>
                       </label>
                     </li>
                   );

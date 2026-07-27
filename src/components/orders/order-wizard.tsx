@@ -19,6 +19,7 @@ import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ImportResult } from "@/types";
+import type { DepartmentOption } from "@/types/department";
 
 type Store = { id: number; name: string; code: string; erpType: string };
 type Supplier = { id: number; code: string; name: string; isActive: boolean };
@@ -37,7 +38,7 @@ export function OrderWizard({
 }: {
   stores: Store[];
   suppliers: Supplier[];
-  departments: string[];
+  departments: DepartmentOption[];
 }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -52,7 +53,7 @@ export function OrderWizard({
   const [selectedSuppliers, setSelectedSuppliers] = useState<number[]>(
     suppliers.filter((s) => s.isActive && ["MM", "SP"].includes(s.code)).map((s) => s.id),
   );
-  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  const [selectedDepartments, setSelectedDepartments] = useState<number[]>([]);
 
   async function onStep1(formData: FormData) {
     setError(null);

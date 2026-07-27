@@ -32,9 +32,13 @@ export async function calculateOrder(orderId: number) {
     throw new Error("Select at least one supplier for price comparison");
   }
 
+  const departmentIds = (order.departmentFilters ?? [])
+    .map((value) => Number(value))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
   const storeProducts = await orderRepository.getStoreProductsForOrder(
     order.storeId,
-    order.departmentFilters ?? [],
+    departmentIds,
   );
 
   const stockRows = await orderRepository.getStockEvents(orderId);

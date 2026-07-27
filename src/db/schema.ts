@@ -71,6 +71,25 @@ export const departments = pgTable("departments", {
 });
 
 
+export const departmentMappings = pgTable(
+  "department_mappings",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    /** ERP/import department label from `products.department`. */
+    importedDepartment: varchar("imported_department", { length: 100 }).notNull().unique(),
+    orderDepartmentId: integer("order_department_id")
+      .notNull()
+      .references(() => departments.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+);
+
+
 export const products = pgTable("products", {
 
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
@@ -80,8 +99,8 @@ export const products = pgTable("products", {
   /** Source/ERP department from import — never overwritten by order-department assignment. */
   department: varchar("department", { length: 100 }).notNull(),
 
-  /** App ordering department name; stored in legacy column `order_department_id`. */
-  orderDepartment: varchar("order_department_id", { length: 100 }),
+  /** FK to `departments.id` for ordering; column name kept as `order_department_id`. */
+  orderDepartment: integer("order_department_id").references(() => departments.id),
 
   isActive: boolean("is_active").notNull().default(true),
 
@@ -960,6 +979,22 @@ export const storeProductsRelations = relations(storeProducts, ({ one, many }) =
   storeWastage: many(storeWastage),
 
 }));
+
+
+
+export const departmentsRelations = relations(departments, ({ many }) => ({
+  mappings: many(departmentMappings),
+}));
+
+export const departmentMappingsRelations = relations(
+  departmentMappings,
+  ({ one }) => ({
+    orderDepartment: one(departments, {
+      fields: [departmentMappings.orderDepartmentId],
+      references: [departments.id],
+    }),
+  }),
+);
 
 
 

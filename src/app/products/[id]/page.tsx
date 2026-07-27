@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import { ProductDetailPageView } from "@/components/products/product-detail-page";
+import { listDepartments } from "@/lib/api/departments";
 import {
-  departmentRepository,
-  productRepository,
-  supplierRepository,
-} from "@/repositories";
+  getProduct,
+  listProductBarcodes,
+  listProductSupplierMappings,
+} from "@/lib/api/products";
+import { listSuppliers } from "@/lib/api/suppliers";
 import { parseRouteId } from "@/utils/parse-route-id";
 
 export default async function ProductDetailPage({
@@ -19,15 +21,28 @@ export default async function ProductDetailPage({
   const id = parseRouteId(idParam);
   if (id === null) notFound();
 
-  const product = await productRepository.getById(id);
-  if (!product) notFound();
+  const productResult = await getProduct(id);
+  if (!productResult.success) {
+    if (productResult.error === "Product not found") notFound();
+    throw new Error(productResult.error);
+  }
 
-  const [barcodes, supplierProducts, suppliers, departments] = await Promise.all([
-    productRepository.getBarcodes(id),
-    productRepository.getSupplierProducts(id),
-    supplierRepository.list(),
-    departmentRepository.listActiveNames(),
-  ]);
+  const [barcodesResult, supplierProductsResult, suppliersResult, departmentsResult] =
+    await Promise.all([
+      listProductBarcodes(id),
+      listProductSupplierMappings(id),
+      listSuppliers(),
+      listDepartments(),
+    ]);
+
+  if (!barcodesResult.success) throw new Error(barcodesResult.error);
+  if (!supplierProductsResult.success) throw new Error(supplierProductsResult.error);
+  if (!suppliersResult.success) throw new Error(suppliersResult.error);
+  if (!departmentsResult.success) throw new Error(departmentsResult.error);
+
+  const departments = departmentsResult.data
+    .filter((department) => department.isActive)
+    .map((department) => ({ id: department.id, name: department.name }));
 
   const backHref = query.storeId
     ? `/products?storeId=${encodeURIComponent(query.storeId)}`
@@ -35,12 +50,12 @@ export default async function ProductDetailPage({
 
   return (
     <ProductDetailPageView
-      product={product}
+      product={productResult.data}
       backHref={backHref}
       departments={departments}
-      barcodes={barcodes}
-      supplierProducts={supplierProducts}
-      suppliers={suppliers}
+      barcodes={barcodesResult.data}
+      supplierProducts={supplierProductsResult.data}
+      suppliers={suppliersResult.data}
     />
   );
 }

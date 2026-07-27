@@ -22,7 +22,10 @@ export const productRepository = {
       conditions.push(eq(storeProducts.storeId, filters.storeId));
     }
     if (filters?.department) {
-      conditions.push(eq(products.orderDepartment, filters.department));
+      const departmentId = Number(filters.department);
+      if (Number.isInteger(departmentId) && departmentId > 0) {
+        conditions.push(eq(products.orderDepartment, departmentId));
+      }
     }
     if (filters?.isActive !== undefined) {
       conditions.push(eq(products.isActive, filters.isActive));
@@ -143,11 +146,11 @@ export const productRepository = {
   },
 
   /** Assign ordering department only — never touches imported `department`. */
-  async assignOrderDepartment(id: number, orderDepartment: string | null) {
+  async assignOrderDepartment(id: number, orderDepartmentId: number | null) {
     const [row] = await db
       .update(products)
       .set({
-        orderDepartment,
+        orderDepartment: orderDepartmentId,
         updatedAt: new Date(),
       })
       .where(eq(products.id, id))

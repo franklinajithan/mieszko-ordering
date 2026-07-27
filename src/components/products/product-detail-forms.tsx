@@ -10,6 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { Product } from "@/types/product";
+import type { DepartmentOption } from "@/types/department";
 
 type Barcode = { id: number; barcode: string };
 type SupplierProduct = {
@@ -17,12 +19,6 @@ type SupplierProduct = {
   supplier: { code: string; name: string };
 };
 type Supplier = { id: number; code: string; name: string };
-type Product = {
-  id: number;
-  name: string;
-  department: string;
-  orderDepartment: string | null;
-};
 
 export function ProductDetailForms({
   productId,
@@ -34,7 +30,7 @@ export function ProductDetailForms({
 }: {
   productId: number;
   product: Product;
-  departments: string[];
+  departments: DepartmentOption[];
   barcodes: Barcode[];
   supplierProducts: SupplierProduct[];
   suppliers: Supplier[];
@@ -66,10 +62,11 @@ export function ProductDetailForms({
 
   async function onOrderDepartment(formData: FormData) {
     setError(null);
-    const value = String(formData.get("orderDepartment") ?? "").trim();
+    const raw = String(formData.get("orderDepartment") ?? "").trim();
+    const value = raw === "" ? null : Number(raw);
     const result = await assignOrderDepartment({
       productId,
-      orderDepartment: value || null,
+      orderDepartment: Number.isInteger(value) && value! > 0 ? value : null,
     });
     if (!result.success) setError(result.error);
     else router.refresh();
@@ -92,12 +89,16 @@ export function ProductDetailForms({
               <Label>Order department</Label>
               <Select
                 name="orderDepartment"
-                defaultValue={product.orderDepartment ?? ""}
+                defaultValue={
+                  product.orderDepartment != null
+                    ? String(product.orderDepartment)
+                    : ""
+                }
               >
                 <option value="">Unassigned</option>
                 {departments.map((department) => (
-                  <option key={department} value={department}>
-                    {department}
+                  <option key={department.id} value={String(department.id)}>
+                    {department.name}
                   </option>
                 ))}
               </Select>

@@ -2,26 +2,10 @@ import { Building2, Copy, Layers } from "lucide-react";
 import { ProductFilters } from "@/components/products/product-filters";
 import { ProductListGrid } from "@/components/products/product-list-grid";
 import { ProductPagination } from "@/components/products/product-pagination";
+import type { ProductRow, ProductStoreRow } from "@/types/product";
+import type { DepartmentOption } from "@/types/department";
 
-type Store = { id: number; name: string; code: string; erpType?: string };
-
-type ProductRow = {
-  product: {
-    id: number;
-    name: string;
-    department: string;
-    orderDepartment: string | null;
-    isActive: boolean;
-  };
-  storeProduct: {
-    id: number;
-    storeProductCode: string;
-  };
-  store: {
-    id: number;
-    name: string;
-  };
-};
+type Store = ProductStoreRow;
 
 export function ProductCatalogPanel({
   stores,
@@ -40,7 +24,7 @@ export function ProductCatalogPanel({
   departmentFilter,
 }: {
   stores: Store[];
-  departments: string[];
+  departments: DepartmentOption[];
   products: ProductRow[];
   total: number;
   duplicateNames: Set<string>;

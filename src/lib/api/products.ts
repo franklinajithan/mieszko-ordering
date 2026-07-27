@@ -1,13 +1,32 @@
+import type { ActionResult, ImportResult } from "@/types";
 import type {
-  ActionResult,
-  ImportResult,
+  Product,
+  ProductBarcode,
+  ProductCatalogFilters,
+  ProductCatalogResult,
   ProductImportBatchStatus,
   ProductImportProgress,
-} from "@/types";
+  ProductSupplierMapping,
+} from "@/types/product";
 import { apiFormRequest, apiRequest } from "./client";
 
-export function createProduct(
-  input: unknown,
+export function getProduct(id: number): Promise<ActionResult<Product>> {
+  return apiRequest(`/products/${id}`);
+}
+
+export function listProductBarcodes(
+  productId: number,
+): Promise<ActionResult<ProductBarcode[]>> {
+  return apiRequest(`/products/${productId}/barcodes`);
+}
+
+export function listProductSupplierMappings(
+  productId: number,
+): Promise<ActionResult<ProductSupplierMapping[]>> {
+  return apiRequest(`/products/${productId}/supplier-codes`);
+}
+
+export function createProduct(  input: unknown,
 ): Promise<ActionResult<{ id: number }>> {
   return apiRequest("/products", { method: "POST", body: input });
 }
@@ -21,7 +40,7 @@ export function updateProduct(
 
 export function assignOrderDepartment(input: {
   productId: number;
-  orderDepartment: string | null;
+  orderDepartment: number | null;
 }): Promise<ActionResult> {
   return apiRequest(`/products/${input.productId}/order-department`, {
     method: "PATCH",
@@ -93,4 +112,18 @@ export function finishProductImport(
     method: "POST",
     body: { jobId },
   });
+}
+
+export function listProductCatalog(
+  filters: ProductCatalogFilters,
+): Promise<ActionResult<ProductCatalogResult>> {
+  const params = new URLSearchParams();
+  params.set("storeId", String(filters.storeId));
+  if (filters.department) params.set("department", filters.department);
+  if (filters.isActive === false) params.set("active", "false");
+  else if (filters.isActive === undefined) params.set("active", "all");
+  if (filters.search) params.set("search", filters.search);
+  if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+  if (filters.offset !== undefined) params.set("offset", String(filters.offset));
+  return apiRequest(`/products/catalog?${params.toString()}`);
 }

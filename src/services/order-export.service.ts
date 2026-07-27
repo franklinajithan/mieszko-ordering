@@ -51,7 +51,7 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
   headerRow.font = { bold: true };
   sheet.views = [{ state: "frozen", ySplit: headerRow.number }];
 
-  for (const { item, storeProduct, product } of items) {
+  for (const { item, storeProduct, product, orderDepartmentName } of items) {
     const rowPrices = selectedSuppliers.map(({ supplier }) => {
       const snapshot = supplierPrices.find(
         (p) =>
@@ -68,7 +68,7 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
     sheet.addRow([
       storeProduct.storeProductCode,
       product.name,
-      product.orderDepartment ?? product.department,
+      orderDepartmentName ?? product.department,
       Number(item.period1Sales),
       Number(item.period2Sales),
       Number(item.period3Sales),

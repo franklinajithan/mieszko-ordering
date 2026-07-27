@@ -34,7 +34,12 @@ type OrderItemRow = {
     warning: string | null;
   };
   storeProduct: { storeProductCode: string };
-  product: { name: string; department: string; orderDepartment: string | null };
+  product: {
+    name: string;
+    department: string;
+    orderDepartment: number | null;
+  };
+  orderDepartmentName: string | null;
 };
 
 type SupplierPriceRow = {
@@ -166,7 +171,7 @@ export function OrderReviewTable({
             </tr>
           </thead>
           <tbody>
-            {filtered.map(({ item, storeProduct, product }) => {
+            {filtered.map(({ item, storeProduct, product, orderDepartmentName }) => {
               const cheapest = supplierPrices.find(
                 (p) => p.price.orderItemId === item.id && p.price.isCheapest,
               );
@@ -175,7 +180,7 @@ export function OrderReviewTable({
                   <td className="px-2 py-2">{storeProduct.storeProductCode}</td>
                   <td className="px-2 py-2">{product.name}</td>
                   <td className="px-2 py-2">
-                    {product.orderDepartment ?? "—"}
+                    {orderDepartmentName ?? "—"}
                   </td>
                   <td className="px-2 py-2">{item.period1Sales}</td>
                   <td className="px-2 py-2">{item.period2Sales}</td>

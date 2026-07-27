@@ -1,10 +1,12 @@
 import { departmentRepository } from "@/repositories";
 import { updateDepartmentSchema } from "@/validators/schemas";
-import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
+import { apiError, apiOk, numericParam, parseJson, route } from "@/lib/api/http";
 
 export const PATCH = route(
   async (req, { params }: { params: Promise<{ id: string }> }) => {
-    const { id } = await params;
+    const id = await numericParam(params);
+    if (id === null) return apiError("Invalid department id");
+
     const parsed = await parseJson(
       req,
       updateDepartmentSchema.omit({ id: true }),

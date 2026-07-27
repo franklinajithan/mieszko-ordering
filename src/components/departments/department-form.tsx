@@ -32,8 +32,8 @@ export function DepartmentForm() {
       className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-4"
     >
       <div>
-        <Label htmlFor="dept-name">Name</Label>
-        <Input id="dept-name" name="name" required placeholder="Dairy" />
+        <Label htmlFor="dept-name">Order department name</Label>
+        <Input id="dept-name" name="name" required placeholder="Bakery" />
       </div>
       <div>
         <Label htmlFor="dept-code">Code (optional)</Label>

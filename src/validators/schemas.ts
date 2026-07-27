@@ -31,7 +31,7 @@ export const createDepartmentSchema = z.object({
 });
 
 export const updateDepartmentSchema = createDepartmentSchema.partial().extend({
-  id: z.string().uuid(),
+  id: idSchema,
 });
 
 export const departmentImportSchema = z.object({
@@ -40,10 +40,15 @@ export const departmentImportSchema = z.object({
   fileName: z.string().min(1),
 });
 
+export const departmentMappingSchema = z.object({
+  importedDepartment: z.string().min(1).max(100),
+  orderDepartmentId: idSchema,
+});
+
 export const createProductSchema = z.object({
   name: z.string().min(1).max(500),
   department: z.string().min(1).max(100),
-  orderDepartment: z.string().min(1).max(100).nullable().optional(),
+  orderDepartment: z.coerce.number().int().positive().nullable().optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -53,7 +58,7 @@ export const updateProductSchema = createProductSchema.partial().extend({
 
 export const assignOrderDepartmentSchema = z.object({
   productId: idSchema,
-  orderDepartment: z.string().min(1).max(100).nullable(),
+  orderDepartment: z.coerce.number().int().positive().nullable(),
 });
 
 export const storeProductSchema = z.object({
@@ -161,7 +166,7 @@ export const createOrderSchema = z.object({
   storeId: idSchema,
   bookStockDate: z.string().date(),
   clientDeliveryDate: z.string().date(),
-  departmentFilters: z.array(z.string()).default([]),
+  departmentFilters: z.array(z.coerce.number().int().positive()).default([]),
   notes: z.string().optional(),
 });
 

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import type { ComponentProps } from "react";
+import type { DepartmentOption } from "@/types/department";
+import { departmentName } from "@/types/department";
 import { AppShell } from "@/components/layout/app-shell";
 import { ProductDetailForms } from "@/components/products/product-detail-forms";
 
@@ -15,7 +17,7 @@ export function ProductDetailPageView({
 }: {
   product: DetailProps["product"];
   backHref: string;
-  departments: string[];
+  departments: DepartmentOption[];
   barcodes: DetailProps["barcodes"];
   supplierProducts: DetailProps["supplierProducts"];
   suppliers: DetailProps["suppliers"];
@@ -24,8 +26,8 @@ export function ProductDetailPageView({
     <AppShell
       title={product.name}
       description={`Imported: ${product.department}${
-        product.orderDepartment
-          ? ` · Order: ${product.orderDepartment}`
+        departmentName(departments, product.orderDepartment)
+          ? ` · Order: ${departmentName(departments, product.orderDepartment)}`
           : " · Order department unassigned"
       }`}
     >

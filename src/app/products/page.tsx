@@ -1,9 +1,8 @@
 import { ProductsPageView } from "@/components/products/product-page";
-import {
-  departmentRepository,
-  productRepository,
-  storeRepository,
-} from "@/repositories";
+import { listDepartments } from "@/lib/api/departments";
+import { listProductCatalog } from "@/lib/api/products";
+import { listStores } from "@/lib/api/stores";
+import type { ProductRow } from "@/types/product";
 
 export const maxDuration = 300;
 
@@ -30,40 +29,58 @@ export default async function ProductsPage({
   }>;
 }) {
   const params = await searchParams;
-  const stores = await storeRepository.list();
-  const departments = await departmentRepository.listActiveNames();
-  const pageSize = resolvePageSize(params.pageSize);
+  
+  const [storesResult, departmentsResult] = await Promise.all([
+    listStores(),
+    listDepartments(),
+  ]);
 
+  if (!storesResult.success) {
+    throw new Error(storesResult.error);
+  }
+  if (!departmentsResult.success) {
+    throw new Error(departmentsResult.error);
+  }
+
+  const stores = storesResult.data;
+  const departments = departmentsResult.data
+    .filter((department) => department.isActive)
+    .map((department) => ({ id: department.id, name: department.name }));
+
+  const pageSize = resolvePageSize(params.pageSize);
   const storeId = params.storeId ? Number(params.storeId) : undefined;
   const validStoreId =
     storeId && Number.isInteger(storeId) && storeId > 0 ? storeId : undefined;
   const page = Math.max(1, Number(params.page ?? "1") || 1);
   const search = params.search?.trim() || undefined;
-  const listFilters = validStoreId
-    ? {
-        storeId: validStoreId,
-        department: params.department,
-        isActive:
-          params.active === "false"
-            ? false
-            : params.active === "all"
-              ? undefined
-              : true,
-        search,
-      }
-    : null;
 
-  const [products, total, duplicateNameKeys] = validStoreId
-    ? await Promise.all([
-        productRepository.list({
-          ...listFilters!,
-          limit: pageSize,
-          offset: (page - 1) * pageSize,
-        }),
-        productRepository.count(listFilters!),
-        productRepository.getDuplicateProductNameKeys(listFilters!),
-      ])
-    : [[], 0, [] as string[]];
+  let products: ProductRow[] = [];
+  let total = 0;
+  let duplicateNameKeys: string[] = [];
+
+  if (validStoreId) {
+    const catalog = await listProductCatalog({
+      storeId: validStoreId,
+      department: params.department,
+      isActive:
+        params.active === "false"
+          ? false
+          : params.active === "all"
+            ? undefined
+            : true,
+      search,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    });
+
+    if (!catalog.success) {
+      throw new Error(catalog.error);
+    }
+
+    products = catalog.data.products;
+    total = catalog.data.total;
+    duplicateNameKeys = catalog.data.duplicateNameKeys;
+  }
 
   const duplicateNames = new Set(duplicateNameKeys);
   const selectedStore = stores.find((store) => store.id === validStoreId);
@@ -71,7 +88,7 @@ export default async function ProductsPage({
   const safePage = Math.min(page, totalPages);
   const lineOffset = (safePage - 1) * pageSize;
   const paginationParams = {
-    storeId: String(validStoreId),
+    storeId: validStoreId ? String(validStoreId) : undefined,
     department: params.department,
     active: params.active,
     search: params.search,

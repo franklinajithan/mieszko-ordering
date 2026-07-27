@@ -70,9 +70,11 @@ import type {
   FilePreview,
   ImportResult,
   ParsedRow,
+} from "@/types";
+import type {
   ProductImportBatchStatus,
   ProductImportProgress,
-} from "@/types";
+} from "@/types/product";
 import { decimalToDb, parseDbDecimal } from "@/utils/decimal";
 import {
   barcodeSchema,
@@ -126,7 +128,7 @@ export async function toggleSupplierActive(
 
 export async function createDepartment(
   input: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: number }>> {
   const parsed = createDepartmentSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
 
@@ -167,7 +169,7 @@ export async function updateDepartmentDetails(
 }
 
 export async function toggleDepartmentActive(
-  id: string,
+  id: number,
   isActive: boolean,
 ): Promise<ActionResult> {
   await departmentRepository.update(id, { isActive });
@@ -275,14 +277,23 @@ export async function createProduct(
   if (!parsed.success) return { success: false, error: parsed.error.message };
 
   const department = parsed.data.department.trim();
-  const orderDepartment =
-    parsed.data.orderDepartment?.trim() || department;
-  await departmentRepository.ensureByName(orderDepartment);
+  let orderDepartmentId = parsed.data.orderDepartment ?? null;
+  if (orderDepartmentId == null) {
+    orderDepartmentId = await departmentRepository.ensureIdByName(department);
+  } else {
+    const known = await departmentRepository.getById(orderDepartmentId);
+    if (!known || !known.isActive) {
+      return {
+        success: false,
+        error: "Choose an active department from the departments list",
+      };
+    }
+  }
 
   const product = await productRepository.createProduct({
     name: parsed.data.name,
     department,
-    orderDepartment,
+    orderDepartment: orderDepartmentId,
     isActive: parsed.data.isActive,
   });
   revalidatePath("/products");
@@ -300,11 +311,17 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
     data.department = data.department.trim();
   }
   if (data.orderDepartment !== undefined) {
-    const orderDepartment = data.orderDepartment?.trim() || null;
-    if (orderDepartment) {
-      await departmentRepository.ensureByName(orderDepartment);
+    if (data.orderDepartment == null) {
+      data.orderDepartment = null;
+    } else {
+      const known = await departmentRepository.getById(data.orderDepartment);
+      if (!known || !known.isActive) {
+        return {
+          success: false,
+          error: "Choose an active department from the departments list",
+        };
+      }
     }
-    data.orderDepartment = orderDepartment;
   }
 
   await productRepository.updateProduct(id, data);
@@ -320,9 +337,9 @@ export async function assignOrderDepartment(
   const parsed = assignOrderDepartmentSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
 
-  const orderDepartment = parsed.data.orderDepartment?.trim() || null;
-  if (orderDepartment) {
-    const known = await departmentRepository.getByName(orderDepartment);
+  const orderDepartmentId = parsed.data.orderDepartment;
+  if (orderDepartmentId != null) {
+    const known = await departmentRepository.getById(orderDepartmentId);
     if (!known || !known.isActive) {
       return {
         success: false,
@@ -333,7 +350,7 @@ export async function assignOrderDepartment(
 
   const updated = await productRepository.assignOrderDepartment(
     parsed.data.productId,
-    orderDepartment,
+    orderDepartmentId,
   );
   if (!updated) return { success: false, error: "Product not found" };
 
@@ -711,8 +728,10 @@ export async function createOrder(
 ): Promise<ActionResult<{ id: number }>> {
   const parsed = createOrderSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
+  const { departmentFilters, ...rest } = parsed.data;
   const order = await orderRepository.create({
-    ...parsed.data,
+    ...rest,
+    departmentFilters: departmentFilters.map(String),
     status: "draft",
   });
   return { success: true, data: { id: order.id } };

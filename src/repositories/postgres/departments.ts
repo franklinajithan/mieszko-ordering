@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { departments, products } from "@/db/schema";
 
-
 function isMissingRelationError(error: unknown, relation = "departments") {
   const cause = error instanceof Error ? error.cause : null;
   if (!cause || typeof cause !== "object" || !("code" in cause)) return false;
@@ -25,7 +24,15 @@ export const departmentRepository = {
     return db.select().from(departments).orderBy(departments.name);
   },
 
-  async getById(id: string) {
+  async listActive() {
+    return db
+      .select()
+      .from(departments)
+      .where(eq(departments.isActive, true))
+      .orderBy(departments.name);
+  },
+
+  async getById(id: number) {
     const [row] = await db
       .select()
       .from(departments)
@@ -54,7 +61,7 @@ export const departmentRepository = {
     const existing = await departmentRepository.getByName(trimmed);
     if (existing) {
       if (!existing.isActive) {
-        return departmentRepository.update(existing.id.toString(), { isActive: true });
+        return departmentRepository.update(existing.id, { isActive: true });
       }
       return existing;
     }
@@ -65,7 +72,24 @@ export const departmentRepository = {
     });
   },
 
-  async update(id: string, data: Partial<typeof departments.$inferInsert>) {
+  async ensureIdByName(name: string) {
+    const department = await departmentRepository.ensureByName(name);
+    return department?.id ?? null;
+  },
+
+  async ensureIdsByNames(names: string[]) {
+    const unique = [
+      ...new Set(names.map((name) => name.trim()).filter(Boolean)),
+    ];
+    const map = new Map<string, number>();
+    for (const name of unique) {
+      const id = await departmentRepository.ensureIdByName(name);
+      if (id != null) map.set(name, id);
+    }
+    return map;
+  },
+
+  async update(id: number, data: Partial<typeof departments.$inferInsert>) {
     const existing = await departmentRepository.getById(id);
     if (!existing) return null;
 
@@ -74,13 +98,6 @@ export const departmentRepository = {
       .set({ ...data, updatedAt: new Date() })
       .where(eq(departments.id, id))
       .returning();
-
-    if (data.name && data.name !== existing.name) {
-      await db
-        .update(products)
-        .set({ orderDepartment: data.name, updatedAt: new Date() })
-        .where(eq(products.orderDepartment, existing.name));
-    }
 
     return row;
   },

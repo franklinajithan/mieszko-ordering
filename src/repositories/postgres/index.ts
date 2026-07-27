@@ -3,6 +3,7 @@ import "server-only";
 export { storeRepository } from "./stores";
 export { supplierRepository } from "./suppliers";
 export { departmentRepository } from "./departments";
+export { departmentMappingRepository } from "./department-mappings";
 export { productRepository } from "./products";
 export { dailySalesRepository } from "./daily-sales";
 export { supplierPriceRepository } from "./supplier-prices";

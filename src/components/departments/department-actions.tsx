@@ -30,7 +30,7 @@ export function DepartmentRowActions({ department }: { department: Department })
   async function saveEdit() {
     setError(null);
     const result = await updateDepartmentDetails({
-      id: department.id.toString(),
+      id: department.id,
       name: name.trim(),
       code: code.trim() || undefined,
     });
@@ -79,7 +79,7 @@ export function DepartmentRowActions({ department }: { department: Department })
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
-            await toggleDepartmentActive(department.id.toString(), !department.isActive);
+            await toggleDepartmentActive(department.id, !department.isActive);
             router.refresh();
           })
         }

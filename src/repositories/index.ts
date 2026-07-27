@@ -4,6 +4,7 @@ export {
   storeRepository,
   supplierRepository,
   departmentRepository,
+  departmentMappingRepository,
   productRepository,
   dailySalesRepository,
   supplierPriceRepository,

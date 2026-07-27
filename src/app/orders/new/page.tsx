@@ -9,14 +9,17 @@ export default async function NewOrderPage() {
   const [stores, suppliers, departments] = await Promise.all([
     storeRepository.list(),
     supplierRepository.list(),
-    departmentRepository.listActiveNames(),
+    departmentRepository.listActive(),
   ]);
 
   return (
     <NewOrderPageView
       stores={stores}
       suppliers={suppliers}
-      departments={departments}
+      departments={departments.map((department) => ({
+        id: department.id,
+        name: department.name,
+      }))}
     />
   );
 }

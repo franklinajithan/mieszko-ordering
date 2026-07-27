@@ -1,11 +1,24 @@
 import { DepartmentsPageView } from "@/components/departments/departments-page";
-import { listDepartments } from "@/lib/api/departments";
-import type { Department } from "@/types/department";
+import { listDepartmentMappings, listDepartments } from "@/lib/api/departments";
 
 export default async function DepartmentsPage() {
-  const departments = await listDepartments();
-  if (!departments.success) {
-    throw new Error(departments.error);
+  const [departmentsResult, mappingsResult] = await Promise.all([
+    listDepartments(),
+    listDepartmentMappings(),
+  ]);
+
+  if (!departmentsResult.success) {
+    throw new Error(departmentsResult.error);
   }
-  return <DepartmentsPageView departments={departments.data as Department[]} />;
+  if (!mappingsResult.success) {
+    throw new Error(mappingsResult.error);
+  }
+
+  return (
+    <DepartmentsPageView
+      departments={departmentsResult.data}
+      mappings={mappingsResult.data.mappings}
+      importedDepartments={mappingsResult.data.importedDepartments}
+    />
+  );
 }

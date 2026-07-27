@@ -1,21 +1,30 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { DepartmentForm } from "@/components/departments/department-form";
-import DepartmentList from "@/components/departments/department-list";
-import type { Department } from "@/types/department";
+import { DepartmentsTabs } from "@/components/departments/departments-tabs";
+import type {
+  Department,
+  DepartmentMapping,
+  ImportedDepartmentStat,
+} from "@/types/department";
+
 export function DepartmentsPageView({
   departments,
+  mappings,
+  importedDepartments,
 }: {
   departments: Department[];
+  mappings: DepartmentMapping[];
+  importedDepartments: ImportedDepartmentStat[];
 }) {
   return (
     <AppShell
       title="Departments"
-      description="Manage product departments used for catalog grouping and order filtering."
+      description="Manage order departments and map imported ERP labels to them."
     >
-      <div className="space-y-8">
-        <DepartmentForm />
-        <DepartmentList departments={departments} />
-      </div>    
+      <DepartmentsTabs
+        departments={departments}
+        mappings={mappings}
+        importedDepartments={importedDepartments}
+      />
     </AppShell>
   );
 }

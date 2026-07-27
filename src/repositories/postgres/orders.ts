@@ -10,6 +10,7 @@ import {
   orderStockEventItems,
   orderStockEvents,
   orderUploads,
+  departments,
   products,
   storeProducts,
   suppliers,
@@ -103,10 +104,10 @@ export const orderRepository = {
     return db.insert(orderStockEventItems).values(rows).returning();
   },
 
-  async getStoreProductsForOrder(storeId: number, departments: string[]) {
+  async getStoreProductsForOrder(storeId: number, departmentIds: number[]) {
     const conditions = [eq(storeProducts.storeId, storeId), eq(storeProducts.isActive, true)];
-    if (departments.length) {
-      conditions.push(inArray(products.orderDepartment, departments));
+    if (departmentIds.length) {
+      conditions.push(inArray(products.orderDepartment, departmentIds));
     }
     return db
       .select({
@@ -167,10 +168,12 @@ export const orderRepository = {
         item: orderItems,
         storeProduct: storeProducts,
         product: products,
+        orderDepartmentName: departments.name,
       })
       .from(orderItems)
       .innerJoin(storeProducts, eq(storeProducts.id, orderItems.storeProductId))
       .innerJoin(products, eq(products.id, storeProducts.productId))
+      .leftJoin(departments, eq(departments.id, products.orderDepartment))
       .where(eq(orderItems.orderId, orderId))
       .orderBy(storeProducts.storeProductCode);
   },

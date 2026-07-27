@@ -8,26 +8,11 @@ import { assignOrderDepartment } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/input";
 import { cn } from "@/utils/cn";
+import type { ProductRow } from "@/types/product";
+import type { DepartmentOption } from "@/types/department";
 
 export const PRODUCT_GRID_COLS =
   "grid-cols-[2.75rem_minmax(5.5rem,7.5rem)_minmax(0,1fr)_minmax(5rem,8rem)_minmax(7.5rem,10rem)_5.5rem_4.5rem]";
-
-type ProductRow = {
-  product: {
-    id: number;
-    name: string;
-    department: string;
-    orderDepartment: string | null;
-    isActive: boolean;
-  };
-  storeProduct: {
-    id: number;
-    storeProductCode: string;
-  };
-  store: {
-    id: number;
-  };
-};
 
 export function ProductListGrid({
   products,
@@ -37,7 +22,7 @@ export function ProductListGrid({
   search,
 }: {
   products: ProductRow[];
-  departments: string[];
+  departments: DepartmentOption[];
   duplicateNames: Set<string>;
   lineOffset: number;
   search?: string;
@@ -151,19 +136,20 @@ function OrderDepartmentSelect({
   departments,
 }: {
   productId: number;
-  value: string | null;
-  departments: string[];
+  value: number | null;
+  departments: DepartmentOption[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   return (
     <Select
-      value={value ?? ""}
+      value={value != null ? String(value) : ""}
       disabled={pending || departments.length === 0}
       className="h-8 text-xs"
       onChange={(event) => {
-        const next = event.target.value || null;
+        const next =
+          event.target.value === "" ? null : Number(event.target.value);
         startTransition(async () => {
           await assignOrderDepartment({
             productId,
@@ -175,8 +161,8 @@ function OrderDepartmentSelect({
     >
       <option value="">Unassigned</option>
       {departments.map((department) => (
-        <option key={department} value={department}>
-          {department}
+        <option key={department.id} value={String(department.id)}>
+          {department.name}
         </option>
       ))}
     </Select>

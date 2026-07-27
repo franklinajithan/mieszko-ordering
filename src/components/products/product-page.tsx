@@ -7,45 +7,9 @@ import {
   ProductImportProvider,
   ProductImportStatusBar,
 } from "@/components/products/product-import-context";
+import type { ProductsPageProps } from "@/types/product";
 
-type StoreRow = { id: number; name: string; code: string; erpType: string };
-
-type ProductRow = {
-  product: {
-    id: number;
-    name: string;
-    department: string;
-    orderDepartment: string | null;
-    isActive: boolean;
-  };
-  storeProduct: {
-    id: number;
-    storeProductCode: string;
-  };
-  store: {
-    id: number;
-    name: string;
-  };
-};
-
-export type ProductsPageProps = {
-  stores: StoreRow[];
-  departments: string[];
-  products: ProductRow[];
-  total: number;
-  duplicateNames: Set<string>;
-  selectedStore: StoreRow | undefined;
-  validStoreId: number | undefined;
-  safePage: number;
-  pageSize: number;
-  pageSizeOptions: number[];
-  defaultPageSize: number;
-  lineOffset: number;
-  paginationParams: Record<string, string | undefined>;
-  search?: string;
-  activeFilter?: string;
-  departmentFilter?: string;
-};
+export type { ProductsPageProps };
 
 export function ProductsPageView({
   stores,
