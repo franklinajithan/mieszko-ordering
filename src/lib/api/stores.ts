@@ -1,8 +1,12 @@
 import type { ActionResult } from "@/types";
+import type { Store } from "@/types/store";
 import { apiRequest } from "./client";
 
-export function createStore(
-  input: unknown,
+export function listStores(): Promise<ActionResult<Store[]>> {
+  return apiRequest("/stores");
+}
+
+export function createStore(  input: unknown,
 ): Promise<ActionResult<{ id: number }>> {
   return apiRequest("/stores", { method: "POST", body: input });
 }

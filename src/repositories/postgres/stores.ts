@@ -18,6 +18,7 @@ export const storeRepository = {
     return row;
   },
 
+
   async update(id: number, data: Partial<typeof stores.$inferInsert>) {
     const [row] = await db
       .update(stores)

@@ -1,11 +1,23 @@
 import { StoresPageView } from "@/components/stores/stores-page";
-import { storeRepository, supplierRepository } from "@/repositories";
+import { listStores, listSuppliers } from "@/lib/api";
 
 export default async function StoresPage() {
-  const [stores, suppliers] = await Promise.all([
-    storeRepository.list(),
-    supplierRepository.list(),
+  const [storesResult, suppliersResult] = await Promise.all([
+    listStores(),
+    listSuppliers(),
   ]);
 
-  return <StoresPageView stores={stores} suppliers={suppliers} />;
+  if (!storesResult.success) {
+    throw new Error(storesResult.error);
+  }
+  if (!suppliersResult.success) {
+    throw new Error(suppliersResult.error);
+  }
+
+  return (
+    <StoresPageView
+      stores={storesResult.data}
+      suppliers={suppliersResult.data}
+    />
+  );
 }

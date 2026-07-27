@@ -6,7 +6,24 @@ import type { ActionResult } from "@/types";
  * backend without touching call sites.
  */
 const RAW_BASE = process.env.NEXT_PUBLIC_API_URL?.trim();
-export const API_BASE_URL = RAW_BASE ? RAW_BASE.replace(/\/+$/, "") : "/api";
+
+function resolveAppOrigin(): string {
+  const configured =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.APP_URL?.trim() ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+  if (configured) return configured.replace(/\/+$/, "");
+  return `http://localhost:${process.env.PORT ?? 3000}`;
+}
+
+/** Resolves the API base URL for browser and server (RSC) callers. */
+export function resolveApiBaseUrl(): string {
+  if (RAW_BASE) return RAW_BASE.replace(/\/+$/, "");
+  if (typeof window !== "undefined") return "/api";
+  return `${resolveAppOrigin()}/api`;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
@@ -33,11 +50,12 @@ export async function apiRequest<T>(
 ): Promise<ActionResult<T>> {
   const { method = "GET", body } = options;
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
       method,
       headers:
         body !== undefined ? { "Content-Type": "application/json" } : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      cache: method === "GET" ? "no-store" : undefined,
     });
     return parseEnvelope<T>(response);
   } catch (error) {
@@ -56,7 +74,7 @@ export async function apiFormRequest<T>(
 ): Promise<ActionResult<T>> {
   const { method = "POST" } = options;
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
       method,
       body: formData,
     });

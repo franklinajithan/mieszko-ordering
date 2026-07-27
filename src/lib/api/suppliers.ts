@@ -1,5 +1,10 @@
 import type { ActionResult } from "@/types";
+import type { Supplier } from "@/types/supplier";
 import { apiRequest } from "./client";
+
+export function listSuppliers(): Promise<ActionResult<Supplier[]>> {
+  return apiRequest("/suppliers");
+}
 
 export function createSupplier(
   input: unknown,
