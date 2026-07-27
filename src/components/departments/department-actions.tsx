@@ -9,13 +9,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { Department } from "@/types/department";
 
-type Department = {
-  id: string;
-  name: string;
-  code: string | null;
-  isActive: boolean;
-};
 
 export function DepartmentRowActions({ department }: { department: Department }) {
   const router = useRouter();
@@ -35,7 +30,7 @@ export function DepartmentRowActions({ department }: { department: Department })
   async function saveEdit() {
     setError(null);
     const result = await updateDepartmentDetails({
-      id: department.id,
+      id: department.id.toString(),
       name: name.trim(),
       code: code.trim() || undefined,
     });
@@ -84,7 +79,7 @@ export function DepartmentRowActions({ department }: { department: Department })
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
-            await toggleDepartmentActive(department.id, !department.isActive);
+            await toggleDepartmentActive(department.id.toString(), !department.isActive);
             router.refresh();
           })
         }

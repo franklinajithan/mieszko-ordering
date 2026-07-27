@@ -14,3 +14,9 @@ export const POST = route(async (req) => {
   });
   return apiOk({ id: department.id }, 201);
 });
+
+
+export const GET = route(async () => {
+  const departments = await departmentRepository.list();
+  return apiOk(departments);
+});

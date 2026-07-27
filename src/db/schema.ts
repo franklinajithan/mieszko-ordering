@@ -1,33 +1,4 @@
-import {
-
-  boolean,
-
-  date,
-
-  index,
-
-  integer,
-
-  jsonb,
-
-  numeric,
-
-  pgTable,
-
-  primaryKey,
-
-  text,
-
-  timestamp,
-
-  unique,
-
-  uuid,
-
-  varchar,
-
-} from "drizzle-orm/pg-core";
-
+import { boolean, date, index, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp, unique, uuid, varchar, } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 
@@ -87,7 +58,7 @@ export const suppliers = pgTable("suppliers", {
 });
 
 export const departments = pgTable("departments", {
-  id: uuid("id").primaryKey().defaultRandom(),
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   name: varchar("name", { length: 100 }).notNull().unique(),
   code: varchar("code", { length: 50 }),
   isActive: boolean("is_active").notNull().default(true),
@@ -109,8 +80,8 @@ export const products = pgTable("products", {
   /** Source/ERP department from import — never overwritten by order-department assignment. */
   department: varchar("department", { length: 100 }).notNull(),
 
-  /** App ordering department from the departments table; optional and independent of import. */
-  orderDepartment: varchar("order_department", { length: 100 }),
+  /** App ordering department name; stored in legacy column `order_department_id`. */
+  orderDepartment: varchar("order_department_id", { length: 100 }),
 
   isActive: boolean("is_active").notNull().default(true),
 

@@ -1,7 +1,11 @@
 import { DepartmentsPageView } from "@/components/departments/departments-page";
-import { departmentRepository } from "@/repositories";
+import { listDepartments } from "@/lib/api/departments";
+import type { Department } from "@/types/department";
 
 export default async function DepartmentsPage() {
-  const departments = await departmentRepository.list();
-  return <DepartmentsPageView departments={departments} />;
+  const departments = await listDepartments();
+  if (!departments.success) {
+    throw new Error(departments.error);
+  }
+  return <DepartmentsPageView departments={departments.data as Department[]} />;
 }

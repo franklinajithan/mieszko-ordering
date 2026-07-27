@@ -1,9 +1,8 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { departments, products } from "@/db/schema";
 
-let ensureDepartmentsTablePromise: Promise<void> | null = null;
 
 function isMissingRelationError(error: unknown, relation = "departments") {
   const cause = error instanceof Error ? error.cause : null;
@@ -11,28 +10,6 @@ function isMissingRelationError(error: unknown, relation = "departments") {
   if (cause.code !== "42P01") return false;
   const message = "message" in cause ? String(cause.message) : "";
   return message.includes(relation);
-}
-
-async function ensureDepartmentsTable() {
-  if (!ensureDepartmentsTablePromise) {
-    ensureDepartmentsTablePromise = db
-      .execute(sql`
-        CREATE TABLE IF NOT EXISTS departments (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          name VARCHAR(100) NOT NULL UNIQUE,
-          code VARCHAR(50),
-          is_active BOOLEAN NOT NULL DEFAULT TRUE,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `)
-      .then(() => undefined)
-      .catch((error) => {
-        ensureDepartmentsTablePromise = null;
-        throw error;
-      });
-  }
-  return ensureDepartmentsTablePromise;
 }
 
 async function listLegacyDepartmentNames() {
@@ -45,12 +22,10 @@ async function listLegacyDepartmentNames() {
 
 export const departmentRepository = {
   async list() {
-    await ensureDepartmentsTable();
     return db.select().from(departments).orderBy(departments.name);
   },
 
   async getById(id: string) {
-    await ensureDepartmentsTable();
     const [row] = await db
       .select()
       .from(departments)
@@ -59,7 +34,6 @@ export const departmentRepository = {
   },
 
   async getByName(name: string) {
-    await ensureDepartmentsTable();
     const [row] = await db
       .select()
       .from(departments)
@@ -68,7 +42,6 @@ export const departmentRepository = {
   },
 
   async create(data: typeof departments.$inferInsert) {
-    await ensureDepartmentsTable();
     const [row] = await db.insert(departments).values(data).returning();
     return row;
   },
@@ -81,7 +54,7 @@ export const departmentRepository = {
     const existing = await departmentRepository.getByName(trimmed);
     if (existing) {
       if (!existing.isActive) {
-        return departmentRepository.update(existing.id, { isActive: true });
+        return departmentRepository.update(existing.id.toString(), { isActive: true });
       }
       return existing;
     }
@@ -93,7 +66,6 @@ export const departmentRepository = {
   },
 
   async update(id: string, data: Partial<typeof departments.$inferInsert>) {
-    await ensureDepartmentsTable();
     const existing = await departmentRepository.getById(id);
     if (!existing) return null;
 
@@ -115,7 +87,6 @@ export const departmentRepository = {
 
   async listActiveNames() {
     try {
-      await ensureDepartmentsTable();
       const rows = await db
         .select({ name: departments.name })
         .from(departments)

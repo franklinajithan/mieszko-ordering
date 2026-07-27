@@ -1,8 +1,9 @@
-import type { ActionResult, ImportResult } from "@/types";
-import { apiFormRequest, apiRequest } from "./client";
+import type { ActionResult } from "@/types";
+import { apiRequest } from "@/lib/api/client";
+import { Department } from "@/types/department";
 
 export function createDepartment(
-  input: unknown,
+  input: { name: string; code: string | null; isActive: boolean },
 ): Promise<ActionResult<{ id: string }>> {
   return apiRequest("/departments", { method: "POST", body: input });
 }
@@ -24,8 +25,8 @@ export function toggleDepartmentActive(
   });
 }
 
-export function importDepartments(
-  formData: FormData,
-): Promise<ActionResult<ImportResult>> {
-  return apiFormRequest("/departments/import", formData);
+
+
+export function listDepartments(): Promise<ActionResult<Department[]>> {
+  return apiRequest("/departments", { method: "GET" });
 }
