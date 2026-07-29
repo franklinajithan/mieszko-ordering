@@ -68,6 +68,19 @@ const PHASE_LABELS: Record<ProductImportPhase, string> = {
   error: "Import failed",
 };
 
+export function formatProductImportDoneMessage(result: ImportResult): string {
+  const parts = [`Saved ${result.matchedRows.toLocaleString()} products`];
+  if (result.duplicateRows) {
+    parts.push(
+      `${result.duplicateRows.toLocaleString()} duplicate product codes merged in file`,
+    );
+  }
+  if (result.invalidRows) {
+    parts.push(`${result.invalidRows.toLocaleString()} invalid rows skipped`);
+  }
+  return parts.join(" · ");
+}
+
 function importProgressPercent(status: ProductImportStatus): number {
   if (status.phase === "done") return 100;
   if (status.estimated) return Math.min(98, status.processed);
@@ -178,13 +191,7 @@ export function ProductImportStatusBar() {
 
       {status.phase === "done" && status.result ? (
         <p className="text-sm text-emerald-800">
-          Imported {status.result.matchedRows.toLocaleString()} products
-          {status.result.duplicateRows
-            ? ` · ${status.result.duplicateRows.toLocaleString()} updated/skipped duplicates`
-            : null}
-          {status.result.invalidRows
-            ? ` · ${status.result.invalidRows.toLocaleString()} invalid rows`
-            : null}
+          {formatProductImportDoneMessage(status.result)}
         </p>
       ) : null}
     </div>

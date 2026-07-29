@@ -11,6 +11,7 @@ import {
 import { ImportSummary } from "@/components/layout/app-shell";
 import {
   ProductImportProgressInline,
+  formatProductImportDoneMessage,
   useProductImport,
 } from "@/components/products/product-import-context";
 import {
@@ -263,7 +264,7 @@ export function ProductForms({
           total: batch.data.total,
           result: batch.data.done ? batch.data.result : undefined,
           message: batch.data.done
-            ? `Imported ${batch.data.result.matchedRows.toLocaleString()} products.`
+            ? formatProductImportDoneMessage(batch.data.result)
             : `Saved ${batch.data.processed.toLocaleString()} of ${batch.data.total.toLocaleString()} products…`,
         });
 

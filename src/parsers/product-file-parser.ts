@@ -1,7 +1,7 @@
 import { parse } from "papaparse";
 import * as XLSX from "xlsx";
 import type { ParsedRow } from "@/types";
-import { formatSpreadsheetBarcode } from "@/utils/barcode";
+import { normalizeImportBarcode } from "@/utils/barcode";
 
 function normHeader(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
@@ -145,14 +145,7 @@ function parseSpreadsheetBuffer(
     for (let colIndex = 0; colIndex < headers.length; colIndex += 1) {
       const header = headers[colIndex];
       if (!header) continue;
-      const raw = rowValues[colIndex] ?? "";
-      const value =
-        normHeader(header) === "innerean" ||
-        normHeader(header) === "inner ean" ||
-        normHeader(header) === "ean" ||
-        normHeader(header) === "barcode"
-          ? formatSpreadsheetBarcode(raw).trim()
-          : cellText(raw);
+      const value = cellText(rowValues[colIndex] ?? "");
       parsed[header] = value;
       if (value) hasValue = true;
     }
@@ -209,15 +202,8 @@ export function normalizeProductCode(value: string): string {
   return code;
 }
 
-/** When the file has duplicate product codes, keep the row with the richer barcode (longer), any length. */
-function barcodeQuality(barcode: string): number {
-  const value = formatSpreadsheetBarcode(barcode).trim();
-  if (!value) return 0;
-  const digitsOnly = value.replace(/\D/g, "");
-  if (digitsOnly.length > 0 && digitsOnly.length === value.length) {
-    return digitsOnly.length;
-  }
-  return value.length;
+function hasImportBarcode(value: unknown): boolean {
+  return normalizeImportBarcode(value).length > 0;
 }
 
 export function dedupeProductRows(
@@ -241,9 +227,9 @@ export function dedupeProductRows(
     duplicateRows += 1;
 
     if (barcodeColumn) {
-      const existingScore = barcodeQuality(String(existing[barcodeColumn] ?? ""));
-      const candidateScore = barcodeQuality(String(row[barcodeColumn] ?? ""));
-      if (candidateScore > existingScore) {
+      const existingHas = hasImportBarcode(existing[barcodeColumn]);
+      const candidateHas = hasImportBarcode(row[barcodeColumn]);
+      if (candidateHas && !existingHas) {
         seen.set(code, row);
       }
     }

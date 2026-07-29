@@ -1,3 +1,8 @@
+/** Normalize a barcode from a spreadsheet cell for storage (no length rules). */
+export function normalizeImportBarcode(value: unknown): string {
+  return formatSpreadsheetBarcode(value).trim();
+}
+
 /** Barcode strings to try when matching catalog barcodes (EAN/GTIN variants). */
 export function barcodeLookupCandidates(barcode: string): string[] {
   const trimmed = barcode.trim();
@@ -7,9 +12,11 @@ export function barcodeLookupCandidates(barcode: string): string[] {
   if (!digits) return [...out];
 
   out.add(digits);
+  // Optional GTIN variants for lookup only — stored barcodes are never padded or truncated.
   if (digits.length === 12) out.add(digits.padStart(13, "0"));
-  if (digits.length === 13 && digits.startsWith("0")) out.add(digits.replace(/^0+/, "") || digits);
-  if (digits.length < 13 && digits.length >= 6) out.add(digits.padStart(13, "0"));
+  if (digits.length === 13 && digits.startsWith("0")) {
+    out.add(digits.replace(/^0+/, "") || digits);
+  }
 
   return [...out];
 }
@@ -17,19 +24,12 @@ export function barcodeLookupCandidates(barcode: string): string[] {
 export function formatSpreadsheetBarcode(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "number" && Number.isFinite(value)) {
-    if (Number.isInteger(value) && Math.abs(value) <= Number.MAX_SAFE_INTEGER) {
-      return String(value);
-    }
-    const truncated = Math.trunc(value);
-    if (Number.isFinite(truncated) && Math.abs(truncated) <= Number.MAX_SAFE_INTEGER) {
-      return String(truncated);
-    }
-    return String(value).trim();
+    return String(Math.trunc(value));
   }
   const trimmed = String(value).replace(/\s+/g, " ").trim();
-  if (/^[+-]?\d+(\.\d+)?[eE][+-]?\d+$/.test(trimmed)) {
+  if (/^\d+(\.\d+)?[eE][+-]?\d+$/.test(trimmed)) {
     const asNumber = Number(trimmed);
-    if (Number.isFinite(asNumber) && Math.abs(asNumber) <= Number.MAX_SAFE_INTEGER) {
+    if (Number.isFinite(asNumber)) {
       return String(Math.trunc(asNumber));
     }
   }

@@ -219,11 +219,13 @@ export function detectRtcColumns(
 
   const rtcQty =
     findHeader(["rtc qty", "rtc quantity", "reduce qty", "clear qty"]) ??
+    findHeader(["qty", "quantity"]) ??
     findHeader(["rtc", "reduce", "clear"]);
 
   const bookStock = detectBookStockColumns(headers, erpType);
+  const barcodeCol = findHeader(["barcode"]);
   return {
-    referenceColumn: bookStock.referenceColumn,
+    referenceColumn: barcodeCol ?? bookStock.referenceColumn,
     quantityColumn: rtcQty ?? bookStock.quantityColumn,
   };
 }

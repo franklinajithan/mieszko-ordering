@@ -10,6 +10,7 @@ export {
   supplierPriceRepository,
   bookStockRepository,
   rtcRepository,
+  rtcSalesRepository,
   wastageRepository,
   orderRepository,
 } from "@/repositories/postgres";

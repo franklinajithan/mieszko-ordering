@@ -9,7 +9,7 @@ import {
   storeRepository,
 } from "@/repositories/postgres";
 import { decimalToDb, toDecimal } from "@/utils/decimal";
-import { formatSpreadsheetBarcode } from "@/utils/barcode";
+import { normalizeImportBarcode } from "@/utils/barcode";
 
 const BATCH_SIZE = 2000;
 const UPDATE_BATCH_SIZE = 200;
@@ -175,7 +175,7 @@ function normalizeImportRows(
       ? row[input.departmentColumn]?.trim() || "General"
       : "General";
     const barcode = input.barcodeColumn
-      ? formatSpreadsheetBarcode(row[input.barcodeColumn]).trim()
+      ? normalizeImportBarcode(row[input.barcodeColumn])
       : "";
     const retailPrice = input.retailPriceColumn
       ? parseRetailPrice(String(row[input.retailPriceColumn] ?? ""))
@@ -277,7 +277,6 @@ async function importPerStoreProductsBulk(input: {
         retailPrice: row.retailPrice,
         barcode: row.barcode,
       });
-      input.result.duplicateRows = (input.result.duplicateRows ?? 0) + 1;
     } else {
       toCreate.push(row);
     }
@@ -310,6 +309,8 @@ async function importPerStoreProductsBulk(input: {
   }
 
   await insertImportBarcodesBatch(toUpdateStoreProducts);
+
+  input.result.matchedRows += toUpdateStoreProducts.length;
 
   for (const batch of chunk(toCreate, BATCH_SIZE)) {
     const createdProducts = await productRepository.createProductsBatch(
@@ -411,7 +412,6 @@ async function importMspSharedProductsBulk(input: {
         retailPrice: row.retailPrice,
         barcode: row.barcode,
       });
-      input.result.duplicateRows = (input.result.duplicateRows ?? 0) + 1;
       continue;
     }
 
@@ -462,6 +462,8 @@ async function importMspSharedProductsBulk(input: {
   }
 
   await insertImportBarcodesBatch(toUpdateStoreProducts);
+
+  input.result.matchedRows += toUpdateStoreProducts.length;
 
   for (const batch of chunk(toLink, BATCH_SIZE)) {
     await Promise.all(

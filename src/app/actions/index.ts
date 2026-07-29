@@ -3,9 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
+  dailySalesRepository,
   departmentRepository,
   orderRepository,
   productRepository,
+  rtcRepository,
+  rtcSalesRepository,
   storeRepository,
   supplierRepository,
 } from "@/repositories";
@@ -21,6 +24,7 @@ import {
   getDailySalesImportJob,
   saveDailySalesImportJob,
 } from "@/services/daily-sales-import-job-store";
+import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
 import { importBookStockRows } from "@/services/book-stock-import.service";
 import {
   importPromoRows,
@@ -31,7 +35,19 @@ import {
   importRtcRows,
   listRtcImportsForStore,
   type RtcImportSummary,
+  RTC_IMPORT_BATCH_SIZE,
+  RTC_ITEM_CODE_COLUMN,
+  prepareRtcImport,
+  importRtcQuantityBatch,
+  buildGloposRtcPreviewWithStoreProductCodes,
+  resolvePreparedRtcRowsFromBarcodesToStoreProductCodes,
+  enrichGloposRtcRowsWithStoreProductCodes,
 } from "@/services/rtc-import.service";
+import {
+  deleteRtcImportJob,
+  getRtcImportJob,
+  saveRtcImportJob,
+} from "@/services/rtc-import-job-store";
 import {
   importWastageRows,
   listWastageImportsForStore,
@@ -50,10 +66,12 @@ import { importSupplierPriceRows } from "@/services/supplier-price-import.servic
 import { processStockUpload } from "@/services/stock-upload.service";
 import { recalculateLineCost } from "@/services/supplier-price.service";
 import { parseAllRows, parseUploadedFile } from "@/parsers/file-parser";
+import { tryParseGloposRtcHistoryReport, isGloposRtcHistoryReport, parseGloposRtcHistoryReport } from "@/parsers/glopos-rtc-history-parser";
 import { tryParseRetailSalesReport } from "@/parsers/glopos-retail-parser";
 import {
   detectBookStockFileErpType,
   detectDailySalesFileErpType,
+  detectRtcFileErpType,
   detectProductFileErpType,
   inferProductFileErpTypeFromColumns,
   resolveStoreErpType,
@@ -451,6 +469,72 @@ export async function previewDailySalesUpload(
   return preview;
 }
 
+export async function previewRtcUpload(
+  formData: FormData,
+): Promise<
+  FilePreview & {
+    referenceColumn?: string;
+    quantityColumn?: string;
+    rtcDate?: string;
+    duplicateRows?: number;
+    mappingType?: "store_product_code" | "barcode";
+    matchedCount?: number;
+    unmatchedCount?: number;
+    unmatchedBarcodes?: string[];
+  }
+> {
+  const file = formData.get("file") as File | null;
+  if (!file) throw new Error("No file uploaded");
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const gloposRtc = await tryParseGloposRtcHistoryReport(buffer, file.name);
+
+  const storeId = idSchema.safeParse(formData.get("storeId"));
+
+  let preview: FilePreview & {
+    referenceColumn?: string;
+    quantityColumn?: string;
+    rtcDate?: string;
+    duplicateRows?: number;
+    mappingType?: "store_product_code" | "barcode";
+  };
+
+  if (gloposRtc && storeId.success) {
+    const enriched = await buildGloposRtcPreviewWithStoreProductCodes(
+      storeId.data,
+      gloposRtc,
+    );
+    preview = {
+      ...enriched,
+      rows: enriched.rows.slice(0, 10),
+    };
+  } else if (gloposRtc) {
+    preview = {
+      headers: gloposRtc.headers,
+      rows: gloposRtc.rows.slice(0, 10),
+      referenceColumn: gloposRtc.barcodeColumn,
+      quantityColumn: gloposRtc.quantityColumn,
+      rtcDate: gloposRtc.rtcDate ?? undefined,
+      duplicateRows: gloposRtc.duplicateRows,
+      mappingType: "barcode" as const,
+    };
+  } else {
+    preview = await parseUploadedFile(buffer, file.name);
+  }
+
+  if (storeId.success) {
+    const store = await storeRepository.getById(storeId.data);
+    if (store) {
+      const storeErpType = resolveStoreErpType(store.erpType);
+      const fileErpType = detectRtcFileErpType(preview.headers, file.name);
+      const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+      if (mismatch) throw new Error(mismatch);
+    }
+  }
+
+  return preview;
+}
+
 export async function importDailySales(
   formData: FormData,
 ): Promise<ActionResult<ImportResult>> {
@@ -488,7 +572,7 @@ export async function importDailySales(
       productColumn: retail.itemCodeColumn,
       quantityColumn: retail.salesQtyColumn,
       mappingType: "store_product_code",
-      manualSalesDate: retail.salesDate ?? importMeta.manualSalesDate,
+      manualSalesDate: importMeta.manualSalesDate ?? retail.salesDate ?? undefined,
     };
     duplicateRows = retail.duplicateRows;
   } else {
@@ -550,7 +634,7 @@ export async function beginDailySalesImport(
       productColumn: retail.itemCodeColumn,
       quantityColumn: retail.salesQtyColumn,
       mappingType: "store_product_code",
-      manualSalesDate: retail.salesDate ?? importMeta.manualSalesDate,
+      manualSalesDate: importMeta.manualSalesDate ?? retail.salesDate ?? undefined,
     };
   } else {
     const parsed = await parseAllRows(buffer, file.name);
@@ -635,6 +719,52 @@ export async function runDailySalesImportBatch(input: {
   };
 }
 
+export async function deleteDailySalesUpload(
+  storeId: number,
+  salesDate: string,
+): Promise<ActionResult<void>> {
+  const parsedStore = idSchema.safeParse(storeId);
+  if (!parsedStore.success) {
+    return { success: false, error: parsedStore.error.message };
+  }
+  const parsedDate = z.string().date().safeParse(salesDate);
+  if (!parsedDate.success) {
+    return { success: false, error: parsedDate.error.message };
+  }
+
+  await dailySalesRepository.deleteForStoreAndDate(
+    parsedStore.data,
+    parsedDate.data,
+  );
+  revalidatePath("/daily-sales");
+  return { success: true, data: undefined };
+}
+
+export type DailySalesStoreSummary = {
+  salesDate: string;
+  itemCount: number;
+  totalSoldQty: string;
+  lastUpdated: string;
+};
+
+export async function listDailySalesSummaries(
+  storeId: number,
+): Promise<ActionResult<DailySalesStoreSummary[]>> {
+  const parsed = idSchema.safeParse(storeId);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+
+  const rows = await dailySalesRepository.listDateSummariesForStore(parsed.data);
+  return {
+    success: true,
+    data: rows.map((row) => ({
+      salesDate: row.salesDate,
+      itemCount: row.itemCount,
+      totalSoldQty: String(row.totalSoldQty),
+      lastUpdated: String(row.lastUpdated),
+    })),
+  };
+}
+
 export async function importSupplierPrices(
   formData: FormData,
 ): Promise<ActionResult<ImportResult>> {
@@ -692,6 +822,252 @@ export async function importBookStock(
   return { success: true, data: result };
 }
 
+async function resolveRtcImportFromFile(
+  file: File,
+  meta: z.infer<typeof rtcImportSchema>,
+): Promise<
+  | { success: false; error: string }
+  | {
+      success: true;
+      rows: ParsedRow[];
+      importMeta: z.infer<typeof rtcImportSchema>;
+      previewHeaders: string[];
+      skipReferencePivot: boolean;
+      storeErpType: ReturnType<typeof resolveStoreErpType>;
+    }
+> {
+  const store = await storeRepository.getById(meta.storeId);
+  if (!store) return { success: false, error: "Store not found" };
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  let gloposRtc = await tryParseGloposRtcHistoryReport(buffer, file.name);
+  if (!gloposRtc && isGloposRtcHistoryReport([], file.name)) {
+    try {
+      gloposRtc = await parseGloposRtcHistoryReport(buffer, file.name);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Failed to parse GloPOS RTC file",
+      };
+    }
+  }
+
+  let rows: ParsedRow[];
+  let importMeta = { ...meta };
+  let previewHeaders: string[] = [];
+  let skipReferencePivot = false;
+
+  if (gloposRtc) {
+    if (!gloposRtc.rows.length) {
+      return { success: false, error: "No RTC product rows found in the file." };
+    }
+
+    const enriched = await enrichGloposRtcRowsWithStoreProductCodes(
+      meta.storeId,
+      gloposRtc,
+    );
+    if (!enriched.rows.length) {
+      const sample = enriched.unmatchedBarcodes.slice(0, 5).join(", ");
+      return {
+        success: false,
+        error:
+          enriched.unmatchedBarcodes.length ?
+            `No store products found for file barcodes (${enriched.unmatchedBarcodes.length} unmatched${sample ? `: ${sample}` : ""}). Add these barcodes to products in the catalog for this store, then preview again.`
+          : "No RTC product rows found in the file.",
+      };
+    }
+
+    rows = enriched.rows;
+    previewHeaders = [RTC_ITEM_CODE_COLUMN, gloposRtc.quantityColumn];
+    skipReferencePivot = true;
+    importMeta = {
+      ...importMeta,
+      referenceColumn: RTC_ITEM_CODE_COLUMN,
+      quantityColumn: gloposRtc.quantityColumn,
+      mappingType: "store_product_code",
+      rtcDate: importMeta.rtcDate || gloposRtc.rtcDate || meta.rtcDate,
+    };
+  } else {
+    const parsed = await parseAllRows(buffer, file.name);
+    rows = parsed.rows;
+    previewHeaders = parsed.headers;
+  }
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const fileErpType = detectRtcFileErpType(previewHeaders, file.name);
+  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+  if (mismatch) return { success: false, error: mismatch };
+
+  return {
+    success: true,
+    rows,
+    importMeta,
+    previewHeaders,
+    skipReferencePivot,
+    storeErpType,
+  };
+}
+
+export async function beginRtcImport(
+  formData: FormData,
+): Promise<
+  ActionResult<{
+    jobId: string;
+    totalRows: number;
+    fileName: string;
+    storeName: string;
+    batchSize: number;
+    importId: number;
+  }>
+> {
+  const file = formData.get("file") as File | null;
+  if (!file) return { success: false, error: "No file uploaded" };
+
+  const meta = rtcImportSchema.safeParse({
+    storeId: formData.get("storeId"),
+    rtcDate: formData.get("rtcDate"),
+    mappingType:
+      formData.get("mappingType") === "barcode" ? "barcode" : "store_product_code",
+    referenceColumn: formData.get("referenceColumn"),
+    quantityColumn: formData.get("quantityColumn"),
+    fileName: file.name,
+  });
+  if (!meta.success) return { success: false, error: meta.error.message };
+
+  const resolved = await resolveRtcImportFromFile(file, meta.data);
+  if (!resolved.success) return { success: false, error: resolved.error };
+
+  const store = await storeRepository.getById(meta.data.storeId);
+  if (!store) return { success: false, error: "Store not found" };
+
+  let rows = resolved.rows;
+  if (resolved.storeErpType === "glopos" && !resolved.skipReferencePivot) {
+    rows = pivotBookStockByReference(
+      rows,
+      resolved.importMeta.referenceColumn,
+      resolved.importMeta.quantityColumn,
+    ).rows;
+  }
+
+  const prepared = prepareRtcImport({
+    referenceColumn: resolved.importMeta.referenceColumn,
+    quantityColumn: resolved.importMeta.quantityColumn,
+    rows,
+  });
+
+  if (!prepared.rows.length) {
+    return {
+      success: false,
+      error: "No valid RTC rows found in the file.",
+    };
+  }
+
+  let jobRows = prepared.rows;
+  let jobMappingType = resolved.importMeta.mappingType;
+  let referenceColumnForImport = resolved.importMeta.referenceColumn;
+  if (resolved.skipReferencePivot && resolved.importMeta.mappingType === "barcode") {
+    const remapped = await resolvePreparedRtcRowsFromBarcodesToStoreProductCodes(
+      resolved.importMeta.storeId,
+      prepared,
+    );
+    jobRows = remapped.rows;
+    jobMappingType = "store_product_code";
+    referenceColumnForImport = RTC_ITEM_CODE_COLUMN;
+    prepared.result = remapped.result;
+  }
+
+  if (!jobRows.length) {
+    return {
+      success: false,
+      error:
+        "No RTC rows matched store products. Link file barcodes to products in the catalog (product barcodes + store item codes), then try again.",
+    };
+  }
+
+  const rtcImport = await rtcRepository.createImport({
+    storeId: resolved.importMeta.storeId,
+    rtcDate: resolved.importMeta.rtcDate,
+    fileName: file.name,
+    referenceColumn: referenceColumnForImport,
+    quantityColumn: resolved.importMeta.quantityColumn,
+  });
+
+  const jobId = saveRtcImportJob({
+    storeId: resolved.importMeta.storeId,
+    storeName: store.name,
+    fileName: file.name,
+    rtcDate: resolved.importMeta.rtcDate,
+    mappingType: jobMappingType,
+    importId: rtcImport.id,
+    rows: jobRows,
+    result: prepared.result,
+    expiresAt: Date.now() + 15 * 60 * 1000,
+  });
+
+  return {
+    success: true,
+    data: {
+      jobId,
+      totalRows: jobRows.length,
+      fileName: file.name,
+      storeName: store.name,
+      batchSize: RTC_IMPORT_BATCH_SIZE,
+      importId: rtcImport.id,
+    },
+  };
+}
+
+export async function runRtcImportBatch(input: {
+  jobId: string;
+  batchIndex: number;
+}): Promise<
+  ActionResult<{
+    processed: number;
+    total: number;
+    done: boolean;
+    result: ImportResult;
+    importId: number;
+  }>
+> {
+  const job = getRtcImportJob(input.jobId);
+  if (!job) {
+    return {
+      success: false,
+      error: "Import session expired. Please upload the file again.",
+    };
+  }
+
+  const start = input.batchIndex * RTC_IMPORT_BATCH_SIZE;
+  const batchRows = job.rows.slice(start, start + RTC_IMPORT_BATCH_SIZE);
+  await importRtcQuantityBatch({
+    storeId: job.storeId,
+    rtcDate: job.rtcDate,
+    mappingType: job.mappingType,
+    rows: batchRows,
+    result: job.result,
+  });
+
+  const processed = Math.min(start + batchRows.length, job.rows.length);
+  const done = processed >= job.rows.length;
+  if (done) {
+    await rtcRepository.updateMatchedRows(job.importId, job.result.matchedRows);
+    deleteRtcImportJob(input.jobId);
+    revalidatePath("/rtc");
+  }
+
+  return {
+    success: true,
+    data: {
+      processed,
+      total: job.rows.length,
+      done,
+      result: job.result,
+      importId: job.importId,
+    },
+  };
+}
+
 export async function importRtc(
   formData: FormData,
 ): Promise<ActionResult<ImportResult & { importId: number }>> {
@@ -701,7 +1077,8 @@ export async function importRtc(
   const meta = rtcImportSchema.safeParse({
     storeId: formData.get("storeId"),
     rtcDate: formData.get("rtcDate"),
-    mappingType: formData.get("mappingType") || "store_product_code",
+    mappingType:
+      formData.get("mappingType") === "barcode" ? "barcode" : "store_product_code",
     referenceColumn: formData.get("referenceColumn"),
     quantityColumn: formData.get("quantityColumn"),
     fileName: file.name,
@@ -709,22 +1086,14 @@ export async function importRtc(
 
   if (!meta.success) return { success: false, error: meta.error.message };
 
-  const store = await storeRepository.getById(meta.data.storeId);
-  if (!store) return { success: false, error: "Store not found" };
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { headers, rows } = await parseAllRows(buffer, file.name);
-
-  const storeErpType = resolveStoreErpType(store.erpType);
-  const fileErpType = detectBookStockFileErpType(headers);
-  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
-  if (mismatch) return { success: false, error: mismatch };
-
+  const resolved = await resolveRtcImportFromFile(file, meta.data);
+  if (!resolved.success) return { success: false, error: resolved.error };
 
   const result = await importRtcRows({
-    ...meta.data,
-    rows,
-    erpType: storeErpType,
+    ...resolved.importMeta,
+    rows: resolved.rows,
+    erpType: resolved.storeErpType,
+    skipReferencePivot: resolved.skipReferencePivot,
   });
   revalidatePath("/rtc");
   return { success: true, data: result };
@@ -737,6 +1106,49 @@ export async function listRtcImports(
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const imports = await listRtcImportsForStore(parsed.data);
   return { success: true, data: imports };
+}
+
+export type RtcStoreSummary = {
+  rtcDate: string;
+  itemCount: number;
+  totalRtcQty: string;
+  lastUpdated: string;
+};
+
+export async function listRtcSummaries(
+  storeId: number,
+): Promise<ActionResult<RtcStoreSummary[]>> {
+  const parsed = idSchema.safeParse(storeId);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+
+  const rows = await rtcSalesRepository.listDateSummariesForStore(parsed.data);
+  return {
+    success: true,
+    data: rows.map((row) => ({
+      rtcDate: row.rtcDate,
+      itemCount: row.itemCount,
+      totalRtcQty: String(row.totalRtcQty),
+      lastUpdated: String(row.lastUpdated),
+    })),
+  };
+}
+
+export async function deleteRtcUpload(
+  storeId: number,
+  rtcDate: string,
+): Promise<ActionResult<void>> {
+  const parsedStore = idSchema.safeParse(storeId);
+  if (!parsedStore.success) {
+    return { success: false, error: parsedStore.error.message };
+  }
+  const parsedDate = z.string().date().safeParse(rtcDate);
+  if (!parsedDate.success) {
+    return { success: false, error: parsedDate.error.message };
+  }
+
+  await rtcSalesRepository.deleteForStoreAndDate(parsedStore.data, parsedDate.data);
+  revalidatePath("/rtc");
+  return { success: true, data: undefined };
 }
 
 export async function importWastage(
