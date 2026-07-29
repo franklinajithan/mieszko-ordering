@@ -17,6 +17,11 @@ function cellText(value: ExcelJS.CellValue): string {
   if (typeof value === "object" && "richText" in value && Array.isArray(value.richText)) {
     return value.richText.map((part) => part.text ?? "").join("").trim();
   }
+  if (typeof value === "object" && "text" in value) {
+    return String((value as { text?: string }).text ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
   if (typeof value === "object" && "result" in value) {
     return cellText(value.result as ExcelJS.CellValue);
   }
@@ -30,9 +35,12 @@ function normHeader(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function parseSalesDateFromRow(values: string[]): string | null {
+function parseSalesDateFromRow(values: Array<string | undefined>): string | null {
   for (const value of values) {
-    const match = value.match(/day\s*:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+    if (!value) continue;
+    const match = value.match(
+      /(?:day\s*:|stock\s*report\s*:\s*from\s*:?)\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i,
+    );
     if (match) {
       const [, dd, mm, yyyy] = match;
       return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
@@ -47,6 +55,11 @@ function parseDateFromFilename(fileName: string): string | null {
   if (daily) {
     const year = new Date().getFullYear();
     return `${year}-${daily[2]}-${daily[1]}`;
+  }
+  // e.g. ..._Product Sales Enquiry_20260727_172808.xlsx
+  const stamped = base.match(/(?:^|[_\s-])(20\d{2})(\d{2})(\d{2})(?:[_\s.-]|$)/);
+  if (stamped) {
+    return `${stamped[1]}-${stamped[2]}-${stamped[3]}`;
   }
   return null;
 }
@@ -88,7 +101,10 @@ function findHeaderRow(sheet: ExcelJS.Worksheet, maxScan = 40): number | null {
       values[colNumber - 1] = normHeader(cellText(cell.value));
     });
     const text = values.filter(Boolean).join(" | ");
-    if (text.includes("item code") && text.includes("description")) {
+    const isProductSalesEnquiry =
+      text.includes("item code") && text.includes("description");
+    const isStockReport = text.includes("id") && text.includes("sold qty");
+    if (isProductSalesEnquiry || isStockReport) {
       return rowNumber;
     }
   }
@@ -98,7 +114,15 @@ function findHeaderRow(sheet: ExcelJS.Worksheet, maxScan = 40): number | null {
 function findColumnIndex(headers: string[], patterns: string[]): number {
   for (let index = 0; index < headers.length; index += 1) {
     const header = normHeader(headers[index] ?? "");
-    if (patterns.some((pattern) => header.startsWith(pattern))) {
+    if (!header) continue;
+    if (
+      patterns.some(
+        (pattern) =>
+          header === pattern ||
+          header.startsWith(pattern) ||
+          header.includes(pattern),
+      )
+    ) {
       return index;
     }
   }
@@ -113,10 +137,14 @@ function parsePlainNumber(value: string): number | null {
 }
 
 export function isGloposRetailReport(headers: string[], fileName: string): boolean {
+  if (/product\s*sales\s*enquiry/i.test(fileName)) return true;
   if (parsePeriodLabelFromFilename(fileName)) return true;
   if (parseDateFromFilename(fileName)) return true;
   const text = headers.map(normHeader).join(" | ");
-  return text.includes("item code") && text.includes("sales qty");
+  return (
+    (text.includes("item code") && text.includes("sales qty")) ||
+    (text.includes("id") && text.includes("sold qty"))
+  );
 }
 
 export async function tryParseRetailSalesReport(
@@ -131,6 +159,7 @@ export async function tryParseRetailSalesReport(
 }
 
 export function isLikelyRetailSalesFileName(fileName: string): boolean {
+  if (/product\s*sales\s*enquiry/i.test(fileName)) return true;
   return Boolean(parseDateFromFilename(fileName) || parsePeriodLabelFromFilename(fileName));
 }
 
@@ -153,19 +182,25 @@ export async function parseGloposRetailReport(
     headers[colNumber - 1] = cellText(cell.value);
   });
 
-  const itemCodeIndex = findColumnIndex(headers, ["item code"]);
-  const salesQtyIndex = findColumnIndex(headers, ["sales qty"]);
-  const descriptionIndex = findColumnIndex(headers, ["description"]);
+  // GloPOS Product Sales Enquiry reports use Item Code. GloPOS Stock Reports
+  // use the numeric ID. PLU must never be used as a product reference.
+  const itemCodeColumnIndex = findColumnIndex(headers, ["item code"]);
+  const itemCodeIndex =
+    itemCodeColumnIndex >= 0
+      ? itemCodeColumnIndex
+      : findColumnIndex(headers, ["id"]);
+  const salesQtyIndex = findColumnIndex(headers, ["sales qty", "sold qty"]);
+  const descriptionIndex = findColumnIndex(headers, ["description", "product name"]);
 
   if (itemCodeIndex < 0 || salesQtyIndex < 0) {
-    throw new Error("GloPOS file is missing Item Code or Sales Qty columns");
+    throw new Error("GloPOS file is missing ID/Item Code or Sales Qty/Sold QTY columns");
   }
 
   let salesDate =
     parsePeriodEndDate(fileName) ??
     parseDateFromFilename(fileName);
 
-  for (let rowNumber = headerRowNumber + 1; rowNumber <= headerRowNumber + 6; rowNumber++) {
+  for (let rowNumber = 1; rowNumber <= Math.min(headerRowNumber + 6, sheet.rowCount); rowNumber++) {
     const metaValues: string[] = [];
     sheet.getRow(rowNumber).eachCell({ includeEmpty: false }, (cell, colNumber) => {
       metaValues[colNumber - 1] = cellText(cell.value);
@@ -177,7 +212,7 @@ export async function parseGloposRetailReport(
     }
   }
 
-  const aggregated = new Map<string, number>();
+  const aggregated = new Map<string, { qty: number; productName: string }>();
   let sourceRows = 0;
 
   for (
@@ -201,16 +236,23 @@ export async function parseGloposRetailReport(
     if (qty === null) continue;
 
     sourceRows += 1;
-    aggregated.set(itemCode, (aggregated.get(itemCode) ?? 0) + qty);
+    const existing = aggregated.get(itemCode);
+    aggregated.set(itemCode, {
+      qty: (existing?.qty ?? 0) + qty,
+      productName: existing?.productName || description,
+    });
   }
 
-  const itemCodeColumn = "Item Code";
-  const salesQtyColumn = "Sales Qty";
-  const rows: ParsedRow[] = [...aggregated.entries()].map(([itemCode, qty], index) => ({
-    [itemCodeColumn]: itemCode,
-    [salesQtyColumn]: String(qty),
-    __rowNumber: String(index + 2),
-  }));
+  const itemCodeColumn = headers[itemCodeIndex]!.trim();
+  const salesQtyColumn = headers[salesQtyIndex]!.trim();
+  const rows: ParsedRow[] = [...aggregated.entries()].map(
+    ([itemCode, { qty, productName }], index) => ({
+      [itemCodeColumn]: itemCode,
+      [salesQtyColumn]: String(qty),
+      __productName: productName,
+      __rowNumber: String(index + 2),
+    }),
+  );
 
   const duplicateRows = Math.max(0, sourceRows - aggregated.size);
 

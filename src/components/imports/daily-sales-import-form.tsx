@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, type ChangeEvent } from "react";
-import { importDailySales, previewDailySalesUpload } from "@/lib/api";
+import {
+  beginDailySalesImport,
+  previewDailySalesUpload,
+  runDailySalesImportBatch,
+} from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
 import { FileUploadField } from "@/components/ui/file-upload-field";
-import { Input, Select } from "@/components/ui/input";
+import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { detectSalesColumns } from "@/parsers/file-parser";
 import type { ImportResult } from "@/types";
@@ -16,34 +20,20 @@ import {
   resolveStoreErpType,
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
+import type { Store, PreviewState, ImportProgress } from "@/types/daily-sales";
 
-type Store = { id: number; name: string; erpType: string };
 
-type PreviewState = {
-  headers: string[];
-  rows: Record<string, string>[];
-  productColumn?: string;
-  quantityColumn?: string;
-  manualSalesDate?: string;
-  periodLabel?: string | null;
-  duplicateRows?: number;
-};
 
 export function DailySalesImportForm({ stores }: { stores: Store[] }) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [mappingType, setMappingType] = useState<"store_product_code" | "barcode">(
-    "store_product_code",
-  );
   const [productColumn, setProductColumn] = useState("");
   const [quantityColumn, setQuantityColumn] = useState("");
-  const [dateColumn, setDateColumn] = useState("");
-  const [manualSalesDate, setManualSalesDate] = useState("");
+  const [salesDate, setSalesDate] = useState("");
   const [storeId, setStoreId] = useState("");
-
-  const isRetailFormat = preview?.productColumn === "Item Code";
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
 
   async function validateSelectedFile(selected: File | null) {
     if (!selected || !storeId) return true;
@@ -104,8 +94,7 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
       const detected = detectSalesColumns(data.headers);
       setProductColumn(data.productColumn ?? detected.productColumn ?? data.headers[0] ?? "");
       setQuantityColumn(data.quantityColumn ?? detected.quantityColumn ?? data.headers[1] ?? "");
-      setDateColumn(detected.dateColumn ?? "");
-      if (data.manualSalesDate) setManualSalesDate(data.manualSalesDate);
+      if (data.manualSalesDate) setSalesDate(data.manualSalesDate);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Preview failed";
       setError(message);
@@ -118,6 +107,10 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
       setError("Select a store and file first");
       return;
     }
+    if (!salesDate) {
+      setError("Select a sales date");
+      return;
+    }
     if (!(await validateSelectedFile(file))) {
       return;
     }
@@ -125,28 +118,61 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
     const formData = new FormData();
     formData.set("file", file);
     formData.set("storeId", storeId);
-    formData.set("mappingType", mappingType);
+    formData.set("mappingType", "store_product_code");
     formData.set("productColumn", productColumn);
     formData.set("quantityColumn", quantityColumn);
-    if (dateColumn) formData.set("dateColumn", dateColumn);
-    if (manualSalesDate) formData.set("manualSalesDate", manualSalesDate);
+    if (salesDate) formData.set("manualSalesDate", salesDate);
 
-    const response = await importDailySales(formData);
-    if (!response.success) {
-      setError(response.error);
-      reportErpMismatch(response.error);
+    setResult(null);
+    const begin = await beginDailySalesImport(formData);
+    if (!begin.success) {
+      setError(begin.error);
+      reportErpMismatch(begin.error);
       return;
     }
-    setResult(response.data);
+
+    const { jobId, totalRows, batchSize, fileName, storeName } = begin.data;
+    setProgress({
+      processed: 0,
+      total: totalRows,
+      fileName,
+      storeName,
+      done: false,
+    });
+
+    let finalResult: ImportResult | null = null;
+    const batchCount = Math.ceil(totalRows / batchSize);
+    for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
+      const batch = await runDailySalesImportBatch({ jobId, batchIndex });
+      if (!batch.success) {
+        setError(batch.error);
+        reportErpMismatch(batch.error);
+        return;
+      }
+
+      finalResult = batch.data.result;
+      setProgress({
+        processed: batch.data.processed,
+        total: batch.data.total,
+        fileName,
+        storeName,
+        done: batch.data.done,
+      });
+    }
+
+    if (finalResult) setResult(finalResult);
   }
+
+  const progressPercent = progress
+    ? Math.round((progress.processed / Math.max(1, progress.total)) * 100)
+    : 0;
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-zinc-600">
-        MSP stores use BK files with <strong>ID</strong> + <strong>Qty</strong>. Product Sales
-        Enquiry files (for example <strong>16.07.xlsx</strong>) are detected automatically —
-        sales are grouped by <strong>Item Code</strong> and only <strong>Sales Qty</strong> is
-        imported.
+        Product and quantity columns are detected automatically. GloPOS Stock Reports use
+        <strong> ID</strong> + <strong>Sold QTY</strong>; MSP sales files use
+        <strong> ItemCode</strong> + <strong>SoldQty</strong>.
       </p>
 
       <form action={onPreview} className="grid gap-4 rounded-xl border bg-white p-4 md:grid-cols-2">
@@ -199,6 +225,43 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
         </div>
       </form>
 
+      {progress ? (
+        <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-medium text-zinc-900">
+                {progress.done ? "Daily sales import complete" : "Saving daily sales…"}
+              </p>
+              <p className="text-sm text-zinc-600">
+                {progress.fileName} · {progress.storeName}
+              </p>
+            </div>
+            <span className="tabular-nums text-sm text-zinc-600">
+              {progressPercent}%
+            </span>
+          </div>
+          <div
+            className="h-3 overflow-hidden rounded-full bg-zinc-200"
+            role="progressbar"
+            aria-label="Daily sales import progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progressPercent}
+          >
+            <div
+              className={`h-full rounded-full transition-[width] duration-300 ${
+                progress.done ? "bg-emerald-500" : "bg-emerald-600"
+              }`}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <p className="text-sm text-zinc-600">
+            Saved {progress.processed.toLocaleString()} of{" "}
+            {progress.total.toLocaleString()} sales rows
+          </p>
+        </div>
+      ) : null}
+
       {preview ? (
         <div className="space-y-4 rounded-xl border bg-white p-4">
           <h3 className="font-semibold">Column mapping</h3>
@@ -210,70 +273,17 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
           ) : null}
           {preview.duplicateRows ? (
             <p className="text-sm text-emerald-800">
-              Grouped {preview.duplicateRows} duplicate Item Code rows before import.
+              Grouped {preview.duplicateRows} duplicate Item Code rows (quantities summed) before import.
             </p>
           ) : null}
-          <div className="grid gap-3 md:grid-cols-2">
-            {!isRetailFormat ? (
-              <div>
-                <Label>Mapping type</Label>
-                <Select
-                  value={mappingType}
-                  onChange={(e) =>
-                    setMappingType(e.target.value as "store_product_code" | "barcode")
-                  }
-                >
-                  <option value="store_product_code">Store product code</option>
-                  <option value="barcode">Barcode</option>
-                </Select>
-              </div>
-            ) : null}
+          <div className="max-w-sm">
             <div>
-              <Label>Product reference column</Label>
-              <Select
-                value={productColumn}
-                onChange={(e) => setProductColumn(e.target.value)}
-              >
-                {preview.headers.map((header) => (
-                  <option key={header} value={header}>
-                    {header}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            {!isRetailFormat ? (
-              <div>
-                <Label>Sales date column</Label>
-                <Select value={dateColumn} onChange={(e) => setDateColumn(e.target.value)}>
-                  <option value="">Use manual date below</option>
-                  {preview.headers.map((header) => (
-                    <option key={header} value={header}>
-                      {header}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            ) : null}
-            <div>
-              <Label>{isRetailFormat ? "Detected sales date" : "Manual sales date"}</Label>
+              <Label>Sales date</Label>
               <DateField
-                value={manualSalesDate}
-                onChange={(e) => setManualSalesDate(e.target.value)}
-                required={isRetailFormat}
+                value={salesDate}
+                onChange={(e) => setSalesDate(e.target.value)}
+                required
               />
-            </div>
-            <div>
-              <Label>Sold quantity column</Label>
-              <Select
-                value={quantityColumn}
-                onChange={(e) => setQuantityColumn(e.target.value)}
-              >
-                {preview.headers.map((header) => (
-                  <option key={header} value={header}>
-                    {header}
-                  </option>
-                ))}
-              </Select>
             </div>
           </div>
 
@@ -302,7 +312,11 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
             </table>
           </div>
 
-          <Button type="button" onClick={onImport}>
+          <Button
+            type="button"
+            onClick={onImport}
+            disabled={Boolean(progress && !progress.done)}
+          >
             Import daily sales
           </Button>
         </div>

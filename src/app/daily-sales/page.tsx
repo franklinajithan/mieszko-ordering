@@ -1,7 +1,7 @@
 import { DailySalesPageView } from "@/components/imports/daily-sales-page";
-import { storeRepository } from "@/repositories";
+import { listStores } from "@/lib/api/stores";
 
 export default async function DailySalesPage() {
-  const stores = await storeRepository.list();
-  return <DailySalesPageView stores={stores} />;
+  const stores = await listStores();
+  return <DailySalesPageView stores={stores.success ? stores.data : []} />;
 }

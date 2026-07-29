@@ -14,6 +14,37 @@ export function importDailySales(
   return apiFormRequest("/imports/daily-sales", formData);
 }
 
+export function beginDailySalesImport(
+  formData: FormData,
+): Promise<
+  ActionResult<{
+    jobId: string;
+    totalRows: number;
+    fileName: string;
+    storeName: string;
+    batchSize: number;
+  }>
+> {
+  return apiFormRequest("/imports/daily-sales/begin", formData);
+}
+
+export function runDailySalesImportBatch(input: {
+  jobId: string;
+  batchIndex: number;
+}): Promise<
+  ActionResult<{
+    processed: number;
+    total: number;
+    done: boolean;
+    result: ImportResult;
+  }>
+> {
+  return apiRequest("/imports/daily-sales/batch", {
+    method: "POST",
+    body: input,
+  });
+}
+
 export function importSupplierPrices(
   formData: FormData,
 ): Promise<ActionResult<ImportResult>> {

@@ -292,6 +292,19 @@ export const productRepository = {
     return row ?? null;
   },
 
+  async findStoreProductsByCodes(storeId: number, codes: string[]) {
+    if (!codes.length) return [];
+    return db
+      .select()
+      .from(storeProducts)
+      .where(
+        and(
+          eq(storeProducts.storeId, storeId),
+          inArray(storeProducts.storeProductCode, codes),
+        ),
+      );
+  },
+
   async findMspStoreProductByCode(code: string) {
     const [row] = await db
       .select({
@@ -319,6 +332,24 @@ export const productRepository = {
         ),
       );
     return row?.storeProduct ?? null;
+  },
+
+  async findStoreProductsByBarcodes(storeId: number, barcodes: string[]) {
+    if (!barcodes.length) return [];
+    return db
+      .select({
+        barcode: productBarcodes.barcode,
+        storeProduct: storeProducts,
+      })
+      .from(productBarcodes)
+      .innerJoin(products, eq(products.id, productBarcodes.productId))
+      .innerJoin(storeProducts, eq(storeProducts.productId, products.id))
+      .where(
+        and(
+          inArray(productBarcodes.barcode, barcodes),
+          eq(storeProducts.storeId, storeId),
+        ),
+      );
   },
 
   async findStoreProductBySupplierCode(

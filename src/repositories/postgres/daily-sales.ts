@@ -19,6 +19,21 @@ export const dailySalesRepository = {
     return row;
   },
 
+  async upsertSalesBatch(data: Array<typeof dailySales.$inferInsert>) {
+    if (!data.length) return [];
+    return db
+      .insert(dailySales)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [dailySales.storeProductId, dailySales.salesDate],
+        set: {
+          soldQty: sql`excluded.sold_qty`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+  },
+
   async sumSalesInPeriod(
     storeProductId: number,
     startDate: string,

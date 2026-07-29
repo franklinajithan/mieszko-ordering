@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).trim();
+  return String(value).replace(/\s+/g, " ").trim();
 }
 
 function normHeader(value: string): string {

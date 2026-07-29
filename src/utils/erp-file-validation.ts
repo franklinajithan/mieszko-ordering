@@ -82,13 +82,14 @@ export function detectDailySalesFileErpType(
   headers: string[],
   fileName: string,
 ): ErpType | null {
-  if (isGloposRetailReport(headers, fileName)) return "glopos";
-
+  // Product Sales Enquiry / GloPOS retail reports match store products by Item Code.
+  // They are accepted for any store ERP type (auto-parsed on import).
+  if (isGloposRetailReport(headers, fileName)) return null;
   if (
     hasHeader(headers, ["Item Code"]) &&
     hasHeader(headers, ["Sales Qty", "Sales QTY", "Sales qty"])
   ) {
-    return "glopos";
+    return null;
   }
 
   if (
