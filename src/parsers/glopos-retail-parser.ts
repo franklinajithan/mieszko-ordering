@@ -35,15 +35,25 @@ function normHeader(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function isoFromDmy(dd: string, mm: string, yyyy: string): string {
+  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+}
+
 function parseSalesDateFromRow(values: Array<string | undefined>): string | null {
   for (const value of values) {
     if (!value) continue;
-    const match = value.match(
+    const daySlash = value.match(
       /(?:day\s*:|stock\s*report\s*:\s*from\s*:?)\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i,
     );
-    if (match) {
-      const [, dd, mm, yyyy] = match;
-      return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+    if (daySlash) {
+      const [, dd, mm, yyyy] = daySlash;
+      return isoFromDmy(dd, mm, yyyy);
+    }
+    // Product Sales Enquiry header, e.g. "Date : 26-07-2026"
+    const enquiryDate = value.match(/date\s*:\s*(\d{1,2})[-/](\d{1,2})[-/](\d{4})/i);
+    if (enquiryDate) {
+      const [, dd, mm, yyyy] = enquiryDate;
+      return isoFromDmy(dd, mm, yyyy);
     }
   }
   return null;
@@ -56,7 +66,10 @@ function parseDateFromFilename(fileName: string): string | null {
     const year = new Date().getFullYear();
     return `${year}-${daily[2]}-${daily[1]}`;
   }
-  // e.g. ..._Product Sales Enquiry_20260727_172808.xlsx
+  // Export timestamp in filename (report run time, not sales date)
+  if (/_20\d{6}_\d{6}(?:\.|$)/i.test(base)) {
+    return null;
+  }
   const stamped = base.match(/(?:^|[_\s-])(20\d{2})(\d{2})(\d{2})(?:[_\s.-]|$)/);
   if (stamped) {
     return `${stamped[1]}-${stamped[2]}-${stamped[3]}`;
@@ -196,20 +209,22 @@ export async function parseGloposRetailReport(
     throw new Error("GloPOS file is missing ID/Item Code or Sales Qty/Sold QTY columns");
   }
 
-  let salesDate =
-    parsePeriodEndDate(fileName) ??
-    parseDateFromFilename(fileName);
-
-  for (let rowNumber = 1; rowNumber <= Math.min(headerRowNumber + 6, sheet.rowCount); rowNumber++) {
+  let salesDate: string | null = null;
+  for (let rowNumber = 1; rowNumber <= headerRowNumber; rowNumber += 1) {
     const metaValues: string[] = [];
     sheet.getRow(rowNumber).eachCell({ includeEmpty: false }, (cell, colNumber) => {
       metaValues[colNumber - 1] = cellText(cell.value);
     });
-    const fromDayRow = parseSalesDateFromRow(metaValues);
-    if (fromDayRow) {
-      salesDate = fromDayRow;
+    const fromSheet = parseSalesDateFromRow(metaValues);
+    if (fromSheet) {
+      salesDate = fromSheet;
       break;
     }
+  }
+  if (!salesDate) {
+    salesDate =
+      parsePeriodEndDate(fileName) ??
+      parseDateFromFilename(fileName);
   }
 
   const aggregated = new Map<string, { qty: number; productName: string }>();

@@ -17,3 +17,20 @@ export type ImportProgress = {
   storeName: string;
   done: boolean;
 };
+
+export type DailySalesUploadRow = {
+  id: string;
+  storeId: string;
+  storeName: string;
+  salesDate: string;
+  matchedRows: number;
+  totalSoldQty: string;
+  uploadedAt: Date;
+};
+
+export type DailySalesDateSummary = {
+  salesDate: string;
+  itemCount: number;
+  totalSoldQty: string;
+  lastUpdated: string;
+};

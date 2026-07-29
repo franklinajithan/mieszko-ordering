@@ -4,7 +4,6 @@ import type {
   LatestBookStockSummary,
 } from "@/services/apply-book-stock-to-order.service";
 import type { PromoImportSummary } from "@/services/promo-import.service";
-import type { RtcImportSummary } from "@/services/rtc-import.service";
 import type { WastageImportSummary } from "@/services/wastage-import.service";
 import { apiFormRequest, apiRequest } from "./client";
 
@@ -45,6 +44,29 @@ export function runDailySalesImportBatch(input: {
   });
 }
 
+export function deleteDailySalesUpload(
+  storeId: number,
+  salesDate: string,
+): Promise<ActionResult<void>> {
+  const params = new URLSearchParams({
+    storeId: String(storeId),
+    salesDate,
+  });
+  return apiRequest(`/imports/daily-sales?${params.toString()}`, {
+    method: "DELETE",
+  });
+}
+
+export function listDailySalesSummaries(
+  storeId: number,
+): Promise<
+  ActionResult<
+    Array<{ salesDate: string; itemCount: number; totalSoldQty: string; lastUpdated: string }>
+  >
+> {
+  return apiRequest(`/imports/daily-sales?storeId=${storeId}`);
+}
+
 export function importSupplierPrices(
   formData: FormData,
 ): Promise<ActionResult<ImportResult>> {
@@ -75,9 +97,59 @@ export function importRtc(
   return apiFormRequest("/imports/rtc", formData);
 }
 
-export function listRtcImports(
+export function beginRtcImport(
+  formData: FormData,
+): Promise<
+  ActionResult<{
+    jobId: string;
+    totalRows: number;
+    fileName: string;
+    storeName: string;
+    batchSize: number;
+    importId: number;
+  }>
+> {
+  return apiFormRequest("/imports/rtc/begin", formData);
+}
+
+export function runRtcImportBatch(input: {
+  jobId: string;
+  batchIndex: number;
+}): Promise<
+  ActionResult<{
+    processed: number;
+    total: number;
+    done: boolean;
+    result: ImportResult;
+    importId: number;
+  }>
+> {
+  return apiRequest("/imports/rtc/batch", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export function deleteRtcUpload(
   storeId: number,
-): Promise<ActionResult<RtcImportSummary[]>> {
+  rtcDate: string,
+): Promise<ActionResult<void>> {
+  const params = new URLSearchParams({
+    storeId: String(storeId),
+    rtcDate,
+  });
+  return apiRequest(`/imports/rtc?${params.toString()}`, {
+    method: "DELETE",
+  });
+}
+
+export function listRtcSummaries(
+  storeId: number,
+): Promise<
+  ActionResult<
+    Array<{ rtcDate: string; itemCount: number; totalRtcQty: string; lastUpdated: string }>
+  >
+> {
   return apiRequest(`/imports/rtc?storeId=${storeId}`);
 }
 

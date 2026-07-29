@@ -1,7 +1,7 @@
 import "server-only";
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { dailySales } from "@/db/schema";
+import { dailySales, storeProducts } from "@/db/schema";
 
 export const dailySalesRepository = {
   async upsertSale(data: typeof dailySales.$inferInsert) {
@@ -60,5 +60,36 @@ export const dailySalesRepository = {
       .from(dailySales)
       .where(eq(dailySales.storeProductId, storeProductId))
       .orderBy(dailySales.salesDate);
+  },
+
+  async deleteForStoreAndDate(storeId: number, salesDate: string) {
+    const productIds = await db
+      .select({ id: storeProducts.id })
+      .from(storeProducts)
+      .where(eq(storeProducts.storeId, storeId));
+
+    const ids = productIds.map((row) => row.id);
+    if (!ids.length) return;
+
+    await db
+      .delete(dailySales)
+      .where(
+        and(eq(dailySales.salesDate, salesDate), inArray(dailySales.storeProductId, ids)),
+      );
+  },
+
+  async listDateSummariesForStore(storeId: number) {
+    return db
+      .select({
+        salesDate: dailySales.salesDate,
+        itemCount: sql<number>`count(*)::int`,
+        totalSoldQty: sql<string>`coalesce(sum(${dailySales.soldQty}), 0)::text`,
+        lastUpdated: sql<string>`max(${dailySales.updatedAt})::text`,
+      })
+      .from(dailySales)
+      .innerJoin(storeProducts, eq(storeProducts.id, dailySales.storeProductId))
+      .where(eq(storeProducts.storeId, storeId))
+      .groupBy(dailySales.salesDate)
+      .orderBy(desc(dailySales.salesDate));
   },
 };

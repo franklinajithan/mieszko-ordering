@@ -29,3 +29,17 @@ export async function previewDailySalesUpload(
   if (!result.success) throw new Error(result.error);
   return result.data;
 }
+
+type RtcPreview = FilePreview & {
+  referenceColumn?: string;
+  quantityColumn?: string;
+  rtcDate?: string;
+  duplicateRows?: number;
+  mappingType?: "store_product_code" | "barcode";
+};
+
+export async function previewRtcUpload(formData: FormData): Promise<RtcPreview> {
+  const result = await apiFormRequest<RtcPreview>("/uploads/preview-rtc", formData);
+  if (!result.success) throw new Error(result.error);
+  return result.data;
+}

@@ -1,6 +1,12 @@
 import type { ImportResult, ParsedRow, SalesMappingType } from "@/types";
-import { toDecimal, decimalToDb } from "@/utils/decimal";
+import { toDecimal, decimalToDb, type Decimal } from "@/utils/decimal";
 import { productRepository } from "@/repositories/postgres";
+
+type PendingRow = {
+  reference: string;
+  qty: Decimal;
+  rowNumber: number;
+};
 
 export async function importStoreQuantityRows(input: {
   storeId: number;
@@ -23,7 +29,7 @@ export async function importStoreQuantityRows(input: {
     errors: [],
   };
 
-  const seen = new Set<string>();
+  const pending = new Map<string, PendingRow>();
 
   for (const row of input.rows) {
     const rowNumber = Number(row.__rowNumber ?? 0);
@@ -55,17 +61,16 @@ export async function importStoreQuantityRows(input: {
     }
 
     const dedupeKey = `${reference}|${input.recordDate}`;
-    if (seen.has(dedupeKey)) {
+    const existing = pending.get(dedupeKey);
+    if (existing) {
+      existing.qty = existing.qty.plus(qty);
       result.duplicateRows = (result.duplicateRows ?? 0) + 1;
-      result.errors.push({
-        rowNumber,
-        reference,
-        message: "Duplicate row in upload",
-      });
       continue;
     }
-    seen.add(dedupeKey);
+    pending.set(dedupeKey, { reference, qty, rowNumber });
+  }
 
+  for (const { reference, qty, rowNumber } of pending.values()) {
     let storeProduct = null;
     if (input.mappingType === "store_product_code") {
       storeProduct = await productRepository.findStoreProductByCode(

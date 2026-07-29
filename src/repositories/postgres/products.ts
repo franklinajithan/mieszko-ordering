@@ -9,6 +9,7 @@ import {
   supplierProducts,
   suppliers,
 } from "@/db/schema";
+import { barcodeLookupCandidates, formatSpreadsheetBarcode } from "@/utils/barcode";
 
 export const productRepository = {
   buildListConditions(filters?: {
@@ -320,6 +321,8 @@ export const productRepository = {
   },
 
   async findStoreProductByBarcode(storeId: number, barcode: string) {
+    const candidates = barcodeLookupCandidates(barcode);
+    if (!candidates.length) return null;
     const [row] = await db
       .select({ storeProduct: storeProducts })
       .from(productBarcodes)
@@ -327,10 +330,11 @@ export const productRepository = {
       .innerJoin(storeProducts, eq(storeProducts.productId, products.id))
       .where(
         and(
-          eq(productBarcodes.barcode, barcode),
+          inArray(productBarcodes.barcode, candidates),
           eq(storeProducts.storeId, storeId),
         ),
-      );
+      )
+      .limit(1);
     return row?.storeProduct ?? null;
   },
 
@@ -350,6 +354,59 @@ export const productRepository = {
           eq(storeProducts.storeId, storeId),
         ),
       );
+  },
+
+  async findStoreProductMatchesForFileBarcodes(storeId: number, fileBarcodes: string[]) {
+    const unique = [
+      ...new Set(
+        fileBarcodes.map((b) => formatSpreadsheetBarcode(b).trim()).filter(Boolean),
+      ),
+    ];
+    if (!unique.length) return [];
+
+    const catalogRows = await db
+      .select({
+        barcode: productBarcodes.barcode,
+        storeProductId: storeProducts.id,
+        storeProductCode: storeProducts.storeProductCode,
+        productName: products.name,
+      })
+      .from(productBarcodes)
+      .innerJoin(products, eq(products.id, productBarcodes.productId))
+      .innerJoin(storeProducts, eq(storeProducts.productId, products.id))
+      .where(eq(storeProducts.storeId, storeId));
+
+    type CatalogHit = (typeof catalogRows)[number];
+    const catalogByCandidate = new Map<string, CatalogHit>();
+    for (const row of catalogRows) {
+      for (const candidate of barcodeLookupCandidates(row.barcode)) {
+        if (!catalogByCandidate.has(candidate)) catalogByCandidate.set(candidate, row);
+      }
+    }
+
+    const matches: Array<{
+      fileBarcode: string;
+      storeProductId: number;
+      storeProductCode: string;
+      productName: string | null;
+    }> = [];
+
+    for (const fileBarcode of unique) {
+      for (const candidate of barcodeLookupCandidates(fileBarcode)) {
+        const hit = catalogByCandidate.get(candidate);
+        if (hit) {
+          matches.push({
+            fileBarcode,
+            storeProductId: hit.storeProductId,
+            storeProductCode: hit.storeProductCode,
+            productName: hit.productName,
+          });
+          break;
+        }
+      }
+    }
+
+    return matches;
   },
 
   async findStoreProductBySupplierCode(

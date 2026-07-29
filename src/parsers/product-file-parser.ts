@@ -1,6 +1,7 @@
 import { parse } from "papaparse";
 import * as XLSX from "xlsx";
 import type { ParsedRow } from "@/types";
+import { formatSpreadsheetBarcode } from "@/utils/barcode";
 
 function normHeader(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
@@ -9,6 +10,10 @@ function normHeader(value: string): string {
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (Number.isInteger(value)) return String(value);
+    return String(value).trim();
+  }
   return String(value).trim();
 }
 
@@ -125,7 +130,7 @@ function parseSpreadsheetBuffer(
   const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
     defval: "",
-    raw: false,
+    raw: true,
   });
 
   const headerRowIndex = findProductHeaderRowIndex(grid);
@@ -140,7 +145,14 @@ function parseSpreadsheetBuffer(
     for (let colIndex = 0; colIndex < headers.length; colIndex += 1) {
       const header = headers[colIndex];
       if (!header) continue;
-      const value = cellText(rowValues[colIndex] ?? "");
+      const raw = rowValues[colIndex] ?? "";
+      const value =
+        normHeader(header) === "innerean" ||
+        normHeader(header) === "inner ean" ||
+        normHeader(header) === "ean" ||
+        normHeader(header) === "barcode"
+          ? formatSpreadsheetBarcode(raw).trim()
+          : cellText(raw);
       parsed[header] = value;
       if (value) hasValue = true;
     }
@@ -197,14 +209,15 @@ export function normalizeProductCode(value: string): string {
   return code;
 }
 
+/** When the file has duplicate product codes, keep the row with the richer barcode (longer), any length. */
 function barcodeQuality(barcode: string): number {
-  const value = barcode.trim();
+  const value = formatSpreadsheetBarcode(barcode).trim();
   if (!value) return 0;
-  if (/^\d{13}$/.test(value)) return 100;
-  if (/^\d{8}$/.test(value)) return 90;
-  if (/^\d{10,14}$/.test(value)) return 80;
-  if (/^\d{6,}$/.test(value)) return 50;
-  return 10;
+  const digitsOnly = value.replace(/\D/g, "");
+  if (digitsOnly.length > 0 && digitsOnly.length === value.length) {
+    return digitsOnly.length;
+  }
+  return value.length;
 }
 
 export function dedupeProductRows(

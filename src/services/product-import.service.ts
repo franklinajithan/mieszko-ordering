@@ -9,9 +9,40 @@ import {
   storeRepository,
 } from "@/repositories/postgres";
 import { decimalToDb, toDecimal } from "@/utils/decimal";
+import { formatSpreadsheetBarcode } from "@/utils/barcode";
 
 const BATCH_SIZE = 2000;
 const UPDATE_BATCH_SIZE = 200;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    batches.push(items.slice(index, index + size));
+  }
+  return batches;
+}
+
+function chunkBarcodesFromRows(
+  rows: Array<{ productId: number; barcode?: string }>,
+): Array<{ productId: number; barcode: string }> {
+  const out: Array<{ productId: number; barcode: string }> = [];
+  for (const row of rows) {
+    const barcode = row.barcode?.trim();
+    if (!barcode) continue;
+    out.push({ productId: row.productId, barcode });
+  }
+  return out;
+}
+
+async function insertImportBarcodesBatch(
+  rows: Array<{ productId: number; barcode?: string }>,
+) {
+  for (const batch of chunk(chunkBarcodesFromRows(rows), BATCH_SIZE)) {
+    if (batch.length) {
+      await productRepository.insertBarcodesBatch(batch);
+    }
+  }
+}
 
 type NormalizedImportRow = {
   rowNumber: number;
@@ -25,14 +56,6 @@ type NormalizedImportRow = {
 export type { NormalizedImportRow };
 
 export const IMPORT_JOB_BATCH_SIZE = 2000;
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const batches: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    batches.push(items.slice(index, index + size));
-  }
-  return batches;
-}
 
 async function resolveOrderDepartmentIds(names: string[]) {
   return departmentMappingRepository.resolveOrderDepartmentIds(names);
@@ -152,7 +175,7 @@ function normalizeImportRows(
       ? row[input.departmentColumn]?.trim() || "General"
       : "General";
     const barcode = input.barcodeColumn
-      ? String(row[input.barcodeColumn] ?? "").trim()
+      ? formatSpreadsheetBarcode(row[input.barcodeColumn]).trim()
       : "";
     const retailPrice = input.retailPriceColumn
       ? parseRetailPrice(String(row[input.retailPriceColumn] ?? ""))
@@ -231,6 +254,7 @@ async function importPerStoreProductsBulk(input: {
     productId: number;
     productCode: string;
     retailPrice?: string;
+    barcode?: string;
   }> = [];
 
   for (const row of input.rows) {
@@ -251,6 +275,7 @@ async function importPerStoreProductsBulk(input: {
         productId: existing.product.id,
         productCode: row.productCode,
         retailPrice: row.retailPrice,
+        barcode: row.barcode,
       });
       input.result.duplicateRows = (input.result.duplicateRows ?? 0) + 1;
     } else {
@@ -284,6 +309,8 @@ async function importPerStoreProductsBulk(input: {
     );
   }
 
+  await insertImportBarcodesBatch(toUpdateStoreProducts);
+
   for (const batch of chunk(toCreate, BATCH_SIZE)) {
     const createdProducts = await productRepository.createProductsBatch(
       batch.map((row) => ({
@@ -304,17 +331,12 @@ async function importPerStoreProductsBulk(input: {
       })),
     );
 
-    const barcodeRows = [];
-    for (let index = 0; index < batch.length; index += 1) {
-      const barcode = batch[index]?.barcode;
-      const productId = createdProducts[index]?.id;
-      if (!barcode || !productId) continue;
-      barcodeRows.push({ productId, barcode });
-    }
-
-    if (barcodeRows.length) {
-      await productRepository.insertBarcodesBatch(barcodeRows);
-    }
+    await insertImportBarcodesBatch(
+      batch.map((row, index) => ({
+        productId: createdProducts[index]!.id,
+        barcode: row.barcode,
+      })),
+    );
 
     input.result.matchedRows += batch.length;
   }
@@ -366,6 +388,7 @@ async function importMspSharedProductsBulk(input: {
     productId: number;
     productCode: string;
     retailPrice?: string;
+    barcode?: string;
   }> = [];
 
   for (const row of input.rows) {
@@ -386,6 +409,7 @@ async function importMspSharedProductsBulk(input: {
         productId: existing.product.id,
         productCode: row.productCode,
         retailPrice: row.retailPrice,
+        barcode: row.barcode,
       });
       input.result.duplicateRows = (input.result.duplicateRows ?? 0) + 1;
       continue;
@@ -437,6 +461,8 @@ async function importMspSharedProductsBulk(input: {
     );
   }
 
+  await insertImportBarcodesBatch(toUpdateStoreProducts);
+
   for (const batch of chunk(toLink, BATCH_SIZE)) {
     await Promise.all(
       batch.map((row) =>
@@ -458,6 +484,7 @@ async function importMspSharedProductsBulk(input: {
         isActive: true,
       })),
     );
+    await insertImportBarcodesBatch(batch);
     input.result.matchedRows += batch.length;
   }
 
@@ -481,29 +508,13 @@ async function importMspSharedProductsBulk(input: {
       })),
     );
 
-    const barcodeRows = [];
-    for (let index = 0; index < batch.length; index += 1) {
-      const barcode = batch[index]?.barcode;
-      const productId = createdProducts[index]?.id;
-      if (!barcode || !productId) continue;
-      barcodeRows.push({ productId, barcode });
-    }
-
-    if (barcodeRows.length) {
-      await productRepository.insertBarcodesBatch(barcodeRows);
-    }
+    await insertImportBarcodesBatch(
+      batch.map((row, index) => ({
+        productId: createdProducts[index]!.id,
+        barcode: row.barcode,
+      })),
+    );
 
     input.result.matchedRows += batch.length;
-  }
-
-  for (const batch of chunk(toLink, BATCH_SIZE)) {
-    const barcodeRows = [];
-    for (const row of batch) {
-      if (!row.barcode) continue;
-      barcodeRows.push({ productId: row.productId, barcode: row.barcode });
-    }
-    if (barcodeRows.length) {
-      await productRepository.insertBarcodesBatch(barcodeRows);
-    }
   }
 }
