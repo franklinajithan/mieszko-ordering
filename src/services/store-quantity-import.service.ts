@@ -1,5 +1,6 @@
 import type { ImportResult, ParsedRow, SalesMappingType } from "@/types";
 import { toDecimal, decimalToDb, type Decimal } from "@/utils/decimal";
+import { normalizeProductCode } from "@/parsers/product-file-parser";
 import { productRepository } from "@/repositories/postgres";
 
 type PendingRow = {
@@ -33,7 +34,7 @@ export async function importStoreQuantityRows(input: {
 
   for (const row of input.rows) {
     const rowNumber = Number(row.__rowNumber ?? 0);
-    const reference = row[input.productColumn]?.trim() ?? "";
+    const reference = normalizeProductCode(row[input.productColumn]?.trim() ?? "");
     const qtyRaw = row[input.quantityColumn]?.trim() ?? "";
 
     if (!reference) {

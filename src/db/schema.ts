@@ -487,7 +487,6 @@ export const rtcImports = pgTable("rtc_imports", {
     .notNull()
     .references(() => stores.id),
   rtcDate: date("rtc_date").notNull(),
-  fileName: varchar("file_name", { length: 500 }),
   referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
   quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
   matchedRows: integer("matched_rows"),

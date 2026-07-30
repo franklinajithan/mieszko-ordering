@@ -43,3 +43,23 @@ export async function previewRtcUpload(formData: FormData): Promise<RtcPreview> 
   if (!result.success) throw new Error(result.error);
   return result.data;
 }
+
+type WastagePreview = FilePreview & {
+  referenceColumn?: string;
+  quantityColumn?: string;
+  wastageDate?: string;
+  duplicateRows?: number;
+  mappingType?: "store_product_code" | "barcode";
+  skippedExcludedReasonRows?: number;
+};
+
+export async function previewWastageUpload(
+  formData: FormData,
+): Promise<WastagePreview> {
+  const result = await apiFormRequest<WastagePreview>(
+    "/uploads/preview-wastage",
+    formData,
+  );
+  if (!result.success) throw new Error(result.error);
+  return result.data;
+}

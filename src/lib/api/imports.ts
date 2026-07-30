@@ -4,7 +4,6 @@ import type {
   LatestBookStockSummary,
 } from "@/services/apply-book-stock-to-order.service";
 import type { PromoImportSummary } from "@/services/promo-import.service";
-import type { WastageImportSummary } from "@/services/wastage-import.service";
 import { apiFormRequest, apiRequest } from "./client";
 
 export function importDailySales(
@@ -159,9 +158,31 @@ export function importWastage(
   return apiFormRequest("/imports/wastage", formData);
 }
 
-export function listWastageImports(
+export function deleteWastageUpload(
   storeId: number,
-): Promise<ActionResult<WastageImportSummary[]>> {
+  wastageDate: string,
+): Promise<ActionResult<void>> {
+  const params = new URLSearchParams({
+    storeId: String(storeId),
+    wastageDate,
+  });
+  return apiRequest(`/imports/wastage?${params.toString()}`, {
+    method: "DELETE",
+  });
+}
+
+export function listWastageSummaries(
+  storeId: number,
+): Promise<
+  ActionResult<
+    Array<{
+      wastageDate: string;
+      itemCount: number;
+      totalWastageQty: string;
+      lastUpdated: string;
+    }>
+  >
+> {
   return apiRequest(`/imports/wastage?storeId=${storeId}`);
 }
 

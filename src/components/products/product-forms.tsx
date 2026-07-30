@@ -30,6 +30,7 @@ import {
   validateErpFileMatch,
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
+import { normalizeImportBarcode } from "@/utils/barcode";
 
 type Store = { id: number; name: string; erpType: string };
 
@@ -197,7 +198,11 @@ export function ProductForms({
           __rowNumber: row.__rowNumber ?? "",
         };
         for (const column of keepColumns) {
-          slim[column] = row[column] ?? "";
+          const raw = row[column] ?? "";
+          slim[column] =
+            column === columns.barcodeColumn
+              ? normalizeImportBarcode(raw)
+              : String(raw).trim();
         }
         return slim;
       });

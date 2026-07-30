@@ -337,7 +337,6 @@ export async function importRtcRows(input: {
   mappingType: SalesMappingType;
   referenceColumn: string;
   quantityColumn: string;
-  fileName: string;
   rows: ParsedRow[];
   erpType?: ErpType;
   skipReferencePivot?: boolean;
@@ -382,7 +381,6 @@ export async function importRtcRows(input: {
     const rtcImport = await rtcRepository.createImport({
       storeId: input.storeId,
       rtcDate: input.rtcDate,
-      fileName: input.fileName,
       referenceColumn,
       quantityColumn: input.quantityColumn,
     });
@@ -404,7 +402,6 @@ export async function importRtcRows(input: {
 
 export type RtcImportSummary = {
   importId: number;
-  fileName: string | null;
   rtcDate: string;
   importedAt: Date;
   itemCount: number;
@@ -416,7 +413,6 @@ export async function listRtcImportsForStore(
   const imports = await rtcRepository.listForStore(storeId);
   return imports.map((entry) => ({
     importId: entry.id,
-    fileName: entry.fileName,
     rtcDate: entry.rtcDate,
     importedAt: entry.importedAt,
     itemCount: entry.matchedRows ?? 0,

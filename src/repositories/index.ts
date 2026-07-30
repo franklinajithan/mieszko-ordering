@@ -11,6 +11,7 @@ export {
   bookStockRepository,
   rtcRepository,
   rtcSalesRepository,
+  storeWastageRepository,
   wastageRepository,
   orderRepository,
 } from "@/repositories/postgres";

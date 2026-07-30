@@ -1,7 +1,7 @@
 import "server-only";
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { storeWastage, wastageImports } from "@/db/schema";
+import { storeProducts, storeWastage, wastageImports } from "@/db/schema";
 
 export const storeWastageRepository = {
   async upsert(data: typeof storeWastage.$inferInsert) {
@@ -37,6 +37,37 @@ export const storeWastageRepository = {
         ),
       );
     return row?.total ?? "0";
+  },
+
+  async deleteForStoreAndDate(storeId: number, wastageDate: string) {
+    const productIds = await db
+      .select({ id: storeProducts.id })
+      .from(storeProducts)
+      .where(eq(storeProducts.storeId, storeId));
+
+    const ids = productIds.map((row) => row.id);
+    if (!ids.length) return;
+
+    await db
+      .delete(storeWastage)
+      .where(
+        and(eq(storeWastage.wastageDate, wastageDate), inArray(storeWastage.storeProductId, ids)),
+      );
+  },
+
+  async listDateSummariesForStore(storeId: number) {
+    return db
+      .select({
+        wastageDate: storeWastage.wastageDate,
+        itemCount: sql<number>`count(*)::int`,
+        totalWastageQty: sql<string>`coalesce(sum(${storeWastage.wastageQty}), 0)::text`,
+        lastUpdated: sql<string>`max(${storeWastage.updatedAt})::text`,
+      })
+      .from(storeWastage)
+      .innerJoin(storeProducts, eq(storeProducts.id, storeWastage.storeProductId))
+      .where(eq(storeProducts.storeId, storeId))
+      .groupBy(storeWastage.wastageDate)
+      .orderBy(desc(storeWastage.wastageDate));
   },
 };
 

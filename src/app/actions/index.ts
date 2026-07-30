@@ -10,6 +10,7 @@ import {
   rtcRepository,
   rtcSalesRepository,
   storeRepository,
+  storeWastageRepository,
   supplierRepository,
 } from "@/repositories";
 import { importDepartmentRows } from "@/services/department-import.service";
@@ -51,6 +52,8 @@ import {
 import {
   importWastageRows,
   listWastageImportsForStore,
+  buildGloposWastagePreviewWithStoreProductCodes,
+  enrichGloposWastageRowsWithStoreProductCodes,
   type WastageImportSummary,
 } from "@/services/wastage-import.service";
 import {
@@ -65,13 +68,19 @@ import { exportOrderToExcel } from "@/services/order-export.service";
 import { importSupplierPriceRows } from "@/services/supplier-price-import.service";
 import { processStockUpload } from "@/services/stock-upload.service";
 import { recalculateLineCost } from "@/services/supplier-price.service";
-import { parseAllRows, parseUploadedFile } from "@/parsers/file-parser";
+import { detectWastageColumns, parseAllRows, parseUploadedFile } from "@/parsers/file-parser";
 import { tryParseGloposRtcHistoryReport, isGloposRtcHistoryReport, parseGloposRtcHistoryReport } from "@/parsers/glopos-rtc-history-parser";
+import {
+  isGloposWastageReport,
+  parseGloposWastageReport,
+  tryParseGloposWastageReport,
+} from "@/parsers/glopos-wastage-report-parser";
 import { tryParseRetailSalesReport } from "@/parsers/glopos-retail-parser";
 import {
   detectBookStockFileErpType,
   detectDailySalesFileErpType,
   detectRtcFileErpType,
+  detectWastageFileErpType,
   detectProductFileErpType,
   inferProductFileErpTypeFromColumns,
   resolveStoreErpType,
@@ -535,6 +544,101 @@ export async function previewRtcUpload(
   return preview;
 }
 
+export async function previewWastageUpload(
+  formData: FormData,
+): Promise<
+  FilePreview & {
+    referenceColumn?: string;
+    quantityColumn?: string;
+    wastageDate?: string;
+    duplicateRows?: number;
+    mappingType?: "store_product_code" | "barcode";
+    skippedExcludedReasonRows?: number;
+    matchedCount?: number;
+    unmatchedCount?: number;
+    unmatchedCodes?: string[];
+  }
+> {
+  const file = formData.get("file") as File | null;
+  if (!file) throw new Error("No file uploaded");
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  let gloposWastage = await tryParseGloposWastageReport(buffer, file.name);
+  if (!gloposWastage && isGloposWastageReport([], file.name)) {
+    try {
+      gloposWastage = await parseGloposWastageReport(buffer, file.name);
+    } catch (err) {
+      throw new Error(
+        err instanceof Error ? err.message : "Failed to parse GloPOS wastage file",
+      );
+    }
+  }
+
+  let preview: FilePreview & {
+    referenceColumn?: string;
+    quantityColumn?: string;
+    wastageDate?: string;
+    duplicateRows?: number;
+    mappingType?: "store_product_code" | "barcode";
+    skippedExcludedReasonRows?: number;
+    matchedCount?: number;
+    unmatchedCount?: number;
+    unmatchedCodes?: string[];
+  };
+
+  if (gloposWastage) {
+    preview = {
+      headers: gloposWastage.headers,
+      rows: gloposWastage.rows.slice(0, 10),
+      referenceColumn: gloposWastage.productCodeColumn,
+      quantityColumn: gloposWastage.quantityColumn,
+      wastageDate: gloposWastage.wastageDate ?? undefined,
+      duplicateRows: gloposWastage.duplicateRows,
+      mappingType: "store_product_code",
+      skippedExcludedReasonRows: gloposWastage.skippedExcludedReasonRows,
+    };
+    const storeId = idSchema.safeParse(formData.get("storeId"));
+    if (storeId.success) {
+      const enriched = await buildGloposWastagePreviewWithStoreProductCodes(
+        storeId.data,
+        gloposWastage,
+      );
+      preview = {
+        ...enriched,
+        rows: enriched.rows.slice(0, 10),
+        skippedExcludedReasonRows: gloposWastage.skippedExcludedReasonRows,
+      };
+    }
+  } else {
+    preview = await parseUploadedFile(buffer, file.name);
+    const storeId = idSchema.safeParse(formData.get("storeId"));
+    if (storeId.success) {
+      const store = await storeRepository.getById(storeId.data);
+      if (store) {
+        const detected = detectWastageColumns(preview.headers, resolveStoreErpType(store.erpType));
+        preview = {
+          ...preview,
+          referenceColumn: detected.referenceColumn ?? undefined,
+          quantityColumn: detected.quantityColumn ?? undefined,
+        };
+      }
+    }
+  }
+
+  const storeId = idSchema.safeParse(formData.get("storeId"));
+  if (storeId.success) {
+    const store = await storeRepository.getById(storeId.data);
+    if (store) {
+      const storeErpType = resolveStoreErpType(store.erpType);
+      const fileErpType = detectWastageFileErpType(preview.headers, file.name);
+      const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+      if (mismatch) throw new Error(mismatch);
+    }
+  }
+
+  return preview;
+}
+
 export async function importDailySales(
   formData: FormData,
 ): Promise<ActionResult<ImportResult>> {
@@ -931,7 +1035,6 @@ export async function beginRtcImport(
       formData.get("mappingType") === "barcode" ? "barcode" : "store_product_code",
     referenceColumn: formData.get("referenceColumn"),
     quantityColumn: formData.get("quantityColumn"),
-    fileName: file.name,
   });
   if (!meta.success) return { success: false, error: meta.error.message };
 
@@ -988,7 +1091,6 @@ export async function beginRtcImport(
   const rtcImport = await rtcRepository.createImport({
     storeId: resolved.importMeta.storeId,
     rtcDate: resolved.importMeta.rtcDate,
-    fileName: file.name,
     referenceColumn: referenceColumnForImport,
     quantityColumn: resolved.importMeta.quantityColumn,
   });
@@ -1081,7 +1183,6 @@ export async function importRtc(
       formData.get("mappingType") === "barcode" ? "barcode" : "store_product_code",
     referenceColumn: formData.get("referenceColumn"),
     quantityColumn: formData.get("quantityColumn"),
-    fileName: file.name,
   });
 
   if (!meta.success) return { success: false, error: meta.error.message };
@@ -1151,6 +1252,94 @@ export async function deleteRtcUpload(
   return { success: true, data: undefined };
 }
 
+async function resolveWastageImportFromFile(
+  file: File,
+  meta: z.infer<typeof wastageImportSchema>,
+): Promise<
+  | { success: false; error: string }
+  | {
+      success: true;
+      rows: ParsedRow[];
+      importMeta: z.infer<typeof wastageImportSchema>;
+      previewHeaders: string[];
+      skipReferencePivot: boolean;
+      storeErpType: ReturnType<typeof resolveStoreErpType>;
+    }
+> {
+  const store = await storeRepository.getById(meta.storeId);
+  if (!store) return { success: false, error: "Store not found" };
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  let gloposWastage = await tryParseGloposWastageReport(buffer, file.name);
+  if (!gloposWastage && isGloposWastageReport([], file.name)) {
+    try {
+      gloposWastage = await parseGloposWastageReport(buffer, file.name);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Failed to parse GloPOS wastage file",
+      };
+    }
+  }
+
+  let rows: ParsedRow[];
+  let importMeta = { ...meta };
+  let previewHeaders: string[] = [];
+  let skipReferencePivot = false;
+
+  if (gloposWastage) {
+    if (!gloposWastage.rows.length) {
+      return { success: false, error: "No wastage product rows found in the file." };
+    }
+
+    const enriched = await enrichGloposWastageRowsWithStoreProductCodes(
+      meta.storeId,
+      gloposWastage,
+    );
+    if (!enriched.rows.length) {
+      const sample = enriched.unmatchedCodes.slice(0, 5).join(", ");
+      return {
+        success: false,
+        error:
+          enriched.unmatchedCodes.length ?
+            `No store products matched the file (${enriched.unmatchedCodes.length} unmatched${sample ? `: ${sample}` : ""}). Import the product catalog for this store first, then try again.`
+          : "No wastage product rows found in the file.",
+      };
+    }
+
+    rows = enriched.rows;
+    previewHeaders = gloposWastage.headers;
+    skipReferencePivot = true;
+    importMeta = {
+      ...importMeta,
+      referenceColumn: gloposWastage.productCodeColumn,
+      quantityColumn: gloposWastage.quantityColumn,
+      mappingType: "store_product_code",
+      wastageDate:
+        importMeta.wastageDate || gloposWastage.wastageDate || meta.wastageDate,
+    };
+  } else {
+    const parsed = await parseAllRows(buffer, file.name);
+    rows = parsed.rows;
+    previewHeaders = parsed.headers;
+  }
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const fileErpType = detectWastageFileErpType(previewHeaders, file.name);
+  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
+  if (mismatch) return { success: false, error: mismatch };
+
+  return {
+    success: true,
+    rows,
+    importMeta,
+    previewHeaders,
+    skipReferencePivot,
+    storeErpType,
+  };
+}
+
 export async function importWastage(
   formData: FormData,
 ): Promise<ActionResult<ImportResult & { importId: number }>> {
@@ -1168,22 +1357,14 @@ export async function importWastage(
 
   if (!meta.success) return { success: false, error: meta.error.message };
 
-  const store = await storeRepository.getById(meta.data.storeId);
-  if (!store) return { success: false, error: "Store not found" };
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { headers, rows } = await parseAllRows(buffer, file.name);
-
-  const storeErpType = resolveStoreErpType(store.erpType);
-  const fileErpType = detectBookStockFileErpType(headers);
-  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
-  if (mismatch) return { success: false, error: mismatch };
-
+  const resolved = await resolveWastageImportFromFile(file, meta.data);
+  if (!resolved.success) return { success: false, error: resolved.error };
 
   const result = await importWastageRows({
-    ...meta.data,
-    rows,
-    erpType: storeErpType,
+    ...resolved.importMeta,
+    rows: resolved.rows,
+    erpType: resolved.storeErpType,
+    skipReferencePivot: resolved.skipReferencePivot,
   });
   revalidatePath("/wastage");
   return { success: true, data: result };
@@ -1196,6 +1377,49 @@ export async function listWastageImports(
   if (!parsed.success) return { success: false, error: parsed.error.message };
   const imports = await listWastageImportsForStore(parsed.data);
   return { success: true, data: imports };
+}
+
+export type WastageStoreSummary = {
+  wastageDate: string;
+  itemCount: number;
+  totalWastageQty: string;
+  lastUpdated: string;
+};
+
+export async function listWastageSummaries(
+  storeId: number,
+): Promise<ActionResult<WastageStoreSummary[]>> {
+  const parsed = idSchema.safeParse(storeId);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+
+  const rows = await storeWastageRepository.listDateSummariesForStore(parsed.data);
+  return {
+    success: true,
+    data: rows.map((row) => ({
+      wastageDate: row.wastageDate,
+      itemCount: row.itemCount,
+      totalWastageQty: String(row.totalWastageQty),
+      lastUpdated: String(row.lastUpdated),
+    })),
+  };
+}
+
+export async function deleteWastageUpload(
+  storeId: number,
+  wastageDate: string,
+): Promise<ActionResult<void>> {
+  const parsedStore = idSchema.safeParse(storeId);
+  if (!parsedStore.success) {
+    return { success: false, error: parsedStore.error.message };
+  }
+  const parsedDate = z.string().date().safeParse(wastageDate);
+  if (!parsedDate.success) {
+    return { success: false, error: parsedDate.error.message };
+  }
+
+  await storeWastageRepository.deleteForStoreAndDate(parsedStore.data, parsedDate.data);
+  revalidatePath("/wastage");
+  return { success: true, data: undefined };
 }
 
 export async function importPromo(

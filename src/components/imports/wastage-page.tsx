@@ -7,7 +7,7 @@ export function WastagePageView({ stores }: { stores: Store[] }) {
   return (
     <AppShell
       title="Wastage"
-      description="Import wastage quantities by store and date from Excel."
+      description="Import wastage quantities by store and date from Excel (GloPOS WastageReport or legacy files)."
     >
       <WastageImportForm stores={stores} />
     </AppShell>

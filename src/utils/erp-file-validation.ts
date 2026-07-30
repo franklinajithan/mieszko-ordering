@@ -1,5 +1,6 @@
 import { detectBookStockColumns } from "@/parsers/file-parser";
 import { isGloposRtcHistoryReport } from "@/parsers/glopos-rtc-history-parser";
+import { isGloposWastageReport } from "@/parsers/glopos-wastage-report-parser";
 import { isGloposRetailReport } from "@/parsers/glopos-retail-parser";
 import { detectProductFileColumns } from "@/parsers/product-file-parser";
 import { BOOK_STOCK_COLUMNS, type ErpType } from "@/types";
@@ -84,6 +85,14 @@ export function detectRtcFileErpType(
   fileName: string,
 ): ErpType | null {
   if (isGloposRtcHistoryReport(headers, fileName)) return null;
+  return detectBookStockFileErpType(headers);
+}
+
+export function detectWastageFileErpType(
+  headers: string[],
+  fileName: string,
+): ErpType | null {
+  if (isGloposWastageReport(headers, fileName)) return null;
   return detectBookStockFileErpType(headers);
 }
 

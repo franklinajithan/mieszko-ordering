@@ -26,7 +26,10 @@ export function formatSpreadsheetBarcode(value: unknown): string {
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(Math.trunc(value));
   }
-  const trimmed = String(value).replace(/\s+/g, " ").trim();
+  let trimmed = String(value).replace(/\s+/g, " ").trim();
+  if (/^\d+\.0+$/.test(trimmed)) {
+    trimmed = trimmed.replace(/\.0+$/, "");
+  }
   if (/^\d+(\.\d+)?[eE][+-]?\d+$/.test(trimmed)) {
     const asNumber = Number(trimmed);
     if (Number.isFinite(asNumber)) {

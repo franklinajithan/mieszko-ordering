@@ -235,7 +235,6 @@ export const rtcImportSchema = z.object({
   mappingType: z.enum(["store_product_code", "barcode"]).default("store_product_code"),
   referenceColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
-  fileName: z.string().min(1),
 });
 
 export const promoImportSchema = z.object({

@@ -113,6 +113,16 @@ function findProductHeaderRowIndex(grid: unknown[][], maxScan = 40): number {
   return 0;
 }
 
+function isBarcodeHeader(header: string): boolean {
+  const n = normHeader(header);
+  return (
+    n === "innerean" ||
+    n === "inner ean" ||
+    n === "ean" ||
+    n === "barcode"
+  );
+}
+
 function parseSpreadsheetBuffer(
   buffer: ArrayBuffer | Buffer,
 ): { headers: string[]; rows: ParsedRow[] } {
@@ -135,6 +145,10 @@ function parseSpreadsheetBuffer(
 
   const headerRowIndex = findProductHeaderRowIndex(grid);
   const headers = (grid[headerRowIndex] ?? []).map(cellText);
+  const barcodeColumnIndexes = new Set<number>();
+  headers.forEach((header, index) => {
+    if (isBarcodeHeader(header)) barcodeColumnIndexes.add(index);
+  });
 
   const rows: ParsedRow[] = [];
   for (let rowIndex = headerRowIndex + 1; rowIndex < grid.length; rowIndex += 1) {
@@ -145,7 +159,10 @@ function parseSpreadsheetBuffer(
     for (let colIndex = 0; colIndex < headers.length; colIndex += 1) {
       const header = headers[colIndex];
       if (!header) continue;
-      const value = cellText(rowValues[colIndex] ?? "");
+      const raw = rowValues[colIndex];
+      const value = barcodeColumnIndexes.has(colIndex)
+        ? normalizeImportBarcode(raw)
+        : cellText(raw ?? "");
       parsed[header] = value;
       if (value) hasValue = true;
     }
@@ -172,10 +189,15 @@ export function parseProductFileBuffer(
       },
     );
     const headers = result.meta.fields ?? [];
+    const barcodeHeaders = new Set(
+      headers.filter((header) => isBarcodeHeader(header)),
+    );
     const rows = (result.data ?? []).map((row, index) => {
       const normalized: ParsedRow = {};
       for (const [key, value] of Object.entries(row)) {
-        normalized[key] = String(value ?? "").trim();
+        normalized[key] = barcodeHeaders.has(key)
+          ? normalizeImportBarcode(value)
+          : String(value ?? "").trim();
       }
       normalized.__rowNumber = String(index + 2);
       return normalized;
@@ -236,4 +258,29 @@ export function dedupeProductRows(
   }
 
   return { rows: [...seen.values()], duplicateRows };
+}
+
+/** Every distinct InnerEan/Barcode in the file, grouped by normalized product code. */
+export function collectUniqueBarcodesByProductCode(
+  rows: ParsedRow[],
+  codeColumn: string,
+  barcodeColumn?: string,
+): Map<string, string[]> {
+  const byCode = new Map<string, Set<string>>();
+  if (!barcodeColumn) return new Map();
+
+  for (const row of rows) {
+    const code = normalizeProductCode(row[codeColumn] ?? "");
+    if (!code) continue;
+    const barcode = normalizeImportBarcode(row[barcodeColumn]);
+    if (!barcode) continue;
+    if (!byCode.has(code)) byCode.set(code, new Set());
+    byCode.get(code)!.add(barcode);
+  }
+
+  const out = new Map<string, string[]>();
+  for (const [code, barcodes] of byCode) {
+    out.set(code, [...barcodes]);
+  }
+  return out;
 }

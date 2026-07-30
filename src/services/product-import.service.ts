@@ -1,6 +1,7 @@
 import type { ErpType, ImportResult, ParsedRow } from "@/types";
 import {
   dedupeProductRows,
+  collectUniqueBarcodesByProductCode,
   normalizeProductCode,
 } from "@/parsers/product-file-parser";
 import {
@@ -23,19 +24,27 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 function chunkBarcodesFromRows(
-  rows: Array<{ productId: number; barcode?: string }>,
+  rows: Array<{ productId: number; barcode?: string; barcodes?: string[] }>,
 ): Array<{ productId: number; barcode: string }> {
   const out: Array<{ productId: number; barcode: string }> = [];
   for (const row of rows) {
-    const barcode = row.barcode?.trim();
-    if (!barcode) continue;
-    out.push({ productId: row.productId, barcode });
+    const list =
+      row.barcodes?.length ?
+        row.barcodes
+      : row.barcode?.trim() ?
+        [row.barcode.trim()]
+      : [];
+    for (const barcode of list) {
+      const trimmed = barcode.trim();
+      if (!trimmed) continue;
+      out.push({ productId: row.productId, barcode: trimmed });
+    }
   }
   return out;
 }
 
 async function insertImportBarcodesBatch(
-  rows: Array<{ productId: number; barcode?: string }>,
+  rows: Array<{ productId: number; barcode?: string; barcodes?: string[] }>,
 ) {
   for (const batch of chunk(chunkBarcodesFromRows(rows), BATCH_SIZE)) {
     if (batch.length) {
@@ -49,6 +58,8 @@ type NormalizedImportRow = {
   productCode: string;
   name: string;
   department: string;
+  /** All unique barcodes from the file for this product code. */
+  barcodes: string[];
   barcode?: string;
   retailPrice?: string;
 };
@@ -127,7 +138,13 @@ export async function prepareProductImportJob(input: {
     errors: [],
   };
 
-  const normalizedRows = normalizeImportRows(input, rows, result);
+  const barcodesByCode = collectUniqueBarcodesByProductCode(
+    input.rows,
+    input.codeColumn,
+    input.barcodeColumn,
+  );
+
+  const normalizedRows = normalizeImportRows(input, rows, result, barcodesByCode);
   return { normalizedRows, result, shareAcrossMspStores };
 }
 
@@ -164,6 +181,7 @@ function normalizeImportRows(
   },
   rows: ParsedRow[],
   result: ImportResult,
+  barcodesByCode: Map<string, string[]>,
 ): NormalizedImportRow[] {
   const normalizedRows: NormalizedImportRow[] = [];
 
@@ -193,12 +211,15 @@ function normalizeImportRows(
       continue;
     }
 
+    const barcodes = barcodesByCode.get(productCode) ?? (barcode ? [barcode] : []);
+
     normalizedRows.push({
       rowNumber,
       productCode,
       name,
       department,
-      barcode: barcode || undefined,
+      barcodes,
+      barcode: barcodes[0],
       retailPrice,
     });
   }
@@ -254,7 +275,7 @@ async function importPerStoreProductsBulk(input: {
     productId: number;
     productCode: string;
     retailPrice?: string;
-    barcode?: string;
+    barcodes: string[];
   }> = [];
 
   for (const row of input.rows) {
@@ -275,7 +296,7 @@ async function importPerStoreProductsBulk(input: {
         productId: existing.product.id,
         productCode: row.productCode,
         retailPrice: row.retailPrice,
-        barcode: row.barcode,
+        barcodes: row.barcodes,
       });
     } else {
       toCreate.push(row);
@@ -335,7 +356,7 @@ async function importPerStoreProductsBulk(input: {
     await insertImportBarcodesBatch(
       batch.map((row, index) => ({
         productId: createdProducts[index]!.id,
-        barcode: row.barcode,
+        barcodes: row.barcodes,
       })),
     );
 
@@ -382,14 +403,14 @@ async function importMspSharedProductsBulk(input: {
     name: string;
     department: string;
     orderDepartment?: number;
-    barcode?: string;
+    barcodes: string[];
     retailPrice?: string;
   }> = [];
   const toUpdateStoreProducts: Array<{
     productId: number;
     productCode: string;
     retailPrice?: string;
-    barcode?: string;
+    barcodes: string[];
   }> = [];
 
   for (const row of input.rows) {
@@ -410,7 +431,7 @@ async function importMspSharedProductsBulk(input: {
         productId: existing.product.id,
         productCode: row.productCode,
         retailPrice: row.retailPrice,
-        barcode: row.barcode,
+        barcodes: row.barcodes,
       });
       continue;
     }
@@ -426,7 +447,7 @@ async function importMspSharedProductsBulk(input: {
           defaultOrderDepartmentId,
         }),
         productCode: row.productCode,
-        barcode: row.barcode,
+        barcodes: row.barcodes,
         retailPrice: row.retailPrice,
       });
       continue;
@@ -513,7 +534,7 @@ async function importMspSharedProductsBulk(input: {
     await insertImportBarcodesBatch(
       batch.map((row, index) => ({
         productId: createdProducts[index]!.id,
-        barcode: row.barcode,
+        barcodes: row.barcodes,
       })),
     );
 
