@@ -1,19 +1,56 @@
 "use client";
 
 import { useEffect, useState, type ChangeEvent } from "react";
-import { beginDailySalesImport, deleteDailySalesUpload, listDailySalesSummaries, previewDailySalesUpload, runDailySalesImportBatch } from "@/lib/api";
+import {
+  deleteDailySalesUpload,
+  importDailySalesChunk,
+  listDailySalesSummaries,
+  previewDailySalesUpload,
+} from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
 import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { detectSalesColumns } from "@/parsers/file-parser";
+import {
+  detectSalesColumns,
+  parseDailySalesFileBuffer,
+} from "@/parsers/daily-sales-file-parser";
+import { prepareDailySalesImport } from "@/services/daily-sales-import-prepare";
 import type { ImportResult } from "@/types";
-import { detectDailySalesFileErpType, reportErpMismatch, resolveStoreErpType } from "@/utils/erp-file-validation";
+import {
+  detectDailySalesFileErpType,
+  reportErpMismatch,
+  resolveStoreErpType,
+} from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
-import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
-import type { Store, PreviewState, ImportProgress, DailySalesUploadRow } from "@/types/daily-sales";
+import { decimalToDb, formatDecimal, parseDbDecimal } from "@/utils/decimal";
+import type {
+  Store,
+  PreviewState,
+  ImportProgress,
+  DailySalesUploadRow,
+} from "@/types/daily-sales";
+
+const DAILY_SALES_IMPORT_CHUNK_SIZE = parseInt(process.env.NEXT_PUBLIC_DAILY_SALES_IMPORT_CHUNK_SIZE ?? "2000");
+
+function mergeMatchResults(a: ImportResult, b: ImportResult): ImportResult {
+  return {
+    ...a,
+    matchedRows: a.matchedRows + b.matchedRows,
+    unmatchedRows: a.unmatchedRows + b.unmatchedRows,
+    errors: [...a.errors, ...b.errors].slice(0, 50),
+  };
+}
+
+function chunkRows<T>(rows: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) {
+    batches.push(rows.slice(i, i + size));
+  }
+  return batches;
+}
 
 export function DailySalesImportForm({ stores }: { stores: Store[] }) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
@@ -145,57 +182,109 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
     if (!(await validateSelectedFile(file))) {
       return;
     }
+
+    const store = stores.find((s) => String(s.id) === storeId);
+    const storeName = store?.name ?? "";
     setError(null);
-    const formData = new FormData();
-    formData.set("file", file);
-    formData.set("storeId", storeId);
-    formData.set("mappingType", "store_product_code");
-    formData.set("productColumn", productColumn);
-    formData.set("quantityColumn", quantityColumn);
-    if (salesDate) formData.set("manualSalesDate", salesDate);
-
     setResult(null);
-    const begin = await beginDailySalesImport(formData);
-    if (!begin.success) {
-      setError(begin.error);
-      reportErpMismatch(begin.error);
-      return;
-    }
 
-    const { jobId, totalRows, batchSize, fileName, storeName } = begin.data;
-    setProgress({
-      processed: 0,
-      total: totalRows,
-      fileName,
-      storeName,
-      done: false,
-    });
-
-    let finalResult: ImportResult | null = null;
-    const batchCount = Math.ceil(totalRows / batchSize);
-    for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
-      const batch = await runDailySalesImportBatch({ jobId, batchIndex });
-      if (!batch.success) {
-        setError(batch.error);
-        reportErpMismatch(batch.error);
+    try {
+      const parsed = await parseDailySalesFileBuffer(
+        await file.arrayBuffer(),
+        file.name,
+      );
+      const codeColumn =
+        productColumn ||
+        parsed.productColumn ||
+        detectSalesColumns(parsed.headers).productColumn ||
+        "";
+      const qtyColumn =
+        quantityColumn ||
+        parsed.quantityColumn ||
+        detectSalesColumns(parsed.headers).quantityColumn ||
+        "";
+      if (!codeColumn || !qtyColumn) {
+        setError("Could not detect product and quantity columns.");
         return;
       }
 
-      finalResult = batch.data.result;
-      setProgress({
-        processed: batch.data.processed,
-        total: batch.data.total,
-        fileName,
-        storeName,
-        done: batch.data.done,
+      const { sales, result: prepResult } = prepareDailySalesImport({
+        productColumn: codeColumn,
+        quantityColumn: qtyColumn,
+        manualSalesDate: salesDate,
+        rows: parsed.rows,
       });
-    }
 
-    if (finalResult) {
-      setResult(finalResult);
+      if (!sales.length) {
+        setError(
+          prepResult.invalidRows
+            ? "No valid daily-sales rows found in the file."
+            : "No daily-sales rows found in the file.",
+        );
+        setResult(prepResult);
+        return;
+      }
+
+      const slimRows = sales.map((sale) => ({
+        [codeColumn]: sale.reference,
+        [qtyColumn]: decimalToDb(sale.qty),
+        __productName: sale.productName ?? "",
+        __rowNumber: String(sale.rowNumber),
+      }));
+
+      const batches = chunkRows(slimRows, DAILY_SALES_IMPORT_CHUNK_SIZE);
+      const totalRows = slimRows.length;
+      setProgress({
+        processed: 0,
+        total: totalRows,
+        fileName: file.name,
+        storeName,
+        done: false,
+      });
+
+      let aggregated: ImportResult = {
+        ...prepResult,
+        matchedRows: 0,
+        unmatchedRows: 0,
+      };
+      let processed = 0;
+
+      for (const batch of batches) {
+        const chunk = await importDailySalesChunk({
+          storeId: Number(storeId),
+          mappingType: "store_product_code",
+          productColumn: codeColumn,
+          quantityColumn: qtyColumn,
+          manualSalesDate: salesDate,
+          fileName: file.name,
+          rows: batch,
+        });
+        if (!chunk.success) {
+          setError(chunk.error);
+          reportErpMismatch(chunk.error);
+          setProgress(null);
+          return;
+        }
+        aggregated = mergeMatchResults(aggregated, chunk.data);
+        processed += batch.length;
+        setProgress({
+          processed,
+          total: totalRows,
+          fileName: file.name,
+          storeName,
+          done: processed >= totalRows,
+        });
+      }
+
+      setResult(aggregated);
       setPreview(null);
       setProgress(null);
       await loadUploadRows(storeId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Import failed";
+      setError(message);
+      reportErpMismatch(message);
+      setProgress(null);
     }
   }
 

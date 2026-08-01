@@ -191,16 +191,6 @@ export const stockUploadSchema = z.object({
   deliveryDate: z.string().date().optional(),
 });
 
-export const dailySalesImportSchema = z.object({
-  storeId: idSchema,
-  mappingType: z.enum(["store_product_code", "barcode"]),
-  productColumn: z.string().min(1),
-  quantityColumn: z.string().min(1),
-  dateColumn: z.string().optional(),
-  manualSalesDate: z.string().date().optional(),
-  fileName: z.string().min(1),
-});
-
 export const supplierPriceImportSchema = z.object({
   supplierId: idSchema,
   referenceColumn: z.string().min(1),

@@ -161,7 +161,7 @@ export function isGloposRetailReport(headers: string[], fileName: string): boole
 }
 
 export async function tryParseRetailSalesReport(
-  buffer: Buffer,
+  buffer: ArrayBuffer | Uint8Array | Buffer,
   fileName: string,
 ): Promise<GloposRetailParseResult | null> {
   try {
@@ -177,7 +177,7 @@ export function isLikelyRetailSalesFileName(fileName: string): boolean {
 }
 
 export async function parseGloposRetailReport(
-  buffer: Buffer,
+  buffer: ArrayBuffer | Uint8Array | Buffer,
   fileName: string,
 ): Promise<GloposRetailParseResult> {
   const workbook = new ExcelJS.Workbook();

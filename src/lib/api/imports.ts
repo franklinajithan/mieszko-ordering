@@ -6,41 +6,21 @@ import type {
 import type { PromoImportSummary } from "@/services/promo-import.service";
 import { apiFormRequest, apiRequest } from "./client";
 
-export function importDailySales(
-  formData: FormData,
+
+export type DailySalesImportChunkInput = {
+  storeId: number;
+  mappingType?: "store_product_code" | "barcode";
+  productColumn: string;
+  quantityColumn: string;
+  manualSalesDate: string;
+  fileName?: string;
+  rows: Array<Record<string, string>>;
+};
+
+export function importDailySalesChunk(
+  input: DailySalesImportChunkInput,
 ): Promise<ActionResult<ImportResult>> {
-  return apiFormRequest("/imports/daily-sales", formData);
-}
-
-export function beginDailySalesImport(
-  formData: FormData,
-): Promise<
-  ActionResult<{
-    jobId: string;
-    totalRows: number;
-    fileName: string;
-    storeName: string;
-    batchSize: number;
-  }>
-> {
-  return apiFormRequest("/imports/daily-sales/begin", formData);
-}
-
-export function runDailySalesImportBatch(input: {
-  jobId: string;
-  batchIndex: number;
-}): Promise<
-  ActionResult<{
-    processed: number;
-    total: number;
-    done: boolean;
-    result: ImportResult;
-  }>
-> {
-  return apiRequest("/imports/daily-sales/batch", {
-    method: "POST",
-    body: input,
-  });
+  return apiRequest("/imports/daily-sales", { method: "POST", body: input });
 }
 
 export function deleteDailySalesUpload(
@@ -60,7 +40,12 @@ export function listDailySalesSummaries(
   storeId: number,
 ): Promise<
   ActionResult<
-    Array<{ salesDate: string; itemCount: number; totalSoldQty: string; lastUpdated: string }>
+    Array<{
+      salesDate: string;
+      itemCount: number;
+      totalSoldQty: string;
+      lastUpdated: string;
+    }>
   >
 > {
   return apiRequest(`/imports/daily-sales?storeId=${storeId}`);
@@ -146,7 +131,12 @@ export function listRtcSummaries(
   storeId: number,
 ): Promise<
   ActionResult<
-    Array<{ rtcDate: string; itemCount: number; totalRtcQty: string; lastUpdated: string }>
+    Array<{
+      rtcDate: string;
+      itemCount: number;
+      totalRtcQty: string;
+      lastUpdated: string;
+    }>
   >
 > {
   return apiRequest(`/imports/rtc?storeId=${storeId}`);
