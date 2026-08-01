@@ -276,7 +276,7 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
           </div>
         </form>
 
-        <div className="rounded-xl border border-zinc-200/80 bg-white p-5 shadow-sm lg:min-h-[12rem]">
+        <div className="rounded-xl border border-zinc-200/80 bg-white p-5 shadow-sm lg:min-h-48">
           {progress ? (
             <div className="space-y-3">
               <h3 className="font-semibold text-zinc-900">Import progress</h3>
@@ -311,75 +311,59 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
               <h3 className="font-semibold text-zinc-900">Last import result</h3>
               <ImportSummary result={result} />
             </div>
+          ) : preview ? (
+            <div className="space-y-4">
+              <h3 className="font-semibold text-zinc-900">Column mapping</h3>
+              {preview.periodLabel ? (
+                <p className="text-sm text-amber-800">
+                  Period file detected ({preview.periodLabel}). Quantities will be
+                  stored on the period end date for historical comparisons.
+                </p>
+              ) : null}
+              {preview.duplicateRows ? (
+                <p className="text-sm text-emerald-800">
+                  Grouped {preview.duplicateRows} duplicate Item Code rows
+                  (quantities summed) before import.
+                </p>
+              ) : null}
+              <div className="max-w-sm">
+                <Label>Sales date</Label>
+                {excelSalesDate ? (
+                  <p className="mb-1.5 text-xs text-zinc-500">
+                    Prefilled from the Excel report ({excelSalesDate}). Change below
+                    if you need a different sales date.
+                  </p>
+                ) : null}
+                <DateField
+                  value={salesDate}
+                  onChange={(e) => setSalesDate(e.target.value)}
+                  required
+                />
+                {excelSalesDate && salesDate !== excelSalesDate ? (
+                  <button
+                    type="button"
+                    className="mt-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                    onClick={() => setSalesDate(excelSalesDate)}
+                  >
+                    Reset to Excel date
+                  </button>
+                ) : null}
+              </div>
+              <Button type="button" onClick={onImport}>
+                Import daily sales
+              </Button>
+            </div>
           ) : (
-            <div className="flex h-full min-h-[10rem] flex-col justify-center text-sm text-zinc-500">
+            <div className="flex h-full min-h-40 flex-col justify-center text-sm text-zinc-500">
               <p className="font-medium text-zinc-700">Import result</p>
               <p className="mt-1">
-                Run an import from the preview step to see matched, unmatched, and error counts
-                here.
+                Preview a file, then import to see matched, unmatched, and error
+                counts here.
               </p>
             </div>
           )}
         </div>
       </div>
-
-      {preview ? (
-        <div className="space-y-4 rounded-xl border bg-white p-4">
-          <h3 className="font-semibold">Column mapping</h3>
-          {preview.periodLabel ? <p className="text-sm text-amber-800">Period file detected ({preview.periodLabel}). Quantities will be stored on the period end date for historical comparisons.</p> : null}
-          {preview.duplicateRows ? <p className="text-sm text-emerald-800">Grouped {preview.duplicateRows} duplicate Item Code rows (quantities summed) before import.</p> : null}
-          <div className="max-w-sm">
-            <div>
-              <Label>Sales date</Label>
-              {excelSalesDate ? (
-                <p className="mb-1.5 text-xs text-zinc-500">
-                  Prefilled from the Excel report ({excelSalesDate}). Change below if you need a
-                  different sales date.
-                </p>
-              ) : null}
-              <DateField value={salesDate} onChange={(e) => setSalesDate(e.target.value)} required />
-              {excelSalesDate && salesDate !== excelSalesDate ? (
-                <button
-                  type="button"
-                  className="mt-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-800"
-                  onClick={() => setSalesDate(excelSalesDate)}
-                >
-                  Reset to Excel date
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr>
-                  {preview.headers.map((header) => (
-                    <th key={header} className="px-2 py-1 text-left">
-                      {header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {preview.rows.map((row, idx) => (
-                  <tr key={idx}>
-                    {preview.headers.map((header) => (
-                      <td key={header} className="px-2 py-1">
-                        {row[header]}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <Button type="button" onClick={onImport} disabled={Boolean(progress && !progress.done)}>
-            Import daily sales
-          </Button>
-        </div>
-      ) : null}
 
       <section className="space-y-3 rounded-xl border border-zinc-200/80 bg-white p-4 shadow-sm">
         <h3 className="font-semibold text-zinc-900">Saved daily sales</h3>
