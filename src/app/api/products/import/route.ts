@@ -1,13 +1,16 @@
 import { z } from "zod";
 import { storeRepository } from "@/repositories";
 import { importProductRows } from "@/services/product-import.service";
-import { PRODUCT_IMPORT_CHUNK_SIZE } from "@/lib/product-import-constants";
+
 import {
   inferProductFileErpTypeFromColumns,
   resolveStoreErpType,
   validateErpFileMatch,
 } from "@/utils/erp-file-validation";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
+
+
+const PRODUCT_IMPORT_CHUNK_SIZE = parseInt(process.env.NEXT_PUBLIC_PRODUCT_IMPORT_CHUNK_SIZE ?? "2000");
 
 const chunkSchema = z.object({
   storeId: z.number().int().positive(),
