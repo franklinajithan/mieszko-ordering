@@ -229,7 +229,7 @@ export function RtcImportForm({ stores }: { stores: Store[] }) {
       setPreview(null);
       if (finalResult.matchedRows === 0 && finalResult.totalRows > 0) {
         setError(
-          "Import finished but no products matched. Ensure each file barcode exists on a catalog product linked to this store (product_barcodes → store item code).",
+          "Import finished but no products matched. Ensure each file barcode exists on this store's catalog (store product barcodes → item code).",
         );
       }
       await loadSavedRows(storeId);
@@ -451,7 +451,7 @@ export function RtcImportForm({ stores }: { stores: Store[] }) {
           ) : (
             <p className="text-sm text-zinc-600">
               GloPOS file: each file barcode is looked up in the catalog (
-              product_barcodes → store item code). RTC is imported using{" "}
+              store product barcodes → item code). RTC is imported using{" "}
               <strong>{referenceColumn}</strong> and <strong>{quantityColumn}</strong>.
             </p>
           )}

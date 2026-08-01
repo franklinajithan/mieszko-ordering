@@ -1,7 +1,7 @@
 import type { ImportResult, ParsedRow, SalesMappingType } from "@/types";
 import { toDecimal, decimalToDb, type Decimal } from "@/utils/decimal";
 import { normalizeProductCode } from "@/parsers/product-file-parser";
-import { productRepository } from "@/repositories/postgres";
+import { productRepository } from "@/repositories";
 
 type PendingRow = {
   reference: string;

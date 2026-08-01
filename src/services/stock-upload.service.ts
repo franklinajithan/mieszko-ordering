@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import type { ImportResult, MappingType, ParsedRow, UploadType, ErpType } from "@/types";
 import { toDecimal, decimalToDb } from "@/utils/decimal";
-import { orderRepository, productRepository } from "@/repositories/postgres";
+import { orderRepository, productRepository } from "@/repositories";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
 
 export async function processStockUpload(input: {

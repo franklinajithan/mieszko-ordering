@@ -1,4 +1,4 @@
-import { storeRepository } from "@/repositories";
+import { storeRepository } from "@/repositories/stores";
 import { createStoreSchema } from "@/validators/schemas";
 import { apiOk, parseJson, route } from "@/lib/api/http";
 

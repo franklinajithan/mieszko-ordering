@@ -71,6 +71,7 @@ export const storeProductSchema = z.object({
 
 export const barcodeSchema = z.object({
   productId: idSchema,
+  storeId: idSchema,
   barcode: z.string().min(1).max(100),
 });
 

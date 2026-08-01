@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import {
   dailySalesRepository,
   orderRepository,
-} from "@/repositories/postgres";
+} from "@/repositories";
 
 function formatDailyColumn(dateIso: string): string {
   const [, month, day] = dateIso.split("-");

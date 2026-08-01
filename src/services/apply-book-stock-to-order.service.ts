@@ -2,7 +2,7 @@ import type { ImportResult } from "@/types";
 import {
   bookStockRepository,
   orderRepository,
-} from "@/repositories/postgres";
+} from "@/repositories";
 
 export async function applyBookStockImportToOrder(input: {
   orderId: number;

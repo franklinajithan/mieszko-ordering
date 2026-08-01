@@ -24,6 +24,7 @@ export type ProductRow = {
   storeProduct: {
     id: number;
     storeProductCode: string;
+    retailPrice?: string | null;
   };
   store: {
     id: number;
@@ -70,21 +71,6 @@ export type ProductsPageProps = {
   search?: string;
   activeFilter?: string;
   departmentFilter?: string;
-};
-
-export type ProductImportProgress = {
-  jobId: string;
-  totalRows: number;
-  fileName: string;
-  storeName: string;
-  batchSize: number;
-};
-
-export type ProductImportBatchStatus = {
-  processed: number;
-  total: number;
-  done: boolean;
-  result: ImportResult;
 };
 
 export type ProductImportPhase =

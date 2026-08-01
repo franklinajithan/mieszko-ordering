@@ -6,7 +6,7 @@ import {
   productRepository,
   rtcRepository,
   rtcSalesRepository,
-} from "@/repositories/postgres";
+} from "@/repositories";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
 import type { GloposRtcHistoryParseResult } from "@/parsers/glopos-rtc-history-parser";
 

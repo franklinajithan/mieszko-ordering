@@ -22,6 +22,7 @@ type Supplier = { id: number; code: string; name: string };
 
 export function ProductDetailForms({
   productId,
+  storeId,
   product,
   departments,
   barcodes,
@@ -29,6 +30,7 @@ export function ProductDetailForms({
   suppliers,
 }: {
   productId: number;
+  storeId?: number;
   product: Product;
   departments: DepartmentOption[];
   barcodes: Barcode[];
@@ -40,8 +42,13 @@ export function ProductDetailForms({
 
   async function onBarcode(formData: FormData) {
     setError(null);
+    if (!storeId) {
+      setError("Open this product from a store catalog to add barcodes.");
+      return;
+    }
     const result = await addBarcode({
       productId,
+      storeId,
       barcode: formData.get("barcode"),
     });
     if (!result.success) setError(result.error);
@@ -110,14 +117,19 @@ export function ProductDetailForms({
 
       <section className="space-y-4 rounded-xl border bg-white p-4">
         <h2 className="font-semibold">Barcodes</h2>
+        <p className="text-xs text-zinc-500">
+          Linked to this store&apos;s product code (not shared across stores).
+        </p>
         <ul className="space-y-1 text-sm">
           {barcodes.map((barcode) => (
             <li key={barcode.id}>{barcode.barcode}</li>
           ))}
         </ul>
         <form action={onBarcode} className="flex gap-2">
-          <Input name="barcode" placeholder="Barcode" required />
-          <Button type="submit">Add</Button>
+          <Input name="barcode" placeholder="Barcode" required disabled={!storeId} />
+          <Button type="submit" disabled={!storeId}>
+            Add
+          </Button>
         </form>
       </section>
 

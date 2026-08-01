@@ -12,7 +12,7 @@ import type { ProductRow } from "@/types/product";
 import type { DepartmentOption } from "@/types/department";
 
 export const PRODUCT_GRID_COLS =
-  "grid-cols-[2.75rem_minmax(5.5rem,7.5rem)_minmax(0,1fr)_minmax(5rem,8rem)_minmax(7.5rem,10rem)_5.5rem_4.5rem]";
+  "grid-cols-[2.75rem_minmax(5.5rem,7.5rem)_minmax(0,1fr)_minmax(4.5rem,6rem)_minmax(5rem,8rem)_minmax(7.5rem,10rem)_5.5rem_4.5rem]";
 
 export function ProductListGrid({
   products,
@@ -44,7 +44,7 @@ export function ProductListGrid({
   }
 
   return (
-    <div className="min-w-[52rem]">
+    <div className="min-w-[58rem]">
       <div
         className={cn(
           "sticky top-0 z-10 grid gap-x-3 border-b border-zinc-200/80 bg-zinc-50/95 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 backdrop-blur-sm",
@@ -54,6 +54,7 @@ export function ProductListGrid({
         <div className="text-right">#</div>
         <div>Code</div>
         <div>Product</div>
+        <div className="text-right">Retail</div>
         <div>Imported dept</div>
         <div>Order department</div>
         <div>Status</div>
@@ -64,6 +65,7 @@ export function ProductListGrid({
         {products.map(({ product, storeProduct, store }, index) => {
           const isDuplicate = duplicateNames.has(product.name.trim().toLowerCase());
           const lineNumber = lineOffset + index + 1;
+          const retailLabel = formatRetailPrice(storeProduct.retailPrice);
 
           return (
             <div
@@ -94,6 +96,11 @@ export function ProductListGrid({
                     Duplicate name
                   </p>
                 ) : null}
+              </div>
+              <div className="self-center text-right tabular-nums text-zinc-700">
+                {retailLabel ?? (
+                  <span className="text-zinc-300">—</span>
+                )}
               </div>
               <div
                 className="self-center truncate text-zinc-600"
@@ -128,6 +135,16 @@ export function ProductListGrid({
       </div>
     </div>
   );
+}
+
+function formatRetailPrice(value: string | null | undefined): string | null {
+  if (value == null || value === "") return null;
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return null;
+  return amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function OrderDepartmentSelect({

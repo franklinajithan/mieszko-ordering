@@ -3,12 +3,12 @@ import {
   dedupeProductRows,
   collectUniqueBarcodesByProductCode,
   normalizeProductCode,
-} from "@/parsers/product-file-parser";
+} from "@/parsers/product-file-parser"; 
 import {
   departmentMappingRepository,
   productRepository,
   storeRepository,
-} from "@/repositories/postgres";
+} from "@/repositories";
 import { decimalToDb, toDecimal } from "@/utils/decimal";
 import { normalizeImportBarcode } from "@/utils/barcode";
 
@@ -24,9 +24,15 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 function chunkBarcodesFromRows(
-  rows: Array<{ productId: number; barcode?: string; barcodes?: string[] }>,
-): Array<{ productId: number; barcode: string }> {
-  const out: Array<{ productId: number; barcode: string }> = [];
+  rows: Array<{
+    storeId: number;
+    storeProductId: number;
+    barcode?: string;
+    barcodes?: string[];
+  }>,
+): Array<{ storeId: number; storeProductId: number; barcode: string }> {
+  const out: Array<{ storeId: number; storeProductId: number; barcode: string }> =
+    [];
   for (const row of rows) {
     const list =
       row.barcodes?.length ?
@@ -37,14 +43,23 @@ function chunkBarcodesFromRows(
     for (const barcode of list) {
       const trimmed = barcode.trim();
       if (!trimmed) continue;
-      out.push({ productId: row.productId, barcode: trimmed });
+      out.push({
+        storeId: row.storeId,
+        storeProductId: row.storeProductId,
+        barcode: trimmed,
+      });
     }
   }
   return out;
 }
 
 async function insertImportBarcodesBatch(
-  rows: Array<{ productId: number; barcode?: string; barcodes?: string[] }>,
+  rows: Array<{
+    storeId: number;
+    storeProductId: number;
+    barcode?: string;
+    barcodes?: string[];
+  }>,
 ) {
   for (const batch of chunk(chunkBarcodesFromRows(rows), BATCH_SIZE)) {
     if (batch.length) {
@@ -65,8 +80,6 @@ type NormalizedImportRow = {
 };
 
 export type { NormalizedImportRow };
-
-export const IMPORT_JOB_BATCH_SIZE = 2000;
 
 async function resolveOrderDepartmentIds(names: string[]) {
   return departmentMappingRepository.resolveOrderDepartmentIds(names);
@@ -94,8 +107,11 @@ function productUpdateFromImport(input: {
 function parseRetailPrice(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
+  // Strip currency symbols / thousand separators common in exports.
+  const cleaned = trimmed.replace(/[^0-9.,-]/g, "").replace(/,/g, "");
+  if (!cleaned || cleaned === "-" || cleaned === ".") return undefined;
   try {
-    const parsed = toDecimal(trimmed);
+    const parsed = toDecimal(cleaned);
     if (!parsed.isFinite() || parsed.isNegative()) return undefined;
     return decimalToDb(parsed);
   } catch {
@@ -318,7 +334,7 @@ async function importPerStoreProductsBulk(input: {
   }
 
   for (const batch of chunk(toUpdateStoreProducts, BATCH_SIZE)) {
-    await productRepository.upsertStoreProductsBatch(
+    const upserted = await productRepository.upsertStoreProductsBatch(
       batch.map((row) => ({
         storeId: input.storeId,
         productId: row.productId,
@@ -327,9 +343,14 @@ async function importPerStoreProductsBulk(input: {
         isActive: true,
       })),
     );
+    await insertImportBarcodesBatch(
+      upserted.map((storeProduct, index) => ({
+        storeId: input.storeId,
+        storeProductId: storeProduct.id,
+        barcodes: batch[index]?.barcodes ?? [],
+      })),
+    );
   }
-
-  await insertImportBarcodesBatch(toUpdateStoreProducts);
 
   input.result.matchedRows += toUpdateStoreProducts.length;
 
@@ -343,7 +364,7 @@ async function importPerStoreProductsBulk(input: {
       })),
     );
 
-    await productRepository.upsertStoreProductsBatch(
+    const upserted = await productRepository.upsertStoreProductsBatch(
       createdProducts.map((product, index) => ({
         storeId: input.storeId,
         productId: product.id,
@@ -354,9 +375,10 @@ async function importPerStoreProductsBulk(input: {
     );
 
     await insertImportBarcodesBatch(
-      batch.map((row, index) => ({
-        productId: createdProducts[index]!.id,
-        barcodes: row.barcodes,
+      upserted.map((storeProduct, index) => ({
+        storeId: input.storeId,
+        storeProductId: storeProduct.id,
+        barcodes: batch[index]?.barcodes ?? [],
       })),
     );
 
@@ -471,7 +493,7 @@ async function importMspSharedProductsBulk(input: {
   }
 
   for (const batch of chunk(toUpdateStoreProducts, BATCH_SIZE)) {
-    await productRepository.upsertStoreProductsBatch(
+    const upserted = await productRepository.upsertStoreProductsBatch(
       batch.map((row) => ({
         storeId: input.storeId,
         productId: row.productId,
@@ -480,9 +502,14 @@ async function importMspSharedProductsBulk(input: {
         isActive: true,
       })),
     );
+    await insertImportBarcodesBatch(
+      upserted.map((storeProduct, index) => ({
+        storeId: input.storeId,
+        storeProductId: storeProduct.id,
+        barcodes: batch[index]?.barcodes ?? [],
+      })),
+    );
   }
-
-  await insertImportBarcodesBatch(toUpdateStoreProducts);
 
   input.result.matchedRows += toUpdateStoreProducts.length;
 
@@ -498,7 +525,7 @@ async function importMspSharedProductsBulk(input: {
         }),
       ),
     );
-    await productRepository.upsertStoreProductsBatch(
+    const upserted = await productRepository.upsertStoreProductsBatch(
       batch.map((row) => ({
         storeId: input.storeId,
         productId: row.productId,
@@ -507,7 +534,13 @@ async function importMspSharedProductsBulk(input: {
         isActive: true,
       })),
     );
-    await insertImportBarcodesBatch(batch);
+    await insertImportBarcodesBatch(
+      upserted.map((storeProduct, index) => ({
+        storeId: input.storeId,
+        storeProductId: storeProduct.id,
+        barcodes: batch[index]?.barcodes ?? [],
+      })),
+    );
     input.result.matchedRows += batch.length;
   }
 
@@ -521,7 +554,7 @@ async function importMspSharedProductsBulk(input: {
       })),
     );
 
-    await productRepository.upsertStoreProductsBatch(
+    const upserted = await productRepository.upsertStoreProductsBatch(
       createdProducts.map((product, index) => ({
         storeId: input.storeId,
         productId: product.id,
@@ -532,9 +565,10 @@ async function importMspSharedProductsBulk(input: {
     );
 
     await insertImportBarcodesBatch(
-      batch.map((row, index) => ({
-        productId: createdProducts[index]!.id,
-        barcodes: row.barcodes,
+      upserted.map((storeProduct, index) => ({
+        storeId: input.storeId,
+        storeProductId: storeProduct.id,
+        barcodes: batch[index]?.barcodes ?? [],
       })),
     );
 

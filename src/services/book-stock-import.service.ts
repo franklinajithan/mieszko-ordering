@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import type { ImportResult, ParsedRow } from "@/types";
 import { toDecimal, decimalToDb } from "@/utils/decimal";
-import { bookStockRepository, productRepository } from "@/repositories/postgres";
+import { bookStockRepository, productRepository } from "@/repositories";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
 import type { ErpType } from "@/types";
 

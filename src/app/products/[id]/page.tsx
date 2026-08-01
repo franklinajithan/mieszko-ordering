@@ -21,6 +21,11 @@ export default async function ProductDetailPage({
   const id = parseRouteId(idParam);
   if (id === null) notFound();
 
+  const storeId =
+    query.storeId && /^\d+$/.test(query.storeId)
+      ? Number(query.storeId)
+      : undefined;
+
   const productResult = await getProduct(id);
   if (!productResult.success) {
     if (productResult.error === "Product not found") notFound();
@@ -29,7 +34,7 @@ export default async function ProductDetailPage({
 
   const [barcodesResult, supplierProductsResult, suppliersResult, departmentsResult] =
     await Promise.all([
-      listProductBarcodes(id),
+      listProductBarcodes(id, storeId),
       listProductSupplierMappings(id),
       listSuppliers(),
       listDepartments(),
@@ -51,6 +56,7 @@ export default async function ProductDetailPage({
   return (
     <ProductDetailPageView
       product={productResult.data}
+      storeId={storeId}
       backHref={backHref}
       departments={departments}
       barcodes={barcodesResult.data}

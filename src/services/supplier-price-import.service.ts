@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import type { ImportResult, ParsedRow } from "@/types";
 import { toDecimal, decimalToDb } from "@/utils/decimal";
-import { supplierPriceRepository } from "@/repositories/postgres";
+import { supplierPriceRepository } from "@/repositories";
 
 export async function importSupplierPriceRows(input: {
   supplierId: number;

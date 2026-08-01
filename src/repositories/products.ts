@@ -192,7 +192,9 @@ export const productRepository = {
     const [row] = await db
       .insert(productBarcodes)
       .values(data)
-      .onConflictDoNothing({ target: productBarcodes.barcode })
+      .onConflictDoNothing({
+        target: [productBarcodes.storeId, productBarcodes.barcode],
+      })
       .returning();
     return row ?? null;
   },
@@ -245,19 +247,14 @@ export const productRepository = {
       .returning();
   },
 
-  async listBarcodeSet() {
-    const rows = await db
-      .select({ barcode: productBarcodes.barcode })
-      .from(productBarcodes);
-    return new Set(rows.map((row) => row.barcode));
-  },
-
   async insertBarcodesBatch(data: Array<typeof productBarcodes.$inferInsert>) {
     if (!data.length) return [];
     return db
       .insert(productBarcodes)
       .values(data)
-      .onConflictDoNothing({ target: productBarcodes.barcode });
+      .onConflictDoNothing({
+        target: [productBarcodes.storeId, productBarcodes.barcode],
+      });
   },
 
   async addSupplierProduct(data: typeof supplierProducts.$inferInsert) {
@@ -265,11 +262,44 @@ export const productRepository = {
     return row;
   },
 
-  async getBarcodes(productId: number) {
+  async getBarcodesForStoreProduct(storeProductId: number) {
     return db
       .select()
       .from(productBarcodes)
-      .where(eq(productBarcodes.productId, productId));
+      .where(eq(productBarcodes.storeProductId, storeProductId));
+  },
+
+  async getBarcodesForProduct(productId: number, storeId?: number) {
+    const conditions = [eq(storeProducts.productId, productId)];
+    if (storeId !== undefined) {
+      conditions.push(eq(storeProducts.storeId, storeId));
+    }
+    return db
+      .select({
+        id: productBarcodes.id,
+        barcode: productBarcodes.barcode,
+        storeProductId: productBarcodes.storeProductId,
+        storeId: productBarcodes.storeId,
+      })
+      .from(productBarcodes)
+      .innerJoin(
+        storeProducts,
+        eq(storeProducts.id, productBarcodes.storeProductId),
+      )
+      .where(and(...conditions));
+  },
+
+  async findStoreProductForProduct(productId: number, storeId: number) {
+    const [row] = await db
+      .select()
+      .from(storeProducts)
+      .where(
+        and(
+          eq(storeProducts.productId, productId),
+          eq(storeProducts.storeId, storeId),
+        ),
+      );
+    return row ?? null;
   },
 
   async getSupplierProducts(productId: number) {
@@ -326,12 +356,14 @@ export const productRepository = {
     const [row] = await db
       .select({ storeProduct: storeProducts })
       .from(productBarcodes)
-      .innerJoin(products, eq(products.id, productBarcodes.productId))
-      .innerJoin(storeProducts, eq(storeProducts.productId, products.id))
+      .innerJoin(
+        storeProducts,
+        eq(storeProducts.id, productBarcodes.storeProductId),
+      )
       .where(
         and(
+          eq(productBarcodes.storeId, storeId),
           inArray(productBarcodes.barcode, candidates),
-          eq(storeProducts.storeId, storeId),
         ),
       )
       .limit(1);
@@ -346,12 +378,14 @@ export const productRepository = {
         storeProduct: storeProducts,
       })
       .from(productBarcodes)
-      .innerJoin(products, eq(products.id, productBarcodes.productId))
-      .innerJoin(storeProducts, eq(storeProducts.productId, products.id))
+      .innerJoin(
+        storeProducts,
+        eq(storeProducts.id, productBarcodes.storeProductId),
+      )
       .where(
         and(
+          eq(productBarcodes.storeId, storeId),
           inArray(productBarcodes.barcode, barcodes),
-          eq(storeProducts.storeId, storeId),
         ),
       );
   },
@@ -372,9 +406,12 @@ export const productRepository = {
         productName: products.name,
       })
       .from(productBarcodes)
-      .innerJoin(products, eq(products.id, productBarcodes.productId))
-      .innerJoin(storeProducts, eq(storeProducts.productId, products.id))
-      .where(eq(storeProducts.storeId, storeId));
+      .innerJoin(
+        storeProducts,
+        eq(storeProducts.id, productBarcodes.storeProductId),
+      )
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .where(eq(productBarcodes.storeId, storeId));
 
     type CatalogHit = (typeof catalogRows)[number];
     const catalogByCandidate = new Map<string, CatalogHit>();

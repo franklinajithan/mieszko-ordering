@@ -81,26 +81,9 @@ import {
   detectDailySalesFileErpType,
   detectRtcFileErpType,
   detectWastageFileErpType,
-  detectProductFileErpType,
-  inferProductFileErpTypeFromColumns,
   resolveStoreErpType,
   validateErpFileMatch,
 } from "@/utils/erp-file-validation";
-import {
-  detectProductFileColumns,
-  parseProductFile,
-} from "@/parsers/product-file-parser";
-import {
-  IMPORT_JOB_BATCH_SIZE,
-  importNormalizedRowsBatch,
-  importProductRows,
-  prepareProductImportJob,
-} from "@/services/product-import.service";
-import {
-  deleteProductImportJob,
-  getProductImportJob,
-  saveProductImportJob,
-} from "@/services/product-import-job-store";
 import { exportHoDairyOrderToExcel, fillHoDairyTemplate } from "@/services/ho-dairy-export.service";
 import type {
   ActionResult,
@@ -108,10 +91,6 @@ import type {
   ImportResult,
   ParsedRow,
 } from "@/types";
-import type {
-  ProductImportBatchStatus,
-  ProductImportProgress,
-} from "@/types/product";
 import { decimalToDb, parseDbDecimal } from "@/utils/decimal";
 import {
   barcodeSchema,
@@ -411,7 +390,23 @@ export async function addBarcode(
 ): Promise<ActionResult<{ id: number }>> {
   const parsed = barcodeSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  const row = await productRepository.addBarcode(parsed.data);
+
+  const storeProduct = await productRepository.findStoreProductForProduct(
+    parsed.data.productId,
+    parsed.data.storeId,
+  );
+  if (!storeProduct) {
+    return { success: false, error: "Store product not found for this product and store" };
+  }
+
+  const row = await productRepository.addBarcodeIfAbsent({
+    storeId: parsed.data.storeId,
+    storeProductId: storeProduct.id,
+    barcode: parsed.data.barcode,
+  });
+  if (!row) {
+    return { success: false, error: "Barcode already exists for this store" };
+  }
   return { success: true, data: { id: row.id } };
 }
 
@@ -1647,7 +1642,7 @@ export async function exportOrder(
   return {
     success: true,
     data: {
-      base64: buffer.toString("base64"),
+      base64: buffer.toString("base64"), 
       fileName,
     },
   };
@@ -1672,247 +1667,4 @@ export async function exportHoDairyWithTemplate(
       fileName: `HO Dairy-filled-${orderId.data}.xlsx`,
     },
   };
-}
-
-export async function importProducts(
-  formData: FormData,
-): Promise<ActionResult<ImportResult>> {
-  const file = formData.get("file") as File | null;
-  const parsedStoreId = idSchema.safeParse(formData.get("storeId"));
-  if (!file || !parsedStoreId.success) {
-    return { success: false, error: "Store and file are required" };
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { headers, rows } = await parseProductFile(buffer, file.name);
-  const columns = detectProductFileColumns(headers);
-
-  if (!columns.codeColumn || !columns.nameColumn) {
-    return {
-      success: false,
-      error:
-        "Could not detect product columns. Expected ProductCode/ID and ItemName1/Name.",
-    };
-  }
-
-  const store = await storeRepository.getById(parsedStoreId.data);
-  if (!store) return { success: false, error: "Store not found" };
-
-  const storeErpType = resolveStoreErpType(store.erpType);
-  const fileErpType = detectProductFileErpType(headers);
-  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
-  if (mismatch) return { success: false, error: mismatch };
-
-
-  const result = await importProductRows({
-    storeId: parsedStoreId.data,
-    codeColumn: columns.codeColumn,
-    nameColumn: columns.nameColumn,
-    departmentColumn: columns.departmentColumn ?? undefined,
-    barcodeColumn: columns.barcodeColumn ?? undefined,
-    retailPriceColumn: columns.retailPriceColumn ?? undefined,
-    shareAcrossMspStores: columns.shareAcrossMspStores,
-    rows,
-  });
-
-  revalidatePath("/products");
-  return { success: true, data: result };
-}
-
-const beginProductImportFromRowsSchema = z.object({
-  storeId: z.number().int().positive(),
-  fileName: z.string().min(1),
-  codeColumn: z.string().min(1),
-  nameColumn: z.string().min(1),
-  departmentColumn: z.string().optional(),
-  barcodeColumn: z.string().optional(),
-  retailPriceColumn: z.string().optional(),
-  shareAcrossMspStores: z.boolean().optional(),
-  rows: z.array(z.record(z.string(), z.string())).min(1),
-});
-
-async function createProductImportJob(input: {
-  storeId: number;
-  fileName: string;
-  codeColumn: string;
-  nameColumn: string;
-  departmentColumn?: string;
-  barcodeColumn?: string;
-  retailPriceColumn?: string;
-  shareAcrossMspStores?: boolean;
-  rows: ParsedRow[];
-}): Promise<ActionResult<ProductImportProgress>> {
-  const store = await storeRepository.getById(input.storeId);
-  if (!store) return { success: false, error: "Store not found" };
-
-  const storeErpType = resolveStoreErpType(store.erpType);
-  const fileErpType = inferProductFileErpTypeFromColumns(input);
-  const mismatch = validateErpFileMatch(fileErpType, storeErpType);
-  if (mismatch) return { success: false, error: mismatch };
-
-
-  const prepared = await prepareProductImportJob({
-    storeId: input.storeId,
-    codeColumn: input.codeColumn,
-    nameColumn: input.nameColumn,
-    departmentColumn: input.departmentColumn,
-    barcodeColumn: input.barcodeColumn,
-    retailPriceColumn: input.retailPriceColumn,
-    shareAcrossMspStores: input.shareAcrossMspStores,
-    rows: input.rows,
-  });
-
-  if (!prepared.normalizedRows.length) {
-    return {
-      success: false,
-      error:
-        prepared.result.invalidRows > 0
-          ? `No valid products to import (${prepared.result.invalidRows.toLocaleString()} rows missing ID or Name).`
-          : "No product rows found in the file.",
-    };
-  }
-
-  const jobId = saveProductImportJob({
-    storeId: input.storeId,
-    storeName: store.name,
-    fileName: input.fileName,
-    shareAcrossMspStores: prepared.shareAcrossMspStores,
-    normalizedRows: prepared.normalizedRows,
-    result: prepared.result,
-    expiresAt: Date.now() + 15 * 60 * 1000,
-  });
-
-  return {
-    success: true,
-    data: {
-      jobId,
-      totalRows: prepared.normalizedRows.length,
-      fileName: input.fileName,
-      storeName: store.name,
-      batchSize: IMPORT_JOB_BATCH_SIZE,
-    },
-  };
-}
-
-export async function beginProductImportFromRows(
-  input: unknown,
-): Promise<ActionResult<ProductImportProgress>> {
-  const parsed = beginProductImportFromRowsSchema.safeParse(input);
-  if (!parsed.success) {
-    return { success: false, error: parsed.error.message };
-  }
-
-  return createProductImportJob(parsed.data);
-}
-
-export async function beginProductImport(
-  formData: FormData,
-): Promise<ActionResult<ProductImportProgress>> {
-  const file = formData.get("file") as File | null;
-  const parsedStoreId = idSchema.safeParse(formData.get("storeId"));
-  if (!file || !parsedStoreId.success) {
-    return { success: false, error: "Store and file are required" };
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { headers, rows } = await parseProductFile(buffer, file.name);
-  const columns = detectProductFileColumns(headers);
-
-  if (!columns.codeColumn || !columns.nameColumn) {
-    return {
-      success: false,
-      error:
-        "Could not detect product columns. Expected ProductCode/ID and ItemName1/Name.",
-    };
-  }
-
-  return createProductImportJob({
-    storeId: parsedStoreId.data,
-    fileName: file.name,
-    codeColumn: columns.codeColumn,
-    nameColumn: columns.nameColumn,
-    departmentColumn: columns.departmentColumn ?? undefined,
-    barcodeColumn: columns.barcodeColumn ?? undefined,
-    retailPriceColumn: columns.retailPriceColumn ?? undefined,
-    shareAcrossMspStores: columns.shareAcrossMspStores,
-    rows,
-  });
-}
-
-export async function runProductImportBatch(input: {
-  jobId: string;
-  batchIndex: number;
-}): Promise<ActionResult<ProductImportBatchStatus>> {
-
-  const job = getProductImportJob(input.jobId);
-  if (!job) {
-    return { success: false, error: "Import session expired. Please upload the file again." };
-  }
-
-  const start = input.batchIndex * IMPORT_JOB_BATCH_SIZE;
-  const batch = job.normalizedRows.slice(start, start + IMPORT_JOB_BATCH_SIZE);
-
-  await importNormalizedRowsBatch({
-    storeId: job.storeId,
-    shareAcrossMspStores: job.shareAcrossMspStores,
-    rows: batch,
-    result: job.result,
-  });
-
-  const processed = Math.min(start + batch.length, job.normalizedRows.length);
-  const done = processed >= job.normalizedRows.length;
-
-  if (done) {
-    deleteProductImportJob(input.jobId);
-    revalidatePath("/products");
-  }
-
-  return {
-    success: true,
-    data: {
-      processed,
-      total: job.normalizedRows.length,
-      done,
-      result: job.result,
-    },
-  };
-}
-
-export async function finishProductImport(
-  jobId: string,
-): Promise<ActionResult<ImportResult>> {
-
-  const job = getProductImportJob(jobId);
-  if (!job) {
-    return {
-      success: false,
-      error: "Import session expired. Please upload the file again.",
-    };
-  }
-
-  if (!job.normalizedRows.length) {
-    deleteProductImportJob(jobId);
-    return {
-      success: false,
-      error: "No valid products found in the file. Check that ID and Name columns are present.",
-    };
-  }
-
-  for (
-    let start = 0;
-    start < job.normalizedRows.length;
-    start += IMPORT_JOB_BATCH_SIZE
-  ) {
-    const batch = job.normalizedRows.slice(start, start + IMPORT_JOB_BATCH_SIZE);
-    await importNormalizedRowsBatch({
-      storeId: job.storeId,
-      shareAcrossMspStores: job.shareAcrossMspStores,
-      rows: batch,
-      result: job.result,
-    });
-  }
-
-  deleteProductImportJob(jobId);
-  revalidatePath("/products");
-  return { success: true, data: job.result };
 }

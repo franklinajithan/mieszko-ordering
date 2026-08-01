@@ -9,6 +9,7 @@ type DetailProps = ComponentProps<typeof ProductDetailForms>;
 
 export function ProductDetailPageView({
   product,
+  storeId,
   backHref,
   departments,
   barcodes,
@@ -16,6 +17,7 @@ export function ProductDetailPageView({
   suppliers,
 }: {
   product: DetailProps["product"];
+  storeId?: number;
   backHref: string;
   departments: DepartmentOption[];
   barcodes: DetailProps["barcodes"];
@@ -38,6 +40,7 @@ export function ProductDetailPageView({
       </div>
       <ProductDetailForms
         productId={product.id}
+        storeId={storeId}
         product={product}
         departments={departments}
         barcodes={barcodes}

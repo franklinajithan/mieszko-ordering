@@ -1,6 +1,6 @@
 import type { ImportResult, ParsedRow, SalesMappingType } from "@/types";
 import { toDecimal, decimalToDb, type Decimal } from "@/utils/decimal";
-import { dailySalesRepository, productRepository } from "@/repositories/postgres";
+import { dailySalesRepository, productRepository } from "@/repositories";
 
 export type AggregatedDailySale = {
   reference: string;

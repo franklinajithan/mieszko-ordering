@@ -5,7 +5,7 @@ import {
   dailySalesRepository,
   orderRepository,
   supplierPriceRepository,
-} from "@/repositories/postgres";
+} from "@/repositories";
 import { calculateHighestSoldQty } from "@/services/highest-sales.service";
 import {
   buildHistoricalSalesMap,

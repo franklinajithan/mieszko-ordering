@@ -3,7 +3,7 @@ import type { ErpType, ImportResult, ParsedRow, SalesMappingType } from "@/types
 import {
   promoRepository,
   promoSalesRepository,
-} from "@/repositories/postgres";
+} from "@/repositories";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
 import { importStoreQuantityRows } from "@/services/store-quantity-import.service";
 

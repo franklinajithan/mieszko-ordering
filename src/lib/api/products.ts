@@ -4,11 +4,12 @@ import type {
   ProductBarcode,
   ProductCatalogFilters,
   ProductCatalogResult,
-  ProductImportBatchStatus,
-  ProductImportProgress,
   ProductSupplierMapping,
 } from "@/types/product";
-import { apiFormRequest, apiRequest } from "./client";
+import { apiRequest } from "@/lib/api/client";
+
+
+export const PRODUCT_IMPORT_CHUNK_SIZE = Number(process.env.NEXT_PUBLIC_PRODUCT_IMPORT_CHUNK_SIZE) || 2000;
 
 export function getProduct(id: number): Promise<ActionResult<Product>> {
   return apiRequest(`/products/${id}`);
@@ -16,8 +17,10 @@ export function getProduct(id: number): Promise<ActionResult<Product>> {
 
 export function listProductBarcodes(
   productId: number,
+  storeId?: number,
 ): Promise<ActionResult<ProductBarcode[]>> {
-  return apiRequest(`/products/${productId}/barcodes`);
+  const params = storeId ? `?storeId=${storeId}` : "";
+  return apiRequest(`/products/${productId}/barcodes${params}`);
 }
 
 export function listProductSupplierMappings(
@@ -26,7 +29,8 @@ export function listProductSupplierMappings(
   return apiRequest(`/products/${productId}/supplier-codes`);
 }
 
-export function createProduct(  input: unknown,
+export function createProduct(
+  input: unknown,
 ): Promise<ActionResult<{ id: number }>> {
   return apiRequest("/products", { method: "POST", body: input });
 }
@@ -56,11 +60,12 @@ export function addStoreProduct(
 
 export function addBarcode(input: {
   productId: number;
+  storeId: number;
   barcode: unknown;
 }): Promise<ActionResult<{ id: number }>> {
   return apiRequest(`/products/${input.productId}/barcodes`, {
     method: "POST",
-    body: { barcode: input.barcode },
+    body: { storeId: input.storeId, barcode: input.barcode },
   });
 }
 
@@ -77,41 +82,22 @@ export function addSupplierProductMapping(input: {
   });
 }
 
-export function importProducts(
-  formData: FormData,
+export type ProductImportChunkInput = {
+  storeId: number;
+  codeColumn: string;
+  nameColumn: string;
+  departmentColumn?: string;
+  barcodeColumn?: string;
+  retailPriceColumn?: string;
+  shareAcrossMspStores?: boolean;
+  rows: Array<Record<string, string>>;
+};
+
+/** Import one chunk of product rows (max PRODUCT_IMPORT_CHUNK_SIZE). */
+export function importProductChunk(
+  input: ProductImportChunkInput,
 ): Promise<ActionResult<ImportResult>> {
-  return apiFormRequest("/products/import", formData);
-}
-
-export function beginProductImport(
-  formData: FormData,
-): Promise<ActionResult<ProductImportProgress>> {
-  return apiFormRequest("/products/import/begin", formData);
-}
-
-export function beginProductImportFromRows(
-  input: unknown,
-): Promise<ActionResult<ProductImportProgress>> {
-  return apiRequest("/products/import/begin-from-rows", {
-    method: "POST",
-    body: input,
-  });
-}
-
-export function runProductImportBatch(input: {
-  jobId: string;
-  batchIndex: number;
-}): Promise<ActionResult<ProductImportBatchStatus>> {
-  return apiRequest("/products/import/batch", { method: "POST", body: input });
-}
-
-export function finishProductImport(
-  jobId: string,
-): Promise<ActionResult<ImportResult>> {
-  return apiRequest("/products/import/finish", {
-    method: "POST",
-    body: { jobId },
-  });
+  return apiRequest("/products/import", { method: "POST", body: input });
 }
 
 export function listProductCatalog(

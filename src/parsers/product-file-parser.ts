@@ -40,8 +40,10 @@ export function detectProductFileColumns(headers: string[]): {
     "Product Code",
   ]);
   const idColumn = findExact(headers, ["ID", "Id"]);
+  const pluColumn = findExact(headers, ["PLU"]);
   const codeColumn =
     productCodeColumn ??
+    pluColumn ??
     idColumn ??
     findExact(headers, ["Item Code", "Code"]) ??
     headers[0] ??
@@ -67,7 +69,12 @@ export function detectProductFileColumns(headers: string[]): {
     barcodeColumn:
       findExact(headers, ["InnerEan", "EAN", "Barcode", "Inner EAN"]) ?? null,
     retailPriceColumn:
-      findExact(headers, ["Selling Price", "Retail Price"]) ??
+      findExact(headers, [
+        "Selling Price",
+        "SellingPrice",
+        "Retail Price",
+        "Retail",
+      ]) ??
       findExact(headers, ["Max Retail", "Max\n Retail"]) ??
       findExact(headers, ["Min Retail", "Min\n Retail"]) ??
       null,
@@ -86,6 +93,7 @@ function isProductCatalogHeaderRow(headers: string[]): boolean {
     (header) =>
       header === "productcode" ||
       header === "product code" ||
+      header === "plu" ||
       header === "id" ||
       header === "item code" ||
       header === "code",

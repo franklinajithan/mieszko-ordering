@@ -169,25 +169,31 @@ export const storeProducts = pgTable(
 
 
 
-export const productBarcodes = pgTable("product_barcodes", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  productId: integer("product_id")
-
-    .notNull()
-
-    .references(() => products.id),
-
-  barcode: varchar("barcode", { length: 100 }).notNull().unique(),
-
-  createdAt: timestamp("created_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
+export const productBarcodes = pgTable(
+  "product_barcodes",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeId: integer("store_id")
+      .notNull()
+      .references(() => stores.id),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    barcode: varchar("barcode", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Same EAN can exist on Mitcham and Gravesend; not twice in one store.
+    unique("product_barcodes_store_barcode_unique").on(t.storeId, t.barcode),
+    unique("product_barcodes_store_product_barcode_unique").on(
+      t.storeProductId,
+      t.barcode,
+    ),
+    index("product_barcodes_store_product_id_idx").on(t.storeProductId),
+  ],
+);
 
 
 
@@ -943,8 +949,6 @@ export const productsRelations = relations(products, ({ many }) => ({
 
   storeProducts: many(storeProducts),
 
-  barcodes: many(productBarcodes),
-
   supplierProducts: many(supplierProducts),
 
 }));
@@ -969,6 +973,8 @@ export const storeProductsRelations = relations(storeProducts, ({ one, many }) =
 
   }),
 
+  barcodes: many(productBarcodes),
+
   dailySales: many(dailySales),
 
   rtcSales: many(rtcSales),
@@ -977,6 +983,17 @@ export const storeProductsRelations = relations(storeProducts, ({ one, many }) =
 
   storeWastage: many(storeWastage),
 
+}));
+
+export const productBarcodesRelations = relations(productBarcodes, ({ one }) => ({
+  store: one(stores, {
+    fields: [productBarcodes.storeId],
+    references: [stores.id],
+  }),
+  storeProduct: one(storeProducts, {
+    fields: [productBarcodes.storeProductId],
+    references: [storeProducts.id],
+  }),
 }));
 
 
