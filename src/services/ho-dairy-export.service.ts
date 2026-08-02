@@ -243,3 +243,25 @@ export async function fillHoDairyTemplate(
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
+
+export async function exportHoDairyWithTemplateFromForm(
+  formData: FormData,
+): Promise<{ base64: string; fileName: string }> {
+  const rawOrderId = formData.get("orderId");
+  const orderId = Number(rawOrderId);
+  if (!Number.isInteger(orderId) || orderId <= 0) {
+    throw new Error("Invalid order id");
+  }
+
+  const template = formData.get("template");
+  if (!(template instanceof File)) {
+    throw new Error("HO Dairy template file is required");
+  }
+
+  const templateBuffer = Buffer.from(await template.arrayBuffer());
+  const buffer = await fillHoDairyTemplate(orderId, templateBuffer);
+  return {
+    base64: buffer.toString("base64"),
+    fileName: `HO Dairy-filled-${orderId}.xlsx`,
+  };
+}

@@ -1,11 +1,79 @@
-import type { ActionResult, ImportResult } from "@/types";
+import type { ActionResult, FilePreview, ImportResult } from "@/types";
 import type {
   BookStockImportSummary,
   LatestBookStockSummary,
 } from "@/services/apply-book-stock-to-order.service";
 import type { PromoImportSummary } from "@/services/promo-import.service";
+import { RTC_IMPORT_CHUNK_SIZE } from "@/lib/rtc-import-constants";
 import { apiFormRequest, apiRequest } from "./client";
 
+export { RTC_IMPORT_CHUNK_SIZE };
+
+/** Generic spreadsheet parse (headers + sample rows). Throws on failure. */
+export async function parseImportFile(formData: FormData): Promise<FilePreview> {
+  const result = await apiFormRequest<FilePreview>("/imports/parse", formData);
+  if (!result.success) throw new Error(result.error);
+  return result.data;
+}
+
+export type DailySalesParseResult = FilePreview & {
+  productColumn?: string;
+  quantityColumn?: string;
+  manualSalesDate?: string;
+  periodLabel?: string | null;
+  duplicateRows?: number;
+};
+
+export async function parseDailySalesFile(
+  formData: FormData,
+): Promise<DailySalesParseResult> {
+  const result = await apiFormRequest<DailySalesParseResult>(
+    "/imports/daily-sales/parse",
+    formData,
+  );
+  if (!result.success) throw new Error(result.error);
+  return result.data;
+}
+
+export type RtcParseResult = FilePreview & {
+  referenceColumn?: string;
+  quantityColumn?: string;
+  rtcDate?: string;
+  duplicateRows?: number;
+  mappingType?: "store_product_code" | "barcode";
+  matchedCount?: number;
+  unmatchedCount?: number;
+  unmatchedBarcodes?: string[];
+};
+
+export async function parseRtcFile(formData: FormData): Promise<RtcParseResult> {
+  const result = await apiFormRequest<RtcParseResult>(
+    "/imports/rtc/parse",
+    formData,
+  );
+  if (!result.success) throw new Error(result.error);
+  return result.data;
+}
+
+export type WastageParseResult = FilePreview & {
+  referenceColumn?: string;
+  quantityColumn?: string;
+  wastageDate?: string;
+  duplicateRows?: number;
+  mappingType?: "store_product_code" | "barcode";
+  skippedExcludedReasonRows?: number;
+};
+
+export async function parseWastageFile(
+  formData: FormData,
+): Promise<WastageParseResult> {
+  const result = await apiFormRequest<WastageParseResult>(
+    "/imports/wastage/parse",
+    formData,
+  );
+  if (!result.success) throw new Error(result.error);
+  return result.data;
+}
 
 export type DailySalesImportChunkInput = {
   storeId: number;
@@ -75,40 +143,34 @@ export function getLatestBookStockForStore(
   return apiRequest(`/stores/${storeId}/book-stock/latest`);
 }
 
-export function importRtc(
-  formData: FormData,
-): Promise<ActionResult<ImportResult & { importId: number }>> {
-  return apiFormRequest("/imports/rtc", formData);
+export type RtcImportChunkInput = {
+  storeId: number;
+  rtcDate: string;
+  referenceColumn: string;
+  quantityColumn: string;
+  fileName?: string;
+  rows: Array<Record<string, string>>;
+};
+
+export function importRtcChunk(
+  input: RtcImportChunkInput,
+): Promise<ActionResult<ImportResult>> {
+  return apiRequest("/imports/rtc", { method: "POST", body: input });
 }
 
-export function beginRtcImport(
-  formData: FormData,
-): Promise<
-  ActionResult<{
-    jobId: string;
-    totalRows: number;
-    fileName: string;
-    storeName: string;
-    batchSize: number;
-    importId: number;
-  }>
-> {
-  return apiFormRequest("/imports/rtc/begin", formData);
-}
-
-export function runRtcImportBatch(input: {
-  jobId: string;
-  batchIndex: number;
+export function matchRtcBarcodes(input: {
+  storeId: number;
+  barcodes: string[];
 }): Promise<
-  ActionResult<{
-    processed: number;
-    total: number;
-    done: boolean;
-    result: ImportResult;
-    importId: number;
-  }>
+  ActionResult<
+    Array<{
+      fileBarcode: string;
+      storeProductCode: string;
+      productName: string | null;
+    }>
+  >
 > {
-  return apiRequest("/imports/rtc/batch", {
+  return apiRequest("/imports/rtc/match-barcodes", {
     method: "POST",
     body: input,
   });

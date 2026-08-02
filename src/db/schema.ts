@@ -487,20 +487,6 @@ export const bookStockItems = pgTable("book_stock_items", {
 
 
 
-export const rtcImports = pgTable("rtc_imports", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  storeId: integer("store_id")
-    .notNull()
-    .references(() => stores.id),
-  rtcDate: date("rtc_date").notNull(),
-  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
-  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
-  matchedRows: integer("matched_rows"),
-  importedAt: timestamp("imported_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
 export const promoImports = pgTable("promo_imports", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   storeId: integer("store_id")

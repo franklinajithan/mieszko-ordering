@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
-import { orderRepository } from "@/repositories";
+import { orderRepository, storeRepository } from "@/repositories";
+import { exportHoDairyOrderToExcel } from "@/services/ho-dairy-export.service";
 
 export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
   const order = await orderRepository.getById(orderId);
@@ -102,4 +103,26 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
+}
+
+export async function exportOrderDownload(orderId: number): Promise<{
+  base64: string;
+  fileName: string;
+}> {
+  const order = await orderRepository.getById(orderId);
+  if (!order) throw new Error("Order not found");
+  const store = await storeRepository.getById(order.storeId);
+
+  const buffer =
+    store?.erpType === "glopos"
+      ? await exportHoDairyOrderToExcel(orderId)
+      : await exportOrderToExcel(orderId);
+
+  return {
+    base64: buffer.toString("base64"),
+    fileName:
+      store?.erpType === "glopos"
+        ? `HO Dairy-order-${orderId}.xlsx`
+        : `order-${orderId}.xlsx`,
+  };
 }

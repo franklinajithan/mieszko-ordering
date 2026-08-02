@@ -1,4 +1,4 @@
-import { BookStockPageView } from "@/components/imports/book-stock-page";
+import { BookStockPageView } from "@/components/daily-sales/book-stock-page";
 import { storeRepository } from "@/repositories";
 
 export default async function BookStockPage() {

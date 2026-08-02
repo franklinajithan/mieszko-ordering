@@ -1,8 +1,19 @@
 import { db } from "@/db";
 import type { ImportResult, MappingType, ParsedRow, UploadType, ErpType } from "@/types";
 import { toDecimal, decimalToDb } from "@/utils/decimal";
-import { orderRepository, productRepository } from "@/repositories";
+import {
+  orderRepository,
+  productRepository,
+  storeRepository,
+} from "@/repositories";
+import { parseAllRows } from "@/parsers/file-parser";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
+import {
+  detectBookStockFileErpType,
+  resolveStoreErpType,
+  validateErpFileMatch,
+} from "@/utils/erp-file-validation";
+import { stockUploadSchema } from "@/validators/schemas";
 
 export async function processStockUpload(input: {
   orderId: number;
@@ -150,4 +161,49 @@ export async function processStockUpload(input: {
   });
 
   return { ...result, uploadId };
+}
+
+export async function uploadOrderStockFromForm(
+  formData: FormData,
+): Promise<ImportResult & { uploadId: number }> {
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("No file uploaded");
+
+  const meta = stockUploadSchema.safeParse({
+    orderId: formData.get("orderId"),
+    uploadType: formData.get("uploadType"),
+    fileName: file.name,
+    mappingType: formData.get("mappingType"),
+    referenceColumn: formData.get("referenceColumn"),
+    quantityColumn: formData.get("quantityColumn"),
+    supplierId: formData.get("supplierId") || undefined,
+    deliveryDate: formData.get("deliveryDate") || undefined,
+  });
+  if (!meta.success) throw new Error(meta.error.message);
+
+  const order = await orderRepository.getById(meta.data.orderId);
+  if (!order) throw new Error("Order not found");
+
+  const store = await storeRepository.getById(order.storeId);
+  if (!store) throw new Error("Store not found");
+  const erpType = resolveStoreErpType(store.erpType);
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { headers, rows } = await parseAllRows(buffer, file.name);
+
+  if (meta.data.uploadType === "book_stock") {
+    const mismatch = validateErpFileMatch(
+      detectBookStockFileErpType(headers),
+      erpType,
+    );
+    if (mismatch) throw new Error(mismatch);
+  }
+
+  return processStockUpload({
+    ...meta.data,
+    storeId: order.storeId,
+    bookStockDate: order.bookStockDate,
+    rows,
+    erpType,
+  });
 }

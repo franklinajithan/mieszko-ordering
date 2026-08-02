@@ -1,5 +1,8 @@
-import { importPromo, listPromoImports } from "@/app/actions";
-import { apiError, fromActionResult, route } from "@/lib/api/http";
+import {
+  importPromoFromForm,
+  listPromoImportsForStore,
+} from "@/services/promo-import.service";
+import { apiError, apiOk, route } from "@/lib/api/http";
 import { idSchema } from "@/validators/schemas";
 
 export const GET = route(async (req) => {
@@ -7,10 +10,10 @@ export const GET = route(async (req) => {
     new URL(req.url).searchParams.get("storeId"),
   );
   if (!storeId.success) return apiError("storeId is required");
-  return fromActionResult(await listPromoImports(storeId.data));
+  return apiOk(await listPromoImportsForStore(storeId.data));
 });
 
 export const POST = route(async (req) => {
   const formData = await req.formData();
-  return fromActionResult(await importPromo(formData));
+  return apiOk(await importPromoFromForm(formData));
 });

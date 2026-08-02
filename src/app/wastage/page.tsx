@@ -1,4 +1,4 @@
-import { WastagePageView } from "@/components/imports/wastage-page";
+import { WastagePageView } from "@/components/daily-sales/wastage-page";
 import { storeRepository } from "@/repositories";
 
 export default async function WastagePage() {

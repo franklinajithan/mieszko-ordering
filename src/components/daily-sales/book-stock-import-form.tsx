@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { importBookStock, listBookStockImports, previewUpload } from "@/lib/api";
+import { importBookStock, listBookStockImports, parseImportFile } from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
@@ -118,7 +118,7 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
         reportErpMismatch(mismatch);
         return;
       }
-      const data = await previewUpload(formData);
+      const data = await parseImportFile(formData);
       setPreview(data);
       const detected = detectBookStockColumns(data.headers, erpType);
       setReferenceColumn(detected.referenceColumn ?? data.headers[0] ?? "");

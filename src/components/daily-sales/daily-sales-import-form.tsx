@@ -1,18 +1,14 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
-import {
-  deleteDailySalesUpload,
-  importDailySalesChunk,
-  listDailySalesSummaries,
-  previewDailySalesUpload,
-} from "@/lib/api";
+import { useState, type ChangeEvent } from "react";
+import { importDailySalesChunk, parseDailySalesFile } from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
 import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DailySalesListPage } from "@/components/daily-sales/daily-sales-list-page";
 import {
   detectSalesColumns,
   parseDailySalesFileBuffer,
@@ -25,15 +21,12 @@ import {
   resolveStoreErpType,
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
-import { decimalToDb, formatDecimal, parseDbDecimal } from "@/utils/decimal";
-import type {
-  Store,
-  PreviewState,
-  ImportProgress,
-  DailySalesUploadRow,
-} from "@/types/daily-sales";
+import { decimalToDb } from "@/utils/decimal";
+import type { Store, PreviewState, ImportProgress } from "@/types/daily-sales";
 
-const DAILY_SALES_IMPORT_CHUNK_SIZE = parseInt(process.env.NEXT_PUBLIC_DAILY_SALES_IMPORT_CHUNK_SIZE ?? "2000");
+const DAILY_SALES_IMPORT_CHUNK_SIZE = parseInt(
+  process.env.NEXT_PUBLIC_DAILY_SALES_IMPORT_CHUNK_SIZE ?? "2000",
+);
 
 function mergeMatchResults(a: ImportResult, b: ImportResult): ImportResult {
   return {
@@ -63,48 +56,16 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
   const [excelSalesDate, setExcelSalesDate] = useState("");
   const [storeId, setStoreId] = useState("");
   const [progress, setProgress] = useState<ImportProgress | null>(null);
-  const [uploadRows, setUploadRows] = useState<DailySalesUploadRow[]>([]);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [loadingRows, setLoadingRows] = useState(false);
-
-  function uploadRowKey(forStoreId: string, forSalesDate: string) {
-    return `${forStoreId}|${forSalesDate}`;
-  }
-
-  async function loadUploadRows(forStoreId: string) {
-    if (!forStoreId) {
-      setUploadRows([]);
-      return;
-    }
-    setLoadingRows(true);
-    const response = await listDailySalesSummaries(Number(forStoreId));
-    setLoadingRows(false);
-    if (!response.success) {
-      setError(response.error);
-      return;
-    }
-    const store = stores.find((s) => String(s.id) === forStoreId);
-    setUploadRows(
-      response.data.map((row) => ({
-        id: uploadRowKey(forStoreId, row.salesDate),
-        storeId: forStoreId,
-        storeName: store?.name ?? "",
-        salesDate: row.salesDate,
-        matchedRows: row.itemCount,
-        totalSoldQty: row.totalSoldQty,
-        uploadedAt: new Date(row.lastUpdated),
-      })),
-    );
-  }
-
-  useEffect(() => {
-    void loadUploadRows(storeId);
-  }, [storeId, stores]);
+  const [listRefreshKey, setListRefreshKey] = useState(0);
 
   async function validateSelectedFile(selected: File | null) {
     if (!selected || !storeId) return true;
     const selectedStore = stores.find((store) => String(store.id) === storeId);
-    const mismatch = await checkUploadErpMismatch(selected, resolveStoreErpType(selectedStore?.erpType), detectDailySalesFileErpType);
+    const mismatch = await checkUploadErpMismatch(
+      selected,
+      resolveStoreErpType(selectedStore?.erpType),
+      detectDailySalesFileErpType,
+    );
     if (mismatch) {
       setError(mismatch);
       reportErpMismatch(mismatch);
@@ -142,8 +103,7 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
     setPreview(null);
     try {
       if (!storeId) {
-        const message = "Select a store before previewing the file.";
-        setError(message);
+        setError("Select a store before previewing the file.");
         return;
       }
       const selected = formData.get("file") as File;
@@ -152,11 +112,15 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
       }
       setFile(selected);
       formData.set("storeId", storeId);
-      const data = await previewDailySalesUpload(formData);
+      const data = await parseDailySalesFile(formData);
       setPreview(data);
       const detected = detectSalesColumns(data.headers);
-      setProductColumn(data.productColumn ?? detected.productColumn ?? data.headers[0] ?? "");
-      setQuantityColumn(data.quantityColumn ?? detected.quantityColumn ?? data.headers[1] ?? "");
+      setProductColumn(
+        data.productColumn ?? detected.productColumn ?? data.headers[0] ?? "",
+      );
+      setQuantityColumn(
+        data.quantityColumn ?? detected.quantityColumn ?? data.headers[1] ?? "",
+      );
       if (data.manualSalesDate) {
         setExcelSalesDate(data.manualSalesDate);
         setSalesDate(data.manualSalesDate);
@@ -279,7 +243,7 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
       setResult(aggregated);
       setPreview(null);
       setProgress(null);
-      await loadUploadRows(storeId);
+      setListRefreshKey((key) => key + 1);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Import failed";
       setError(message);
@@ -288,34 +252,23 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
     }
   }
 
-  async function onDeleteRow(row: DailySalesUploadRow) {
-    if (!window.confirm(`Delete all saved daily sales for ${row.storeName} on ${row.salesDate}?`)) {
-      return;
-    }
-
-    setDeletingId(row.id);
-    setError(null);
-    const response = await deleteDailySalesUpload(Number(row.storeId), row.salesDate);
-    setDeletingId(null);
-    if (!response.success) {
-      setError(response.error);
-      return;
-    }
-    await loadUploadRows(row.storeId);
-  }
-
-  const progressPercent = progress ? Math.round((progress.processed / Math.max(1, progress.total)) * 100) : 0;
+  const progressPercent = progress
+    ? Math.round((progress.processed / Math.max(1, progress.total)) * 100)
+    : 0;
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-zinc-600">
-        Product and quantity columns are detected automatically. GloPOS Stock Reports use
-        <strong> ID</strong> + <strong>Sold QTY</strong>; MSP sales files use
-        <strong> ItemCode</strong> + <strong>SoldQty</strong>.
+        Product and quantity columns are detected automatically. GloPOS Stock
+        Reports use <strong> ID</strong> + <strong>Sold QTY</strong>; MSP sales
+        files use <strong> ItemCode</strong> + <strong>SoldQty</strong>.
       </p>
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
-        <form action={onPreview} className="grid gap-4 rounded-xl border border-zinc-200/80 bg-white p-5 shadow-sm">
+        <form
+          action={onPreview}
+          className="grid gap-4 rounded-xl border border-zinc-200/80 bg-white p-5 shadow-sm"
+        >
           <div>
             <Label>Store</Label>
             <Select
@@ -327,7 +280,9 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
                 setStoreId(nextStoreId);
                 setPreview(null);
                 if (file && nextStoreId) {
-                  const nextStore = stores.find((store) => String(store.id) === nextStoreId);
+                  const nextStore = stores.find(
+                    (store) => String(store.id) === nextStoreId,
+                  );
                   const mismatch = await checkUploadErpMismatch(
                     file,
                     resolveStoreErpType(nextStore?.erpType),
@@ -370,7 +325,9 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
             <div className="space-y-3">
               <h3 className="font-semibold text-zinc-900">Import progress</h3>
               <p className="font-medium text-zinc-900">
-                {progress.done ? "Daily sales import complete" : "Saving daily sales…"}
+                {progress.done
+                  ? "Daily sales import complete"
+                  : "Saving daily sales…"}
               </p>
               <p className="text-sm text-zinc-600">
                 {progress.fileName} · {progress.storeName}
@@ -419,8 +376,8 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
                 <Label>Sales date</Label>
                 {excelSalesDate ? (
                   <p className="mb-1.5 text-xs text-zinc-500">
-                    Prefilled from the Excel report ({excelSalesDate}). Change below
-                    if you need a different sales date.
+                    Prefilled from the Excel report ({excelSalesDate}). Change
+                    below if you need a different sales date.
                   </p>
                 ) : null}
                 <DateField
@@ -454,45 +411,11 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
         </div>
       </div>
 
-      <section className="space-y-3 rounded-xl border border-zinc-200/80 bg-white p-4 shadow-sm">
-        <h3 className="font-semibold text-zinc-900">Saved daily sales</h3>
-        {!storeId ? (
-          <p className="text-sm text-zinc-600">Select a store to see sales dates already in the database.</p>
-        ) : loadingRows ? (
-          <p className="text-sm text-zinc-600">Loading…</p>
-        ) : uploadRows.length ? (
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="min-w-full text-sm">
-              <thead className="bg-zinc-50 text-left">
-                <tr>
-                  <th className="px-3 py-2">Sales date</th>
-                  <th className="px-3 py-2">Products saved</th>
-                  <th className="px-3 py-2">Sold qty</th>
-                  <th className="px-3 py-2">Last updated</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {uploadRows.map((row) => (
-                  <tr key={row.id} className="border-t">
-                    <td className="px-3 py-2 font-medium">{row.salesDate}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.matchedRows.toLocaleString()}</td>
-                    <td className="px-3 py-2 tabular-nums">{formatDecimal(parseDbDecimal(row.totalSoldQty), 2)}</td>
-                    <td className="px-3 py-2">{row.uploadedAt.toLocaleString()}</td>
-                    <td className="px-3 py-2 text-right">
-                      <Button type="button" variant="outline" size="sm" disabled={deletingId === row.id} onClick={() => onDeleteRow(row)}>
-                        {deletingId === row.id ? "Deleting…" : "Delete"}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-sm text-zinc-600">No daily sales saved for this store yet. Import a file to add data.</p>
-        )}
-      </section>
+      <DailySalesListPage
+        storeId={storeId}
+        stores={stores}
+        refreshKey={listRefreshKey}
+      />
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>

@@ -2,6 +2,8 @@ import { db } from "@/db";
 import type { ImportResult, ParsedRow } from "@/types";
 import { toDecimal, decimalToDb } from "@/utils/decimal";
 import { supplierPriceRepository } from "@/repositories";
+import { parseAllRows } from "@/parsers/file-parser";
+import { supplierPriceImportSchema } from "@/validators/schemas";
 
 export async function importSupplierPriceRows(input: {
   supplierId: number;
@@ -111,4 +113,24 @@ export async function importSupplierPriceRows(input: {
   });
 
   return { ...result, importId };
+}
+
+export async function importSupplierPricesFromForm(
+  formData: FormData,
+): Promise<ImportResult> {
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("No file uploaded");
+
+  const meta = supplierPriceImportSchema.safeParse({
+    supplierId: formData.get("supplierId"),
+    referenceColumn: formData.get("referenceColumn"),
+    priceColumn: formData.get("priceColumn"),
+    effectiveDate: formData.get("effectiveDate"),
+    fileName: file.name,
+  });
+  if (!meta.success) throw new Error(meta.error.message);
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { rows } = await parseAllRows(buffer, file.name);
+  return importSupplierPriceRows({ ...meta.data, rows });
 }

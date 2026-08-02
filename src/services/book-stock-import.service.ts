@@ -1,9 +1,19 @@
 import { db } from "@/db";
-import type { ImportResult, ParsedRow } from "@/types";
+import type { ErpType, ImportResult, ParsedRow } from "@/types";
 import { toDecimal, decimalToDb } from "@/utils/decimal";
-import { bookStockRepository, productRepository } from "@/repositories";
+import {
+  bookStockRepository,
+  productRepository,
+  storeRepository,
+} from "@/repositories";
+import { parseAllRows } from "@/parsers/file-parser";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
-import type { ErpType } from "@/types";
+import {
+  detectBookStockFileErpType,
+  resolveStoreErpType,
+  validateErpFileMatch,
+} from "@/utils/erp-file-validation";
+import { bookStockImportSchema } from "@/validators/schemas";
 
 export async function importBookStockRows(input: {
   storeId: number;
@@ -114,4 +124,34 @@ export async function importBookStockRows(input: {
   });
 
   return { ...result, importId };
+}
+
+export async function importBookStockFromForm(
+  formData: FormData,
+): Promise<ImportResult & { importId: number }> {
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("No file uploaded");
+
+  const meta = bookStockImportSchema.safeParse({
+    storeId: formData.get("storeId"),
+    bookStockDate: formData.get("bookStockDate"),
+    referenceColumn: formData.get("referenceColumn"),
+    quantityColumn: formData.get("quantityColumn"),
+    fileName: file.name,
+  });
+  if (!meta.success) throw new Error(meta.error.message);
+
+  const store = await storeRepository.getById(meta.data.storeId);
+  if (!store) throw new Error("Store not found");
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { headers, rows } = await parseAllRows(buffer, file.name);
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const mismatch = validateErpFileMatch(
+    detectBookStockFileErpType(headers),
+    storeErpType,
+  );
+  if (mismatch) throw new Error(mismatch);
+
+  return importBookStockRows({ ...meta.data, rows, erpType: storeErpType });
 }

@@ -1,8 +1,11 @@
 import { z } from "zod";
-import { deleteDailySalesUpload, listDailySalesSummaries } from "@/app/actions";
 import { storeRepository } from "@/repositories";
-import { importDailySalesRows } from "@/services/daily-sales-import.service";
-import { apiError, apiOk, fromActionResult, parseJson, route } from "@/lib/api/http";
+import {
+  deleteDailySalesForStoreDate,
+  importDailySalesRows,
+  listDailySalesSummariesForStore,
+} from "@/services/daily-sales-import.service";
+import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {
   detectDailySalesFileErpType,
   resolveStoreErpType,
@@ -10,11 +13,15 @@ import {
 } from "@/utils/erp-file-validation";
 import { idSchema } from "@/validators/schemas";
 
-const DAILY_SALES_IMPORT_CHUNK_SIZE = parseInt(process.env.NEXT_PUBLIC_DAILY_SALES_IMPORT_CHUNK_SIZE ?? "2000");
+const DAILY_SALES_IMPORT_CHUNK_SIZE = parseInt(
+  process.env.NEXT_PUBLIC_DAILY_SALES_IMPORT_CHUNK_SIZE ?? "2000",
+);
 
 const chunkSchema = z.object({
   storeId: z.number().int().positive(),
-  mappingType: z.enum(["store_product_code", "barcode"]).default("store_product_code"),
+  mappingType: z
+    .enum(["store_product_code", "barcode"])
+    .default("store_product_code"),
   productColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
   manualSalesDate: z.string().date(),
@@ -30,7 +37,7 @@ export const GET = route(async (req) => {
     new URL(req.url).searchParams.get("storeId"),
   );
   if (!storeId.success) return apiError("storeId is required");
-  return fromActionResult(await listDailySalesSummaries(storeId.data));
+  return apiOk(await listDailySalesSummariesForStore(storeId.data));
 });
 
 export const DELETE = route(async (req) => {
@@ -40,9 +47,8 @@ export const DELETE = route(async (req) => {
   if (!storeId.success || !salesDate.success) {
     return apiError("storeId and salesDate (yyyy-MM-dd) are required");
   }
-  return fromActionResult(
-    await deleteDailySalesUpload(storeId.data, salesDate.data),
-  );
+  await deleteDailySalesForStoreDate(storeId.data, salesDate.data);
+  return apiOk(undefined);
 });
 
 export const POST = route(async (req) => {
@@ -52,10 +58,7 @@ export const POST = route(async (req) => {
   const store = await storeRepository.getById(parsed.data.storeId);
   if (!store) return apiError("Store not found", 404);
 
-  const headers = [
-    parsed.data.productColumn,
-    parsed.data.quantityColumn,
-  ];
+  const headers = [parsed.data.productColumn, parsed.data.quantityColumn];
   const mismatch = validateErpFileMatch(
     detectDailySalesFileErpType(headers, parsed.data.fileName ?? ""),
     resolveStoreErpType(store.erpType),

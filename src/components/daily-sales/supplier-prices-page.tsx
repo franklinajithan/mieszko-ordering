@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { SupplierPriceImportForm } from "@/components/imports/supplier-price-import-form";
+import { SupplierPriceImportForm } from "@/components/daily-sales/supplier-price-import-form";
 
 type Supplier = { id: number; code: string; name: string };
 

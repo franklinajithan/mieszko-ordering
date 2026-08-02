@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { applyStoredBookStockToOrder } from "@/app/actions";
+import { applyBookStockImportToOrder } from "@/services/apply-book-stock-to-order.service";
 import {
   apiError,
-  fromActionResult,
+  apiOk,
   numericParam,
   parseJson,
   route,
@@ -21,8 +21,8 @@ export const POST = route(
     const parsed = await parseJson(req, bodySchema);
     if (!parsed.ok) return parsed.response;
 
-    return fromActionResult(
-      await applyStoredBookStockToOrder({
+    return apiOk(
+      await applyBookStockImportToOrder({
         orderId,
         importId: parsed.data.importId,
       }),

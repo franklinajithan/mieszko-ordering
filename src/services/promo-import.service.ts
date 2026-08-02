@@ -3,9 +3,17 @@ import type { ErpType, ImportResult, ParsedRow, SalesMappingType } from "@/types
 import {
   promoRepository,
   promoSalesRepository,
+  storeRepository,
 } from "@/repositories";
+import { parseAllRows } from "@/parsers/file-parser";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
 import { importStoreQuantityRows } from "@/services/store-quantity-import.service";
+import {
+  detectBookStockFileErpType,
+  resolveStoreErpType,
+  validateErpFileMatch,
+} from "@/utils/erp-file-validation";
+import { promoImportSchema } from "@/validators/schemas";
 
 export async function importPromoRows(input: {
   storeId: number;
@@ -92,4 +100,39 @@ export async function listPromoImportsForStore(
     importedAt: entry.importedAt,
     itemCount: entry.matchedRows ?? 0,
   }));
+}
+
+export async function importPromoFromForm(
+  formData: FormData,
+): Promise<ImportResult & { importId: number }> {
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("No file uploaded");
+
+  const meta = promoImportSchema.safeParse({
+    storeId: formData.get("storeId"),
+    promoDate: formData.get("promoDate"),
+    mappingType: formData.get("mappingType") || "store_product_code",
+    referenceColumn: formData.get("referenceColumn"),
+    quantityColumn: formData.get("quantityColumn"),
+    fileName: file.name,
+  });
+  if (!meta.success) throw new Error(meta.error.message);
+
+  const store = await storeRepository.getById(meta.data.storeId);
+  if (!store) throw new Error("Store not found");
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { headers, rows } = await parseAllRows(buffer, file.name);
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const mismatch = validateErpFileMatch(
+    detectBookStockFileErpType(headers),
+    storeErpType,
+  );
+  if (mismatch) throw new Error(mismatch);
+
+  return importPromoRows({
+    ...meta.data,
+    rows,
+    erpType: storeErpType,
+  });
 }

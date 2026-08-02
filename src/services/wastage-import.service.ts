@@ -1,23 +1,135 @@
 import { db } from "@/db";
-import type { ErpType, ImportResult, ParsedRow, SalesMappingType } from "@/types";
+import type {
+  ErpType,
+  FilePreview,
+  ImportResult,
+  ParsedRow,
+  SalesMappingType,
+} from "@/types";
 import {
   productRepository,
+  storeRepository,
   storeWastageRepository,
   wastageRepository,
 } from "@/repositories";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
 import { importStoreQuantityRows } from "@/services/store-quantity-import.service";
+import {
+  assertStoreFileErpMatch,
+  type ParseImportFileInput,
+} from "@/services/import-parse.service";
 import type { GloposWastageReportParseResult } from "@/parsers/glopos-wastage-report-parser";
 import {
+  isGloposWastageReport,
+  parseGloposWastageReport,
+  tryParseGloposWastageReport,
   WASTAGE_BARCODE_COLUMN,
   WASTAGE_PRODUCT_CODE_COLUMN,
   WASTAGE_QTY_COLUMN,
 } from "@/parsers/glopos-wastage-report-parser";
+import {
+  detectWastageColumns,
+  parseAllRows,
+  parseUploadedFile,
+} from "@/parsers/file-parser";
 import { normalizeProductCode } from "@/parsers/product-file-parser";
 import { formatSpreadsheetBarcode } from "@/utils/barcode";
+import {
+  detectWastageFileErpType,
+  resolveStoreErpType,
+  validateErpFileMatch,
+} from "@/utils/erp-file-validation";
+import { wastageImportSchema } from "@/validators/schemas";
 
 function catalogCodeKey(code: string): string {
   return normalizeProductCode(code).toLowerCase();
+}
+
+export type WastageParseResult = FilePreview & {
+  referenceColumn?: string;
+  quantityColumn?: string;
+  wastageDate?: string;
+  duplicateRows?: number;
+  mappingType?: "store_product_code" | "barcode";
+  skippedExcludedReasonRows?: number;
+  matchedCount?: number;
+  unmatchedCount?: number;
+  unmatchedCodes?: string[];
+};
+
+/** Inspect a wastage upload for UI column mapping (does not persist). */
+export async function parseWastageImportFile(
+  input: ParseImportFileInput,
+): Promise<WastageParseResult> {
+  let gloposWastage = await tryParseGloposWastageReport(
+    input.buffer,
+    input.fileName,
+  );
+  if (!gloposWastage && isGloposWastageReport([], input.fileName)) {
+    try {
+      gloposWastage = await parseGloposWastageReport(
+        input.buffer,
+        input.fileName,
+      );
+    } catch (err) {
+      throw new Error(
+        err instanceof Error ?
+          err.message
+        : "Failed to parse GloPOS wastage file",
+      );
+    }
+  }
+
+  let preview: WastageParseResult;
+
+  if (gloposWastage) {
+    preview = {
+      headers: gloposWastage.headers,
+      rows: gloposWastage.rows.slice(0, 10),
+      referenceColumn: gloposWastage.productCodeColumn,
+      quantityColumn: gloposWastage.quantityColumn,
+      wastageDate: gloposWastage.wastageDate ?? undefined,
+      duplicateRows: gloposWastage.duplicateRows,
+      mappingType: "store_product_code",
+      skippedExcludedReasonRows: gloposWastage.skippedExcludedReasonRows,
+    };
+    if (input.storeId) {
+      const enriched = await buildGloposWastagePreviewWithStoreProductCodes(
+        input.storeId,
+        gloposWastage,
+      );
+      preview = {
+        ...enriched,
+        rows: enriched.rows.slice(0, 10),
+        skippedExcludedReasonRows: gloposWastage.skippedExcludedReasonRows,
+      };
+    }
+  } else {
+    preview = await parseUploadedFile(input.buffer, input.fileName);
+    if (input.storeId) {
+      const store = await storeRepository.getById(input.storeId);
+      if (store) {
+        const detected = detectWastageColumns(
+          preview.headers,
+          resolveStoreErpType(store.erpType),
+        );
+        preview = {
+          ...preview,
+          referenceColumn: detected.referenceColumn ?? undefined,
+          quantityColumn: detected.quantityColumn ?? undefined,
+        };
+      }
+    }
+  }
+
+  await assertStoreFileErpMatch({
+    storeId: input.storeId,
+    headers: preview.headers,
+    fileName: input.fileName,
+    detectFileErpType: detectWastageFileErpType,
+  });
+
+  return preview;
 }
 
 /** Map GloPOS wastage file codes/barcodes to store catalog item codes before upsert. */
@@ -266,4 +378,111 @@ export async function listWastageImportsForStore(
     importedAt: entry.importedAt,
     itemCount: entry.matchedRows ?? 0,
   }));
+}
+
+export type WastageStoreSummary = {
+  wastageDate: string;
+  itemCount: number;
+  totalWastageQty: string;
+  lastUpdated: string;
+};
+
+export async function listWastageSummariesForStore(
+  storeId: number,
+): Promise<WastageStoreSummary[]> {
+  const rows = await storeWastageRepository.listDateSummariesForStore(storeId);
+  return rows.map((row) => ({
+    wastageDate: row.wastageDate,
+    itemCount: row.itemCount,
+    totalWastageQty: String(row.totalWastageQty),
+    lastUpdated: String(row.lastUpdated),
+  }));
+}
+
+export async function deleteWastageForStoreDate(
+  storeId: number,
+  wastageDate: string,
+): Promise<void> {
+  await storeWastageRepository.deleteForStoreAndDate(storeId, wastageDate);
+}
+
+/** Resolve + import wastage from an uploaded FormData payload. */
+export async function importWastageFromForm(
+  formData: FormData,
+): Promise<ImportResult & { importId: number }> {
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("No file uploaded");
+
+  const meta = wastageImportSchema.safeParse({
+    storeId: formData.get("storeId"),
+    wastageDate: formData.get("wastageDate"),
+    mappingType: formData.get("mappingType") || "store_product_code",
+    referenceColumn: formData.get("referenceColumn"),
+    quantityColumn: formData.get("quantityColumn"),
+    fileName: file.name,
+  });
+  if (!meta.success) throw new Error(meta.error.message);
+
+  const store = await storeRepository.getById(meta.data.storeId);
+  if (!store) throw new Error("Store not found");
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  let gloposWastage = await tryParseGloposWastageReport(buffer, file.name);
+  if (!gloposWastage && isGloposWastageReport([], file.name)) {
+    gloposWastage = await parseGloposWastageReport(buffer, file.name);
+  }
+
+  let rows: ParsedRow[];
+  let importMeta = { ...meta.data };
+  let previewHeaders: string[] = [];
+  let skipReferencePivot = false;
+
+  if (gloposWastage) {
+    if (!gloposWastage.rows.length) {
+      throw new Error("No wastage product rows found in the file.");
+    }
+    const enriched = await enrichGloposWastageRowsWithStoreProductCodes(
+      meta.data.storeId,
+      gloposWastage,
+    );
+    if (!enriched.rows.length) {
+      const sample = enriched.unmatchedCodes.slice(0, 5).join(", ");
+      throw new Error(
+        enriched.unmatchedCodes.length
+          ? `No store products matched the file (${enriched.unmatchedCodes.length} unmatched${sample ? `: ${sample}` : ""}). Import the product catalog for this store first, then try again.`
+          : "No wastage product rows found in the file.",
+      );
+    }
+    rows = enriched.rows;
+    previewHeaders = gloposWastage.headers;
+    skipReferencePivot = true;
+    importMeta = {
+      ...importMeta,
+      referenceColumn: gloposWastage.productCodeColumn,
+      quantityColumn: gloposWastage.quantityColumn,
+      mappingType: "store_product_code",
+      wastageDate:
+        importMeta.wastageDate ||
+        gloposWastage.wastageDate ||
+        meta.data.wastageDate,
+    };
+  } else {
+    const all = await parseAllRows(buffer, file.name);
+    rows = all.rows;
+    previewHeaders = all.headers;
+  }
+
+  const storeErpType = resolveStoreErpType(store.erpType);
+  const mismatch = validateErpFileMatch(
+    detectWastageFileErpType(previewHeaders, file.name),
+    storeErpType,
+  );
+  if (mismatch) throw new Error(mismatch);
+
+  return importWastageRows({
+    ...importMeta,
+    rows,
+    erpType: storeErpType,
+    skipReferencePivot,
+  });
 }

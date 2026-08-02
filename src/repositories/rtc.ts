@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { rtcImports, rtcSales, storeProducts } from "@/db/schema";
+import { rtcSales, storeProducts } from "@/db/schema";
 
 export const rtcSalesRepository = {
   async upsert(data: typeof rtcSales.$inferInsert) {
@@ -81,38 +81,5 @@ export const rtcSalesRepository = {
       .where(eq(storeProducts.storeId, storeId))
       .groupBy(rtcSales.rtcDate)
       .orderBy(desc(rtcSales.rtcDate));
-  },
-};
-
-export const rtcRepository = {
-  async createImport(data: typeof rtcImports.$inferInsert) {
-    const [row] = await db.insert(rtcImports).values(data).returning();
-    return row;
-  },
-
-  async updateMatchedRows(importId: number, matchedRows: number) {
-    const [row] = await db
-      .update(rtcImports)
-      .set({ matchedRows })
-      .where(eq(rtcImports.id, importId))
-      .returning();
-    return row ?? null;
-  },
-
-  async getImportById(importId: number) {
-    const [row] = await db
-      .select()
-      .from(rtcImports)
-      .where(eq(rtcImports.id, importId));
-    return row ?? null;
-  },
-
-  async listForStore(storeId: number, limit = 50) {
-    return db
-      .select()
-      .from(rtcImports)
-      .where(eq(rtcImports.storeId, storeId))
-      .orderBy(desc(rtcImports.importedAt))
-      .limit(limit);
   },
 };

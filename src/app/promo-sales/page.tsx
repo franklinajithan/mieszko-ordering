@@ -1,4 +1,4 @@
-import { PromoSalesPageView } from "@/components/imports/promo-sales-page";
+import { PromoSalesPageView } from "@/components/daily-sales/promo-sales-page";
 import { storeRepository } from "@/repositories";
 
 export default async function PromoSalesPage() {

@@ -8,7 +8,7 @@ export { productRepository } from "@/repositories/products";
 export { dailySalesRepository } from "@/repositories/daily-sales";
 export { supplierPriceRepository } from "@/repositories/supplier-prices";
 export { bookStockRepository } from "@/repositories/book-stock";
-export { rtcRepository, rtcSalesRepository } from "@/repositories/rtc";
+export { rtcSalesRepository } from "@/repositories/rtc";
 export { promoRepository, promoSalesRepository } from "@/repositories/promo";
 export { wastageRepository, storeWastageRepository } from "@/repositories/wastage";
 export { orderRepository } from "@/repositories/orders";

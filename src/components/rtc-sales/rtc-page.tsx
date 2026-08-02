@@ -1,7 +1,6 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { RtcImportForm } from "@/components/imports/rtc-import-form";
-
-type Store = { id: number; name: string; code: string; erpType: string };
+import { RtcImportForm } from "@/components/rtc-sales/rtc-import-form";
+import type { Store } from "@/types/store";
 
 export function RtcPageView({ stores }: { stores: Store[] }) {
   return (

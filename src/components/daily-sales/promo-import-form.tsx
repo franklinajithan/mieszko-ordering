@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { importPromo, listPromoImports, previewUpload } from "@/lib/api";
+import { importPromo, listPromoImports, parseImportFile } from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
@@ -116,7 +116,7 @@ export function PromoImportForm({ stores }: { stores: Store[] }) {
         reportErpMismatch(mismatch);
         return;
       }
-      const data = await previewUpload(formData);
+      const data = await parseImportFile(formData);
       setPreview(data);
       const detected = detectPromoColumns(data.headers, erpType);
       setReferenceColumn(detected.referenceColumn ?? data.headers[0] ?? "");

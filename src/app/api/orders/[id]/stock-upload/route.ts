@@ -1,5 +1,5 @@
-import { uploadOrderStockFile } from "@/app/actions";
-import { apiError, fromActionResult, numericParam, route } from "@/lib/api/http";
+import { uploadOrderStockFromForm } from "@/services/stock-upload.service";
+import { apiError, apiOk, numericParam, route } from "@/lib/api/http";
 
 export const POST = route(
   async (req, { params }: { params: Promise<{ id: string }> }) => {
@@ -8,6 +8,6 @@ export const POST = route(
 
     const formData = await req.formData();
     formData.set("orderId", String(orderId));
-    return fromActionResult(await uploadOrderStockFile(formData));
+    return apiOk(await uploadOrderStockFromForm(formData));
   },
 );

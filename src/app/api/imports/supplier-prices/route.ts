@@ -1,7 +1,7 @@
-import { importSupplierPrices } from "@/app/actions";
-import { fromActionResult, route } from "@/lib/api/http";
+import { importSupplierPricesFromForm } from "@/services/supplier-price-import.service";
+import { apiOk, route } from "@/lib/api/http";
 
 export const POST = route(async (req) => {
   const formData = await req.formData();
-  return fromActionResult(await importSupplierPrices(formData));
+  return apiOk(await importSupplierPricesFromForm(formData));
 });

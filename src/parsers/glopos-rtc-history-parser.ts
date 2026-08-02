@@ -112,7 +112,7 @@ export function isGloposRtcHistoryReport(headers: string[], fileName: string): b
 }
 
 export async function tryParseGloposRtcHistoryReport(
-  buffer: Buffer,
+  buffer: ArrayBuffer | Uint8Array | Buffer,
   fileName: string,
 ): Promise<GloposRtcHistoryParseResult | null> {
   try {
@@ -123,7 +123,7 @@ export async function tryParseGloposRtcHistoryReport(
 }
 
 export async function parseGloposRtcHistoryReport(
-  buffer: Buffer,
+  buffer: ArrayBuffer | Uint8Array | Buffer,
   fileName: string,
 ): Promise<GloposRtcHistoryParseResult> {
   void fileName;

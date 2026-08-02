@@ -1,4 +1,4 @@
-import { DailySalesPageView } from "@/components/imports/daily-sales-page";
+import { DailySalesPageView } from "@/components/daily-sales/daily-sales-page";
 import { listStores } from "@/lib/api/stores";
 
 export default async function DailySalesPage() {

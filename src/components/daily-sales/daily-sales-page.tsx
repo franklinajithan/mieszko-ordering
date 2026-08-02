@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { DailySalesImportForm } from "@/components/imports/daily-sales-import-form";
+import { DailySalesImportForm } from "@/components/daily-sales/daily-sales-import-form";
 
 type Store = { id: number; name: string; code: string; erpType: string };
 

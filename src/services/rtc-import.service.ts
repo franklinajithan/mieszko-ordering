@@ -1,148 +1,97 @@
-import { db } from "@/db";
-import type { ErpType, ImportResult, ParsedRow, SalesMappingType } from "@/types";
-import { toDecimal, decimalToDb, type Decimal } from "@/utils/decimal";
-import { barcodeLookupCandidates, formatSpreadsheetBarcode } from "@/utils/barcode";
-import {
-  productRepository,
-  rtcRepository,
-  rtcSalesRepository,
-} from "@/repositories";
-import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
+import type { FilePreview, ImportResult, ParsedRow, SalesMappingType } from "@/types";
+import { decimalToDb } from "@/utils/decimal";
+import { formatSpreadsheetBarcode } from "@/utils/barcode";
+import { productRepository, rtcSalesRepository } from "@/repositories";
 import type { GloposRtcHistoryParseResult } from "@/parsers/glopos-rtc-history-parser";
+import { tryParseGloposRtcHistoryReport } from "@/parsers/glopos-rtc-history-parser";
+import { parseUploadedFile } from "@/parsers/file-parser";
+import { RTC_ITEM_CODE_COLUMN } from "@/lib/rtc-import-constants";
+import {
+  assertStoreFileErpMatch,
+  type ParseImportFileInput,
+} from "@/services/import-parse.service";
+import {
+  prepareRtcImport,
+  remapRtcBarcodeRowsToStoreProductCodes,
+  type PreparedRtcRow,
+} from "@/services/rtc-import-prepare";
+import { detectRtcFileErpType } from "@/utils/erp-file-validation";
 
-export const RTC_IMPORT_BATCH_SIZE = 50;
-export const RTC_ITEM_CODE_COLUMN = "Item Code";
+export { prepareRtcImport, RTC_ITEM_CODE_COLUMN };
+export type { PreparedRtcRow };
 
-export type PreparedRtcRow = {
-  reference: string;
-  qty: Decimal;
-  rowNumber: number;
-  productName?: string | null;
+export type RtcParseResult = FilePreview & {
+  referenceColumn?: string;
+  quantityColumn?: string;
+  rtcDate?: string;
+  duplicateRows?: number;
+  mappingType?: "store_product_code" | "barcode";
+  matchedCount?: number;
+  unmatchedCount?: number;
+  unmatchedBarcodes?: string[];
 };
 
-export function prepareRtcImport(input: {
-  referenceColumn: string;
-  quantityColumn: string;
-  rows: ParsedRow[];
-}): { rows: PreparedRtcRow[]; result: ImportResult } {
-  const result: ImportResult = {
-    totalRows: input.rows.length,
-    matchedRows: 0,
-    unmatchedRows: 0,
-    invalidRows: 0,
-    duplicateRows: 0,
-    errors: [],
-  };
+/** Inspect an RTC upload for UI column mapping (does not persist). */
+export async function parseRtcImportFile(
+  input: ParseImportFileInput,
+): Promise<RtcParseResult> {
+  const gloposRtc = await tryParseGloposRtcHistoryReport(
+    input.buffer,
+    input.fileName,
+  );
 
-  const pending = new Map<string, PreparedRtcRow>();
+  let preview: RtcParseResult;
 
-  for (const row of input.rows) {
-    const rowNumber = Number(row.__rowNumber ?? 0);
-    const reference = row[input.referenceColumn]?.trim() ?? "";
-    const qtyRaw = row[input.quantityColumn]?.trim() ?? "";
-    const productName =
-      row.__productName?.trim() ??
-      row["Sale Description"]?.trim() ??
-      row.Description?.trim() ??
-      null;
-
-    if (!reference) {
-      result.invalidRows += 1;
-      if (result.errors.length < 25) {
-        result.errors.push({
-          rowNumber,
-          reference: null,
-          message: "Missing product reference",
-        });
-      }
-      continue;
-    }
-
-    let qty;
-    try {
-      qty = toDecimal(qtyRaw);
-      if (!qty.isFinite()) throw new Error("invalid");
-    } catch {
-      result.invalidRows += 1;
-      if (result.errors.length < 25) {
-        result.errors.push({
-          rowNumber,
-          reference,
-          message: "Invalid quantity",
-        });
-      }
-      continue;
-    }
-
-    const existing = pending.get(reference);
-    if (existing) {
-      existing.qty = existing.qty.plus(qty);
-      result.duplicateRows = (result.duplicateRows ?? 0) + 1;
-      continue;
-    }
-    pending.set(reference, { reference, qty, rowNumber, productName });
+  if (gloposRtc && input.storeId) {
+    const enriched = await buildGloposRtcPreviewWithStoreProductCodes(
+      input.storeId,
+      gloposRtc,
+    );
+    preview = {
+      ...enriched,
+      rows: enriched.rows.slice(0, 10),
+    };
+  } else if (gloposRtc) {
+    preview = {
+      headers: gloposRtc.headers,
+      rows: gloposRtc.rows.slice(0, 10),
+      referenceColumn: gloposRtc.barcodeColumn,
+      quantityColumn: gloposRtc.quantityColumn,
+      rtcDate: gloposRtc.rtcDate ?? undefined,
+      duplicateRows: gloposRtc.duplicateRows,
+      mappingType: "barcode",
+    };
+  } else {
+    preview = await parseUploadedFile(input.buffer, input.fileName);
   }
 
-  return { rows: [...pending.values()], result };
+  await assertStoreFileErpMatch({
+    storeId: input.storeId,
+    headers: preview.headers,
+    fileName: input.fileName,
+    detectFileErpType: detectRtcFileErpType,
+  });
+
+  return preview;
 }
 
-/** Resolve file barcodes to store item codes before RTC import (catalog join). */
 export async function enrichGloposRtcRowsWithStoreProductCodes(
   storeId: number,
   gloposRtc: GloposRtcHistoryParseResult,
-): Promise<{
-  rows: ParsedRow[];
-  matchedCount: number;
-  unmatchedBarcodes: string[];
-}> {
-  const barcodeColumn = gloposRtc.barcodeColumn;
-  const quantityColumn = gloposRtc.quantityColumn;
+) {
   const fileBarcodes = gloposRtc.rows.map((row) =>
-    formatSpreadsheetBarcode(row[barcodeColumn]).trim(),
+    formatSpreadsheetBarcode(row[gloposRtc.barcodeColumn]).trim(),
   );
   const matches = await productRepository.findStoreProductMatchesForFileBarcodes(
     storeId,
     fileBarcodes,
   );
-  const byFileBarcode = new Map(matches.map((m) => [m.fileBarcode, m]));
-
-  const byStoreProductCode = new Map<string, ParsedRow>();
-  const unmatchedBarcodes: string[] = [];
-
-  for (const row of gloposRtc.rows) {
-    const barcode = formatSpreadsheetBarcode(row[barcodeColumn]).trim();
-    const match = byFileBarcode.get(barcode);
-    if (!match) {
-      if (barcode) unmatchedBarcodes.push(barcode);
-      continue;
-    }
-
-    const qtyRaw = row[quantityColumn]?.trim() ?? "";
-    const code = match.storeProductCode;
-    const existing = byStoreProductCode.get(code);
-    if (existing) {
-      try {
-        const sum = toDecimal(existing[quantityColumn] ?? "0").plus(toDecimal(qtyRaw));
-        existing[quantityColumn] = sum.toString();
-      } catch {
-        existing[quantityColumn] = qtyRaw;
-      }
-      continue;
-    }
-
-    byStoreProductCode.set(code, {
-      [RTC_ITEM_CODE_COLUMN]: code,
-      [quantityColumn]: qtyRaw,
-      __productName: row.__productName ?? match.productName ?? undefined,
-      __rowNumber: row.__rowNumber,
-    });
-  }
-
-  return {
-    rows: [...byStoreProductCode.values()],
-    matchedCount: byStoreProductCode.size,
-    unmatchedBarcodes: [...new Set(unmatchedBarcodes)],
-  };
+  return remapRtcBarcodeRowsToStoreProductCodes({
+    barcodeColumn: gloposRtc.barcodeColumn,
+    quantityColumn: gloposRtc.quantityColumn,
+    rows: gloposRtc.rows,
+    matches,
+  });
 }
 
 export async function buildGloposRtcPreviewWithStoreProductCodes(
@@ -172,7 +121,9 @@ export async function buildGloposRtcPreviewWithStoreProductCodes(
 
   const uniqueFileBarcodes = [...new Set(fileBarcodes.filter(Boolean))];
   const matchedBarcodes = new Set(matches.map((m) => m.fileBarcode));
-  const unmatchedBarcodes = uniqueFileBarcodes.filter((b) => !matchedBarcodes.has(b));
+  const unmatchedBarcodes = uniqueFileBarcodes.filter(
+    (b) => !matchedBarcodes.has(b),
+  );
 
   return {
     headers: [RTC_ITEM_CODE_COLUMN, barcodeColumn, quantityColumn],
@@ -188,114 +139,21 @@ export async function buildGloposRtcPreviewWithStoreProductCodes(
   };
 }
 
-export async function resolvePreparedRtcRowsFromBarcodesToStoreProductCodes(
-  storeId: number,
-  prepared: { rows: PreparedRtcRow[]; result: ImportResult },
-): Promise<{ rows: PreparedRtcRow[]; result: ImportResult }> {
-  const barcodes = prepared.rows.map((row) =>
-    formatSpreadsheetBarcode(row.reference).trim(),
-  );
-  const matches = await productRepository.findStoreProductMatchesForFileBarcodes(
-    storeId,
-    barcodes,
-  );
-  const byFileBarcode = new Map(matches.map((m) => [m.fileBarcode, m]));
-
-  const byStoreProductCode = new Map<string, PreparedRtcRow>();
-
-  for (const row of prepared.rows) {
-    const fileBarcode = formatSpreadsheetBarcode(row.reference).trim();
-    const match = byFileBarcode.get(fileBarcode);
-    if (!match) {
-      prepared.result.unmatchedRows += 1;
-      if (prepared.result.errors.length < 25) {
-        prepared.result.errors.push({
-          rowNumber: row.rowNumber,
-          reference: row.reference,
-          message: `No store product for barcode ${fileBarcode}. Link the barcode on the catalog product.`,
-        });
-      }
-      continue;
-    }
-
-    const code = match.storeProductCode;
-    const existing = byStoreProductCode.get(code);
-    if (existing) {
-      existing.qty = existing.qty.plus(row.qty);
-      continue;
-    }
-
-    byStoreProductCode.set(code, {
-      reference: code,
-      qty: row.qty,
-      rowNumber: row.rowNumber,
-      productName: row.productName ?? match.productName,
-    });
-  }
-
-  return { rows: [...byStoreProductCode.values()], result: prepared.result };
-}
-
-async function resolveStoreProductIds(
-  storeId: number,
-  mappingType: SalesMappingType,
-  references: string[],
-): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
-  if (!references.length) return map;
-
-  if (mappingType === "store_product_code") {
-    const products = await productRepository.findStoreProductsByCodes(storeId, references);
-    for (const product of products) {
-      map.set(product.storeProductCode, product.id);
-    }
-    return map;
-  }
-
-  const allCandidates = new Set<string>();
-  const refCandidates = new Map<string, string[]>();
-  for (const ref of references) {
-    const candidates = barcodeLookupCandidates(ref);
-    refCandidates.set(ref, candidates);
-    for (const candidate of candidates) allCandidates.add(candidate);
-  }
-
-  const catalogRows = await productRepository.findStoreProductsByBarcodes(
-    storeId,
-    [...allCandidates],
-  );
-  const catalogToStoreProduct = new Map<string, number>();
-  for (const row of catalogRows) {
-    catalogToStoreProduct.set(row.barcode, row.storeProduct.id);
-  }
-
-  for (const ref of references) {
-    for (const candidate of refCandidates.get(ref) ?? []) {
-      const storeProductId = catalogToStoreProduct.get(candidate);
-      if (storeProductId) {
-        map.set(ref, storeProductId);
-        break;
-      }
-    }
-  }
-
-  return map;
-}
-
 export async function importRtcQuantityBatch(input: {
   storeId: number;
   rtcDate: string;
-  mappingType: SalesMappingType;
   rows: PreparedRtcRow[];
   result: ImportResult;
 }) {
   if (!input.rows.length) return;
 
   const references = [...new Set(input.rows.map((row) => row.reference))];
-  const storeProductByReference = await resolveStoreProductIds(
+  const products = await productRepository.findStoreProductsByCodes(
     input.storeId,
-    input.mappingType,
     references,
+  );
+  const storeProductByReference = new Map(
+    products.map((product) => [product.storeProductCode, product.id]),
   );
 
   const toUpsert: Array<{
@@ -312,7 +170,9 @@ export async function importRtcQuantityBatch(input: {
         input.result.errors.push({
           rowNumber: row.rowNumber,
           reference: row.reference,
-          message: `No matching store product. ${row.productName ? `Name: ${row.productName}` : "Check barcode on catalog"}`,
+          message: `No matching store product. ${
+            row.productName ? `Name: ${row.productName}` : "Check item code"
+          }`,
         });
       }
       continue;
@@ -331,90 +191,53 @@ export async function importRtcQuantityBatch(input: {
   }
 }
 
+/** Import RTC rows already keyed by store product code. */
 export async function importRtcRows(input: {
   storeId: number;
   rtcDate: string;
-  mappingType: SalesMappingType;
+  mappingType?: SalesMappingType;
   referenceColumn: string;
   quantityColumn: string;
   rows: ParsedRow[];
-  erpType?: ErpType;
-  skipReferencePivot?: boolean;
-}): Promise<ImportResult & { importId: number }> {
-  let rows = input.rows;
-  let duplicateRows = 0;
-
-  if (input.erpType === "glopos" && !input.skipReferencePivot) {
-    const pivoted = pivotBookStockByReference(
-      rows,
-      input.referenceColumn,
-      input.quantityColumn,
-    );
-    rows = pivoted.rows;
-    duplicateRows = pivoted.duplicateRows;
-  }
-
+}): Promise<ImportResult> {
   const prepared = prepareRtcImport({
     referenceColumn: input.referenceColumn,
     quantityColumn: input.quantityColumn,
-    rows,
-  });
-  prepared.result.duplicateRows = (prepared.result.duplicateRows ?? 0) + duplicateRows;
-
-  let mappingType = input.mappingType;
-  let importRows = prepared.rows;
-  let referenceColumn = input.referenceColumn;
-  if (input.skipReferencePivot && input.mappingType === "barcode") {
-    const remapped = await resolvePreparedRtcRowsFromBarcodesToStoreProductCodes(
-      input.storeId,
-      prepared,
-    );
-    importRows = remapped.rows;
-    prepared.result = remapped.result;
-    mappingType = "store_product_code";
-    referenceColumn = RTC_ITEM_CODE_COLUMN;
-  }
-
-  let importId = 0;
-
-  await db.transaction(async () => {
-    const rtcImport = await rtcRepository.createImport({
-      storeId: input.storeId,
-      rtcDate: input.rtcDate,
-      referenceColumn,
-      quantityColumn: input.quantityColumn,
-    });
-    importId = rtcImport.id;
-
-    await importRtcQuantityBatch({
-      storeId: input.storeId,
-      rtcDate: input.rtcDate,
-      mappingType,
-      rows: importRows,
-      result: prepared.result,
-    });
-
-    await rtcRepository.updateMatchedRows(importId, prepared.result.matchedRows);
+    rows: input.rows,
   });
 
-  return { ...prepared.result, importId };
+  await importRtcQuantityBatch({
+    storeId: input.storeId,
+    rtcDate: input.rtcDate,
+    rows: prepared.rows,
+    result: prepared.result,
+  });
+
+  return prepared.result;
 }
 
-export type RtcImportSummary = {
-  importId: number;
+export type RtcStoreSummary = {
   rtcDate: string;
-  importedAt: Date;
   itemCount: number;
+  totalRtcQty: string;
+  lastUpdated: string;
 };
 
-export async function listRtcImportsForStore(
+export async function listRtcSummariesForStore(
   storeId: number,
-): Promise<RtcImportSummary[]> {
-  const imports = await rtcRepository.listForStore(storeId);
-  return imports.map((entry) => ({
-    importId: entry.id,
-    rtcDate: entry.rtcDate,
-    importedAt: entry.importedAt,
-    itemCount: entry.matchedRows ?? 0,
+): Promise<RtcStoreSummary[]> {
+  const rows = await rtcSalesRepository.listDateSummariesForStore(storeId);
+  return rows.map((row) => ({
+    rtcDate: row.rtcDate,
+    itemCount: row.itemCount,
+    totalRtcQty: String(row.totalRtcQty),
+    lastUpdated: String(row.lastUpdated),
   }));
+}
+
+export async function deleteRtcForStoreDate(
+  storeId: number,
+  rtcDate: string,
+): Promise<void> {
+  await rtcSalesRepository.deleteForStoreAndDate(storeId, rtcDate);
 }

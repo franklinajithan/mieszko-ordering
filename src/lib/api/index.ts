@@ -16,6 +16,5 @@ export * from "./stores";
 export * from "./suppliers";
 export * from "./departments";
 export * from "./products";
-export * from "./uploads";
 export * from "./imports";
 export * from "./orders";

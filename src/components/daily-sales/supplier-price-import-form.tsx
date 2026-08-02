@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { importSupplierPrices, previewUpload } from "@/lib/api";
+import { importSupplierPrices, parseImportFile } from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
@@ -31,7 +31,7 @@ export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }
     try {
       const selected = formData.get("file") as File;
       setFile(selected);
-      const data = await previewUpload(formData);
+      const data = await parseImportFile(formData);
       setPreview(data);
 
       const supplier = suppliers.find((s) => s.id === Number(supplierId));

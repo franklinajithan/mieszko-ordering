@@ -5,7 +5,7 @@ import {
   deleteWastageUpload,
   importWastage,
   listWastageSummaries,
-  previewWastageUpload,
+  parseWastageFile,
 } from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
@@ -134,7 +134,7 @@ export function WastageImportForm({ stores }: { stores: Store[] }) {
       }
       setFile(selected);
       formData.set("storeId", storeId);
-      const data = await previewWastageUpload(formData);
+      const data = await parseWastageFile(formData);
       setPreview(data);
       const selectedStore = stores.find((store) => String(store.id) === storeId);
       const erpType = selectedStore?.erpType === "glopos" ? "glopos" : "msp";

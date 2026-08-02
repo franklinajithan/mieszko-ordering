@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { PromoImportForm } from "@/components/imports/promo-import-form";
+import { PromoImportForm } from "@/components/daily-sales/promo-import-form";
 
 type Store = { id: number; name: string; code: string; erpType: string };
 

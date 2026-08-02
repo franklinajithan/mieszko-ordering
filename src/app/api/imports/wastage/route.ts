@@ -1,18 +1,18 @@
-import {
-  deleteWastageUpload,
-  importWastage,
-  listWastageSummaries,
-} from "@/app/actions";
-import { apiError, fromActionResult, route } from "@/lib/api/http";
-import { idSchema } from "@/validators/schemas";
 import { z } from "zod";
+import {
+  deleteWastageForStoreDate,
+  importWastageFromForm,
+  listWastageSummariesForStore,
+} from "@/services/wastage-import.service";
+import { apiError, apiOk, route } from "@/lib/api/http";
+import { idSchema } from "@/validators/schemas";
 
 export const GET = route(async (req) => {
   const storeId = idSchema.safeParse(
     new URL(req.url).searchParams.get("storeId"),
   );
   if (!storeId.success) return apiError("storeId is required");
-  return fromActionResult(await listWastageSummaries(storeId.data));
+  return apiOk(await listWastageSummariesForStore(storeId.data));
 });
 
 export const DELETE = route(async (req) => {
@@ -22,12 +22,11 @@ export const DELETE = route(async (req) => {
   if (!storeId.success || !wastageDate.success) {
     return apiError("storeId and wastageDate (yyyy-MM-dd) are required");
   }
-  return fromActionResult(
-    await deleteWastageUpload(storeId.data, wastageDate.data),
-  );
+  await deleteWastageForStoreDate(storeId.data, wastageDate.data);
+  return apiOk(undefined);
 });
 
 export const POST = route(async (req) => {
   const formData = await req.formData();
-  return fromActionResult(await importWastage(formData));
+  return apiOk(await importWastageFromForm(formData));
 });
