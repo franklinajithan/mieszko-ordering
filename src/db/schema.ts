@@ -347,8 +347,9 @@ export const promoSales = pgTable(
   ],
 );
 
-export const storeWastage = pgTable(
-  "store_wastage",
+/** Per store-product wastage qty by date (same shape as rtc_sales, wastage-named). */
+export const wastage = pgTable(
+  "wastage",
   {
     id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
     storeProductId: integer("store_product_id")
@@ -364,7 +365,7 @@ export const storeWastage = pgTable(
       .defaultNow(),
   },
   (t) => [
-    unique("store_wastage_store_product_date_unique").on(
+    unique("wastage_store_product_date_unique").on(
       t.storeProductId,
       t.wastageDate,
     ),
@@ -493,21 +494,6 @@ export const promoImports = pgTable("promo_imports", {
     .notNull()
     .references(() => stores.id),
   promoDate: date("promo_date").notNull(),
-  fileName: varchar("file_name", { length: 500 }),
-  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
-  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
-  matchedRows: integer("matched_rows"),
-  importedAt: timestamp("imported_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-export const wastageImports = pgTable("wastage_imports", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  storeId: integer("store_id")
-    .notNull()
-    .references(() => stores.id),
-  wastageDate: date("wastage_date").notNull(),
   fileName: varchar("file_name", { length: 500 }),
   referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
   quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
@@ -967,7 +953,7 @@ export const storeProductsRelations = relations(storeProducts, ({ one, many }) =
 
   promoSales: many(promoSales),
 
-  storeWastage: many(storeWastage),
+  wastage: many(wastage),
 
 }));
 

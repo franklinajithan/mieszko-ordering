@@ -5,9 +5,10 @@ import type {
 } from "@/services/apply-book-stock-to-order.service";
 import type { PromoImportSummary } from "@/services/promo-import.service";
 import { RTC_IMPORT_CHUNK_SIZE } from "@/lib/rtc-import-constants";
+import { WASTAGE_IMPORT_CHUNK_SIZE } from "@/lib/wastage-import-constants";
 import { apiFormRequest, apiRequest } from "./client";
 
-export { RTC_IMPORT_CHUNK_SIZE };
+export { RTC_IMPORT_CHUNK_SIZE, WASTAGE_IMPORT_CHUNK_SIZE };
 
 /** Generic spreadsheet parse (headers + sample rows). Throws on failure. */
 export async function parseImportFile(formData: FormData): Promise<FilePreview> {
@@ -204,10 +205,19 @@ export function listRtcSummaries(
   return apiRequest(`/imports/rtc?storeId=${storeId}`);
 }
 
-export function importWastage(
-  formData: FormData,
-): Promise<ActionResult<ImportResult & { importId: number }>> {
-  return apiFormRequest("/imports/wastage", formData);
+export type WastageImportChunkInput = {
+  storeId: number;
+  wastageDate: string;
+  referenceColumn: string;
+  quantityColumn: string;
+  fileName?: string;
+  rows: Array<Record<string, string>>;
+};
+
+export function importWastageChunk(
+  input: WastageImportChunkInput,
+): Promise<ActionResult<ImportResult>> {
+  return apiRequest("/imports/wastage", { method: "POST", body: input });
 }
 
 export function deleteWastageUpload(

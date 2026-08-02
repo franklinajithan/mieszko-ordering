@@ -1,15 +1,15 @@
 import "server-only";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { storeProducts, storeWastage, wastageImports } from "@/db/schema";
+import { storeProducts, wastage } from "@/db/schema";
 
-export const storeWastageRepository = {
-  async upsert(data: typeof storeWastage.$inferInsert) {
+export const wastageRepository = {
+  async upsert(data: typeof wastage.$inferInsert) {
     const [row] = await db
-      .insert(storeWastage)
+      .insert(wastage)
       .values(data)
       .onConflictDoUpdate({
-        target: [storeWastage.storeProductId, storeWastage.wastageDate],
+        target: [wastage.storeProductId, wastage.wastageDate],
         set: {
           wastageQty: data.wastageQty,
           updatedAt: new Date(),
@@ -19,6 +19,21 @@ export const storeWastageRepository = {
     return row;
   },
 
+  async upsertBatch(data: Array<typeof wastage.$inferInsert>) {
+    if (!data.length) return [];
+    return db
+      .insert(wastage)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [wastage.storeProductId, wastage.wastageDate],
+        set: {
+          wastageQty: sql`excluded.wastage_qty`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+  },
+
   async sumInPeriod(
     storeProductId: number,
     startDate: string,
@@ -26,14 +41,14 @@ export const storeWastageRepository = {
   ) {
     const [row] = await db
       .select({
-        total: sql<string>`coalesce(sum(${storeWastage.wastageQty}), 0)`,
+        total: sql<string>`coalesce(sum(${wastage.wastageQty}), 0)`,
       })
-      .from(storeWastage)
+      .from(wastage)
       .where(
         and(
-          eq(storeWastage.storeProductId, storeProductId),
-          gte(storeWastage.wastageDate, startDate),
-          lte(storeWastage.wastageDate, endDate),
+          eq(wastage.storeProductId, storeProductId),
+          gte(wastage.wastageDate, startDate),
+          lte(wastage.wastageDate, endDate),
         ),
       );
     return row?.total ?? "0";
@@ -49,57 +64,27 @@ export const storeWastageRepository = {
     if (!ids.length) return;
 
     await db
-      .delete(storeWastage)
+      .delete(wastage)
       .where(
-        and(eq(storeWastage.wastageDate, wastageDate), inArray(storeWastage.storeProductId, ids)),
+        and(
+          eq(wastage.wastageDate, wastageDate),
+          inArray(wastage.storeProductId, ids),
+        ),
       );
   },
 
   async listDateSummariesForStore(storeId: number) {
     return db
       .select({
-        wastageDate: storeWastage.wastageDate,
+        wastageDate: wastage.wastageDate,
         itemCount: sql<number>`count(*)::int`,
-        totalWastageQty: sql<string>`coalesce(sum(${storeWastage.wastageQty}), 0)::text`,
-        lastUpdated: sql<string>`max(${storeWastage.updatedAt})::text`,
+        totalWastageQty: sql<string>`coalesce(sum(${wastage.wastageQty}), 0)::text`,
+        lastUpdated: sql<string>`max(${wastage.updatedAt})::text`,
       })
-      .from(storeWastage)
-      .innerJoin(storeProducts, eq(storeProducts.id, storeWastage.storeProductId))
+      .from(wastage)
+      .innerJoin(storeProducts, eq(storeProducts.id, wastage.storeProductId))
       .where(eq(storeProducts.storeId, storeId))
-      .groupBy(storeWastage.wastageDate)
-      .orderBy(desc(storeWastage.wastageDate));
-  },
-};
-
-export const wastageRepository = {
-  async createImport(data: typeof wastageImports.$inferInsert) {
-    const [row] = await db.insert(wastageImports).values(data).returning();
-    return row;
-  },
-
-  async updateMatchedRows(importId: number, matchedRows: number) {
-    const [row] = await db
-      .update(wastageImports)
-      .set({ matchedRows })
-      .where(eq(wastageImports.id, importId))
-      .returning();
-    return row ?? null;
-  },
-
-  async getImportById(importId: number) {
-    const [row] = await db
-      .select()
-      .from(wastageImports)
-      .where(eq(wastageImports.id, importId));
-    return row ?? null;
-  },
-
-  async listForStore(storeId: number, limit = 50) {
-    return db
-      .select()
-      .from(wastageImports)
-      .where(eq(wastageImports.storeId, storeId))
-      .orderBy(desc(wastageImports.importedAt))
-      .limit(limit);
+      .groupBy(wastage.wastageDate)
+      .orderBy(desc(wastage.wastageDate));
   },
 };

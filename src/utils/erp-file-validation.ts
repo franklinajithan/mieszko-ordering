@@ -93,6 +93,15 @@ export function detectWastageFileErpType(
   fileName: string,
 ): ErpType | null {
   if (isGloposWastageReport(headers, fileName)) return null;
+  // MSP Stock Adjustment reports are accepted for MSP stores (and auto-parsed).
+  if (/stock\s*adjustment/i.test(fileName)) return "msp";
+  if (
+    hasHeader(headers, ["Item Code"]) &&
+    hasHeader(headers, ["Qty"]) &&
+    (hasHeader(headers, ["St. Before"]) || hasHeader(headers, ["Adj. Amt"]))
+  ) {
+    return "msp";
+  }
   return detectBookStockFileErpType(headers);
 }
 

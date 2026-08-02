@@ -1,45 +1,45 @@
-import { db } from "@/db";
 import type {
-  ErpType,
   FilePreview,
   ImportResult,
   ParsedRow,
   SalesMappingType,
 } from "@/types";
+import { decimalToDb } from "@/utils/decimal";
+import { formatSpreadsheetBarcode } from "@/utils/barcode";
+import { normalizeProductCode } from "@/parsers/product-file-parser";
 import {
   productRepository,
   storeRepository,
-  storeWastageRepository,
   wastageRepository,
 } from "@/repositories";
-import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
-import { importStoreQuantityRows } from "@/services/store-quantity-import.service";
 import {
   assertStoreFileErpMatch,
   type ParseImportFileInput,
 } from "@/services/import-parse.service";
+import {
+  prepareWastageImport,
+  type PreparedWastageRow,
+} from "@/services/wastage-import-prepare";
 import type { GloposWastageReportParseResult } from "@/parsers/glopos-wastage-report-parser";
 import {
-  isGloposWastageReport,
-  parseGloposWastageReport,
   tryParseGloposWastageReport,
   WASTAGE_BARCODE_COLUMN,
   WASTAGE_PRODUCT_CODE_COLUMN,
   WASTAGE_QTY_COLUMN,
 } from "@/parsers/glopos-wastage-report-parser";
-import {
-  detectWastageColumns,
-  parseAllRows,
-  parseUploadedFile,
-} from "@/parsers/file-parser";
-import { normalizeProductCode } from "@/parsers/product-file-parser";
-import { formatSpreadsheetBarcode } from "@/utils/barcode";
+import { tryParseMspStockAdjustmentReport } from "@/parsers/msp-stock-adjustment-parser";
+import { detectWastageColumns, parseUploadedFile } from "@/parsers/file-parser";
 import {
   detectWastageFileErpType,
   resolveStoreErpType,
-  validateErpFileMatch,
 } from "@/utils/erp-file-validation";
-import { wastageImportSchema } from "@/validators/schemas";
+import {
+  WASTAGE_ITEM_CODE_COLUMN,
+  WASTAGE_QTY_COLUMN as WASTAGE_IMPORT_QTY_COLUMN,
+} from "@/lib/wastage-import-constants";
+
+export { prepareWastageImport, WASTAGE_ITEM_CODE_COLUMN };
+export type { PreparedWastageRow };
 
 function catalogCodeKey(code: string): string {
   return normalizeProductCode(code).toLowerCase();
@@ -61,29 +61,19 @@ export type WastageParseResult = FilePreview & {
 export async function parseWastageImportFile(
   input: ParseImportFileInput,
 ): Promise<WastageParseResult> {
-  let gloposWastage = await tryParseGloposWastageReport(
+  if (/rtc|price\s*override/i.test(input.fileName)) {
+    throw new Error(
+      "This looks like an RTC / Price Override file. Use the RTC import page for that report, or upload an MSP Stock Adjustment / GloPOS WastageReport.",
+    );
+  }
+
+  const gloposWastage = await tryParseGloposWastageReport(
     input.buffer,
     input.fileName,
   );
-  if (!gloposWastage && isGloposWastageReport([], input.fileName)) {
-    try {
-      gloposWastage = await parseGloposWastageReport(
-        input.buffer,
-        input.fileName,
-      );
-    } catch (err) {
-      throw new Error(
-        err instanceof Error ?
-          err.message
-        : "Failed to parse GloPOS wastage file",
-      );
-    }
-  }
-
-  let preview: WastageParseResult;
 
   if (gloposWastage) {
-    preview = {
+    let preview: WastageParseResult = {
       headers: gloposWastage.headers,
       rows: gloposWastage.rows.slice(0, 10),
       referenceColumn: gloposWastage.productCodeColumn,
@@ -104,21 +94,54 @@ export async function parseWastageImportFile(
         skippedExcludedReasonRows: gloposWastage.skippedExcludedReasonRows,
       };
     }
-  } else {
-    preview = await parseUploadedFile(input.buffer, input.fileName);
-    if (input.storeId) {
-      const store = await storeRepository.getById(input.storeId);
-      if (store) {
-        const detected = detectWastageColumns(
-          preview.headers,
-          resolveStoreErpType(store.erpType),
-        );
-        preview = {
-          ...preview,
-          referenceColumn: detected.referenceColumn ?? undefined,
-          quantityColumn: detected.quantityColumn ?? undefined,
-        };
-      }
+    await assertStoreFileErpMatch({
+      storeId: input.storeId,
+      headers: preview.headers,
+      fileName: input.fileName,
+      detectFileErpType: detectWastageFileErpType,
+    });
+    return preview;
+  }
+
+  const msp = await tryParseMspStockAdjustmentReport(
+    input.buffer,
+    input.fileName,
+  );
+  if (msp) {
+    const preview: WastageParseResult = {
+      headers: msp.headers,
+      rows: msp.rows.slice(0, 10),
+      referenceColumn: msp.itemCodeColumn,
+      quantityColumn: msp.quantityColumn,
+      wastageDate: msp.wastageDate ?? undefined,
+      duplicateRows: msp.duplicateRows,
+      mappingType: "store_product_code",
+    };
+    await assertStoreFileErpMatch({
+      storeId: input.storeId,
+      headers: preview.headers,
+      fileName: input.fileName,
+      detectFileErpType: detectWastageFileErpType,
+    });
+    return preview;
+  }
+
+  let preview: WastageParseResult = await parseUploadedFile(
+    input.buffer,
+    input.fileName,
+  );
+  if (input.storeId) {
+    const store = await storeRepository.getById(input.storeId);
+    if (store) {
+      const detected = detectWastageColumns(
+        preview.headers,
+        resolveStoreErpType(store.erpType),
+      );
+      preview = {
+        ...preview,
+        referenceColumn: detected.referenceColumn ?? undefined,
+        quantityColumn: detected.quantityColumn ?? undefined,
+      };
     }
   }
 
@@ -132,7 +155,7 @@ export async function parseWastageImportFile(
   return preview;
 }
 
-/** Map GloPOS wastage file codes/barcodes to store catalog item codes before upsert. */
+/** Map GloPOS wastage file codes/barcodes to store catalog item codes. */
 export async function enrichGloposWastageRowsWithStoreProductCodes(
   storeId: number,
   glopos: GloposWastageReportParseResult,
@@ -152,7 +175,10 @@ export async function enrichGloposWastageRowsWithStoreProductCodes(
     ),
   ];
 
-  const storeProducts = await productRepository.findStoreProductsByCodes(storeId, fileCodes);
+  const storeProducts = await productRepository.findStoreProductsByCodes(
+    storeId,
+    fileCodes,
+  );
   const byCatalogCode = new Map<string, (typeof storeProducts)[number]>();
   for (const sp of storeProducts) {
     byCatalogCode.set(catalogCodeKey(sp.storeProductCode), sp);
@@ -170,19 +196,25 @@ export async function enrichGloposWastageRowsWithStoreProductCodes(
     ),
   ];
   if (shortCodes.length) {
-    const extra = await productRepository.findStoreProductsByCodes(storeId, shortCodes);
+    const extra = await productRepository.findStoreProductsByCodes(
+      storeId,
+      shortCodes,
+    );
     for (const sp of extra) {
       byCatalogCode.set(catalogCodeKey(sp.storeProductCode), sp);
     }
   }
 
   const barcodesForLookup = glopos.rows
-    .map((row) => formatSpreadsheetBarcode(row[WASTAGE_BARCODE_COLUMN] ?? "").trim())
+    .map((row) =>
+      formatSpreadsheetBarcode(row[WASTAGE_BARCODE_COLUMN] ?? "").trim(),
+    )
     .filter(Boolean);
-  const barcodeMatches = await productRepository.findStoreProductMatchesForFileBarcodes(
-    storeId,
-    barcodesForLookup,
-  );
+  const barcodeMatches =
+    await productRepository.findStoreProductMatchesForFileBarcodes(
+      storeId,
+      barcodesForLookup,
+    );
   const storeProductByFileBarcode = new Map(
     barcodeMatches.map((m) => [m.fileBarcode, m]),
   );
@@ -193,21 +225,23 @@ export async function enrichGloposWastageRowsWithStoreProductCodes(
   for (const row of glopos.rows) {
     const fileCode = normalizeProductCode(row[codeCol] ?? "");
     const qty = row[qtyCol] ?? "";
-    const fileBarcode = formatSpreadsheetBarcode(row[WASTAGE_BARCODE_COLUMN] ?? "").trim();
+    const fileBarcode = formatSpreadsheetBarcode(
+      row[WASTAGE_BARCODE_COLUMN] ?? "",
+    ).trim();
 
     let storeProductCode: string | null = null;
 
-    const direct = fileCode ? byCatalogCode.get(catalogCodeKey(fileCode)) : undefined;
-    if (direct) {
-      storeProductCode = direct.storeProductCode;
-    }
+    const direct = fileCode
+      ? byCatalogCode.get(catalogCodeKey(fileCode))
+      : undefined;
+    if (direct) storeProductCode = direct.storeProductCode;
 
     if (!storeProductCode && fileBarcode) {
       const asCode = normalizeProductCode(fileBarcode);
-      const fromShortCode = asCode ? byCatalogCode.get(catalogCodeKey(asCode)) : undefined;
-      if (fromShortCode) {
-        storeProductCode = fromShortCode.storeProductCode;
-      }
+      const fromShortCode = asCode
+        ? byCatalogCode.get(catalogCodeKey(asCode))
+        : undefined;
+      if (fromShortCode) storeProductCode = fromShortCode.storeProductCode;
     }
 
     if (!storeProductCode && fileBarcode) {
@@ -251,7 +285,10 @@ export async function buildGloposWastagePreviewWithStoreProductCodes(
   storeId: number,
   glopos: GloposWastageReportParseResult,
 ) {
-  const enriched = await enrichGloposWastageRowsWithStoreProductCodes(storeId, glopos);
+  const enriched = await enrichGloposWastageRowsWithStoreProductCodes(
+    storeId,
+    glopos,
+  );
   const previewHeaders = [WASTAGE_PRODUCT_CODE_COLUMN, WASTAGE_QTY_COLUMN];
   if (glopos.rows.some((r) => r[WASTAGE_BARCODE_COLUMN])) {
     previewHeaders.splice(1, 0, WASTAGE_BARCODE_COLUMN);
@@ -266,14 +303,14 @@ export async function buildGloposWastagePreviewWithStoreProductCodes(
 
   const previewRows = enriched.rows.slice(0, 10).map((row) => ({
     [WASTAGE_PRODUCT_CODE_COLUMN]: row[WASTAGE_PRODUCT_CODE_COLUMN] ?? "",
-    ...(previewHeaders.includes(WASTAGE_BARCODE_COLUMN) ?
-      {
-        [WASTAGE_BARCODE_COLUMN]:
-          fileBarcodeByCode.get(
-            catalogCodeKey(row[WASTAGE_PRODUCT_CODE_COLUMN] ?? ""),
-          ) ?? "",
-      }
-    : {}),
+    ...(previewHeaders.includes(WASTAGE_BARCODE_COLUMN)
+      ? {
+          [WASTAGE_BARCODE_COLUMN]:
+            fileBarcodeByCode.get(
+              catalogCodeKey(row[WASTAGE_PRODUCT_CODE_COLUMN] ?? ""),
+            ) ?? "",
+        }
+      : {}),
     [WASTAGE_QTY_COLUMN]: row[WASTAGE_QTY_COLUMN] ?? "",
   }));
 
@@ -292,92 +329,81 @@ export async function buildGloposWastagePreviewWithStoreProductCodes(
   };
 }
 
+export async function importWastageQuantityBatch(input: {
+  storeId: number;
+  wastageDate: string;
+  rows: PreparedWastageRow[];
+  result: ImportResult;
+}) {
+  if (!input.rows.length) return;
+
+  const references = [...new Set(input.rows.map((row) => row.reference))];
+  const products = await productRepository.findStoreProductsByCodes(
+    input.storeId,
+    references,
+  );
+  const storeProductByReference = new Map(
+    products.map((product) => [product.storeProductCode, product.id]),
+  );
+
+  const toUpsert: Array<{
+    storeProductId: number;
+    wastageDate: string;
+    wastageQty: string;
+  }> = [];
+
+  for (const row of input.rows) {
+    const storeProductId = storeProductByReference.get(row.reference);
+    if (!storeProductId) {
+      input.result.unmatchedRows += 1;
+      if (input.result.errors.length < 25) {
+        input.result.errors.push({
+          rowNumber: row.rowNumber,
+          reference: row.reference,
+          message: `No matching store product. ${
+            row.productName ? `Name: ${row.productName}` : "Check item code"
+          }`,
+        });
+      }
+      continue;
+    }
+
+    toUpsert.push({
+      storeProductId,
+      wastageDate: input.wastageDate,
+      wastageQty: decimalToDb(row.qty),
+    });
+  }
+
+  if (toUpsert.length) {
+    await wastageRepository.upsertBatch(toUpsert);
+    input.result.matchedRows += toUpsert.length;
+  }
+}
+
+/** Import wastage rows already keyed by store product code. */
 export async function importWastageRows(input: {
   storeId: number;
   wastageDate: string;
-  mappingType: SalesMappingType;
+  mappingType?: SalesMappingType;
   referenceColumn: string;
   quantityColumn: string;
-  fileName: string;
   rows: ParsedRow[];
-  erpType?: ErpType;
-  skipReferencePivot?: boolean;
-}): Promise<ImportResult & { importId: number }> {
-  let rows = input.rows;
-  let duplicateRows = 0;
-
-  if (input.erpType === "glopos" && !input.skipReferencePivot) {
-    const pivoted = pivotBookStockByReference(
-      rows,
-      input.referenceColumn,
-      input.quantityColumn,
-    );
-    rows = pivoted.rows;
-    duplicateRows = pivoted.duplicateRows;
-  }
-
-  let importId = 0;
-  let result: ImportResult = {
-    totalRows: rows.length,
-    matchedRows: 0,
-    unmatchedRows: 0,
-    invalidRows: 0,
-    duplicateRows,
-    errors: [],
-  };
-
-  await db.transaction(async () => {
-    const wastageImport = await wastageRepository.createImport({
-      storeId: input.storeId,
-      wastageDate: input.wastageDate,
-      fileName: input.fileName,
-      referenceColumn: input.referenceColumn,
-      quantityColumn: input.quantityColumn,
-    });
-    importId = wastageImport.id;
-
-    result = await importStoreQuantityRows({
-      storeId: input.storeId,
-      mappingType: input.mappingType,
-      productColumn: input.referenceColumn,
-      quantityColumn: input.quantityColumn,
-      recordDate: input.wastageDate,
-      rows,
-      upsert: async ({ storeProductId, quantity }) => {
-        await storeWastageRepository.upsert({
-          storeProductId,
-          wastageDate: input.wastageDate,
-          wastageQty: quantity,
-        });
-      },
-    });
-
-    result.duplicateRows = (result.duplicateRows ?? 0) + duplicateRows;
-    await wastageRepository.updateMatchedRows(importId, result.matchedRows);
+}): Promise<ImportResult> {
+  const prepared = prepareWastageImport({
+    referenceColumn: input.referenceColumn,
+    quantityColumn: input.quantityColumn,
+    rows: input.rows,
   });
 
-  return { ...result, importId };
-}
+  await importWastageQuantityBatch({
+    storeId: input.storeId,
+    wastageDate: input.wastageDate,
+    rows: prepared.rows,
+    result: prepared.result,
+  });
 
-export type WastageImportSummary = {
-  importId: number;
-  fileName: string | null;
-  wastageDate: string;
-  importedAt: Date;
-  itemCount: number;
-};
-
-export async function listWastageImportsForStore(
-  storeId: number,
-): Promise<WastageImportSummary[]> {
-  const imports = await wastageRepository.listForStore(storeId);
-  return imports.map((entry) => ({
-    importId: entry.id,
-    fileName: entry.fileName,
-    wastageDate: entry.wastageDate,
-    importedAt: entry.importedAt,
-    itemCount: entry.matchedRows ?? 0,
-  }));
+  return prepared.result;
 }
 
 export type WastageStoreSummary = {
@@ -390,7 +416,7 @@ export type WastageStoreSummary = {
 export async function listWastageSummariesForStore(
   storeId: number,
 ): Promise<WastageStoreSummary[]> {
-  const rows = await storeWastageRepository.listDateSummariesForStore(storeId);
+  const rows = await wastageRepository.listDateSummariesForStore(storeId);
   return rows.map((row) => ({
     wastageDate: row.wastageDate,
     itemCount: row.itemCount,
@@ -403,86 +429,5 @@ export async function deleteWastageForStoreDate(
   storeId: number,
   wastageDate: string,
 ): Promise<void> {
-  await storeWastageRepository.deleteForStoreAndDate(storeId, wastageDate);
-}
-
-/** Resolve + import wastage from an uploaded FormData payload. */
-export async function importWastageFromForm(
-  formData: FormData,
-): Promise<ImportResult & { importId: number }> {
-  const file = formData.get("file");
-  if (!(file instanceof File)) throw new Error("No file uploaded");
-
-  const meta = wastageImportSchema.safeParse({
-    storeId: formData.get("storeId"),
-    wastageDate: formData.get("wastageDate"),
-    mappingType: formData.get("mappingType") || "store_product_code",
-    referenceColumn: formData.get("referenceColumn"),
-    quantityColumn: formData.get("quantityColumn"),
-    fileName: file.name,
-  });
-  if (!meta.success) throw new Error(meta.error.message);
-
-  const store = await storeRepository.getById(meta.data.storeId);
-  if (!store) throw new Error("Store not found");
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  let gloposWastage = await tryParseGloposWastageReport(buffer, file.name);
-  if (!gloposWastage && isGloposWastageReport([], file.name)) {
-    gloposWastage = await parseGloposWastageReport(buffer, file.name);
-  }
-
-  let rows: ParsedRow[];
-  let importMeta = { ...meta.data };
-  let previewHeaders: string[] = [];
-  let skipReferencePivot = false;
-
-  if (gloposWastage) {
-    if (!gloposWastage.rows.length) {
-      throw new Error("No wastage product rows found in the file.");
-    }
-    const enriched = await enrichGloposWastageRowsWithStoreProductCodes(
-      meta.data.storeId,
-      gloposWastage,
-    );
-    if (!enriched.rows.length) {
-      const sample = enriched.unmatchedCodes.slice(0, 5).join(", ");
-      throw new Error(
-        enriched.unmatchedCodes.length
-          ? `No store products matched the file (${enriched.unmatchedCodes.length} unmatched${sample ? `: ${sample}` : ""}). Import the product catalog for this store first, then try again.`
-          : "No wastage product rows found in the file.",
-      );
-    }
-    rows = enriched.rows;
-    previewHeaders = gloposWastage.headers;
-    skipReferencePivot = true;
-    importMeta = {
-      ...importMeta,
-      referenceColumn: gloposWastage.productCodeColumn,
-      quantityColumn: gloposWastage.quantityColumn,
-      mappingType: "store_product_code",
-      wastageDate:
-        importMeta.wastageDate ||
-        gloposWastage.wastageDate ||
-        meta.data.wastageDate,
-    };
-  } else {
-    const all = await parseAllRows(buffer, file.name);
-    rows = all.rows;
-    previewHeaders = all.headers;
-  }
-
-  const storeErpType = resolveStoreErpType(store.erpType);
-  const mismatch = validateErpFileMatch(
-    detectWastageFileErpType(previewHeaders, file.name),
-    storeErpType,
-  );
-  if (mismatch) throw new Error(mismatch);
-
-  return importWastageRows({
-    ...importMeta,
-    rows,
-    erpType: storeErpType,
-    skipReferencePivot,
-  });
+  await wastageRepository.deleteForStoreAndDate(storeId, wastageDate);
 }

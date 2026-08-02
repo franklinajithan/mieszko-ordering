@@ -23,3 +23,11 @@ export type WastageSavedRow = {
   totalWastageQty: string;
   lastUpdated: Date;
 };
+
+export type WastageImportProgress = {
+  processed: number;
+  total: number;
+  fileName: string;
+  storeName: string;
+  done: boolean;
+};
