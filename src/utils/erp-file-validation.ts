@@ -1,5 +1,6 @@
 import { detectBookStockColumns } from "@/parsers/file-parser";
 import { isGloposRtcHistoryReport } from "@/parsers/glopos-rtc-history-parser";
+import { isGloposStockValuationReport } from "@/parsers/glopos-stock-valuation-parser";
 import { isGloposWastageReport } from "@/parsers/glopos-wastage-report-parser";
 import { isGloposRetailReport } from "@/parsers/glopos-retail-parser";
 import { detectProductFileColumns } from "@/parsers/product-file-parser";
@@ -45,7 +46,12 @@ export function detectProductFileErpType(headers: string[]): ErpType | null {
   return null;
 }
 
-export function detectBookStockFileErpType(headers: string[]): ErpType | null {
+export function detectBookStockFileErpType(
+  headers: string[],
+  fileName = "",
+): ErpType | null {
+  if (isGloposStockValuationReport(headers, fileName)) return null;
+
   const hasItemCode = hasHeader(headers, BOOK_STOCK_COLUMNS.glopos.reference);
   const hasCurrentStock = headers.some((header) =>
     normHeader(header).includes("current stock"),

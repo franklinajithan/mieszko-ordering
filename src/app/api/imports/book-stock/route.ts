@@ -1,9 +1,31 @@
+import { z } from "zod";
+import { storeRepository } from "@/repositories";
 import {
+  importBookStockChunk,
   importBookStockFromForm,
 } from "@/services/book-stock-import.service";
 import { listBookStockImportsForStore } from "@/services/apply-book-stock-to-order.service";
-import { apiError, apiOk, route } from "@/lib/api/http";
+import { BOOK_STOCK_IMPORT_CHUNK_SIZE } from "@/lib/book-stock-import-constants";
+import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
+import {
+  detectBookStockFileErpType,
+  resolveStoreErpType,
+  validateErpFileMatch,
+} from "@/utils/erp-file-validation";
 import { idSchema } from "@/validators/schemas";
+
+const chunkSchema = z.object({
+  storeId: z.number().int().positive(),
+  bookStockDate: z.string().date(),
+  referenceColumn: z.string().min(1),
+  quantityColumn: z.string().min(1),
+  fileName: z.string().min(1),
+  importId: z.number().int().positive().optional(),
+  rows: z
+    .array(z.record(z.string(), z.string()))
+    .min(1)
+    .max(BOOK_STOCK_IMPORT_CHUNK_SIZE),
+});
 
 export const GET = route(async (req) => {
   const storeId = idSchema.safeParse(
@@ -14,6 +36,25 @@ export const GET = route(async (req) => {
 });
 
 export const POST = route(async (req) => {
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const parsed = await parseJson(req, chunkSchema);
+    if (!parsed.ok) return parsed.response;
+
+    const store = await storeRepository.getById(parsed.data.storeId);
+    if (!store) return apiError("Store not found", 404);
+
+    const headers = [parsed.data.referenceColumn, parsed.data.quantityColumn];
+    const mismatch = validateErpFileMatch(
+      detectBookStockFileErpType(headers, parsed.data.fileName),
+      resolveStoreErpType(store.erpType),
+    );
+    if (mismatch) return apiError(mismatch);
+
+    const result = await importBookStockChunk(parsed.data);
+    return apiOk(result);
+  }
+
   const formData = await req.formData();
   return apiOk(await importBookStockFromForm(formData));
 });

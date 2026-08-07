@@ -71,6 +71,18 @@ export function route<Args extends unknown[]>(
         error instanceof Error ? error.message : "Internal server error";
       // Never leak raw SQL / drizzle "Failed query" text to the client.
       if (/failed query|insert into|update "|select /i.test(message)) {
+        if (/product_barcodes\.store_product_id does not exist|product_barcodes\.store_id does not exist/i.test(message)) {
+          return apiError(
+            "Database schema is out of date. Run: npx tsx scripts/migrate-product-barcodes-per-store.ts",
+            500,
+          );
+        }
+        if (/relation "wastage" does not exist|relation \"wastage\" does not exist/i.test(message)) {
+          return apiError(
+            "Database schema is out of date. Run: npx tsx scripts/migrate-wastage-table-rename.ts",
+            500,
+          );
+        }
         return apiError("Something went wrong. Please try again.", 500);
       }
       return apiError(message, 500);

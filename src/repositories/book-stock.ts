@@ -14,6 +14,11 @@ export const bookStockRepository = {
     return db.insert(bookStockItems).values(rows).returning();
   },
 
+  async insertItemsFast(rows: Array<typeof bookStockItems.$inferInsert>) {
+    if (!rows.length) return;
+    await db.insert(bookStockItems).values(rows);
+  },
+
   async getImportById(importId: number) {
     const [row] = await db
       .select()

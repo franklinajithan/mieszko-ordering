@@ -11,7 +11,8 @@ const globalForDb = globalThis as unknown as {
 
 function createPostgresClient(url: string) {
   return postgres(url, {
-    max: process.env.NODE_ENV === "production" ? 10 : 1,
+    // Dev uses 1 by default in older builds; need >1 if a transaction awaits other queries on `db`.
+    max: process.env.NODE_ENV === "production" ? 10 : 5,
     idle_timeout: 20,
     max_lifetime: 60 * 30,
     connect_timeout: 10,

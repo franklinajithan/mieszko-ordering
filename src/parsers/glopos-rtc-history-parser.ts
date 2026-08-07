@@ -99,6 +99,8 @@ function isMetaRow(barcode: string, description: string): boolean {
     lowerDesc.startsWith("item group name") ||
     lowerBarcode.startsWith("total :") ||
     lowerDesc.startsWith("total :") ||
+    lowerBarcode.startsWith("grand total") ||
+    lowerDesc.startsWith("grand total") ||
     lowerDesc.includes("trans id - till name") ||
     normHeader(barcode).includes("barcode")
   );

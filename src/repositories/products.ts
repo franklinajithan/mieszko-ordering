@@ -336,6 +336,19 @@ export const productRepository = {
       );
   },
 
+  async findStoreProductsByLowercaseCodes(storeId: number, lowerCodes: string[]) {
+    if (!lowerCodes.length) return [];
+    return db
+      .select()
+      .from(storeProducts)
+      .where(
+        and(
+          eq(storeProducts.storeId, storeId),
+          inArray(sql`lower(${storeProducts.storeProductCode})`, lowerCodes),
+        ),
+      );
+  },
+
   async findMspStoreProductByCode(code: string) {
     const [row] = await db
       .select({
