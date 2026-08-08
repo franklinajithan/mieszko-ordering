@@ -1,7 +1,11 @@
 import { notFound } from "next/navigation";
 import { OrderDetailPageView } from "@/components/orders/order-detail-page";
-import { orderRepository, storeRepository } from "@/repositories";
+import { getOrderDetail } from "@/lib/api/orders";
 import { parseRouteId } from "@/utils/parse-route-id";
+import type { ComponentProps } from "react";
+import type { OrderReviewTable } from "@/components/orders/order-review-table";
+
+type ReviewProps = ComponentProps<typeof OrderReviewTable>;
 
 export default async function OrderDetailPage({
   params,
@@ -12,24 +16,22 @@ export default async function OrderDetailPage({
   const id = parseRouteId(idParam);
   if (id === null) notFound();
 
-  const order = await orderRepository.getById(id);
-  if (!order) notFound();
-
-  const [store, items, supplierPrices, selectedSuppliers] = await Promise.all([
-    storeRepository.getById(order.storeId),
-    orderRepository.getOrderItemsWithDetails(id),
-    orderRepository.getItemSupplierPrices(id),
-    orderRepository.getSelectedSuppliers(id),
-  ]);
+  const detail = await getOrderDetail(id);
+  if (!detail.success) {
+    if (detail.error.toLowerCase().includes("not found")) notFound();
+    throw new Error(detail.error);
+  }
 
   return (
     <OrderDetailPageView
       orderId={id}
-      storeName={store?.name ?? "Store"}
-      order={order}
-      items={items}
-      supplierPrices={supplierPrices}
-      selectedSuppliers={selectedSuppliers}
+      storeName={detail.data.storeName}
+      order={detail.data.order}
+      items={detail.data.items as ReviewProps["items"]}
+      supplierPrices={detail.data.supplierPrices as ReviewProps["supplierPrices"]}
+      selectedSuppliers={
+        detail.data.selectedSuppliers as ReviewProps["selectedSuppliers"]
+      }
     />
   );
 }

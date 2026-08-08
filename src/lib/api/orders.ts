@@ -1,6 +1,42 @@
 import type { ActionResult, ImportResult } from "@/types";
 import { apiFormRequest, apiRequest } from "./client";
 
+export type OrderListRow = {
+  order: {
+    id: number;
+    createdAt: string;
+    bookStockDate: string;
+    clientDeliveryDate: string;
+    status: string;
+  };
+  store: { name: string };
+};
+
+export function listOrders(): Promise<ActionResult<OrderListRow[]>> {
+  return apiRequest("/orders");
+}
+
+export type OrderDetail = {
+  order: {
+    id: number;
+    storeId: number;
+    bookStockDate: string;
+    clientDeliveryDate: string;
+    status: string;
+    notes: string | null;
+  };
+  storeName: string;
+  items: unknown[];
+  supplierPrices: unknown[];
+  selectedSuppliers: unknown[];
+};
+
+export function getOrderDetail(
+  orderId: number,
+): Promise<ActionResult<OrderDetail>> {
+  return apiRequest(`/orders/${orderId}`);
+}
+
 export function createOrder(
   input: unknown,
 ): Promise<ActionResult<{ id: number }>> {

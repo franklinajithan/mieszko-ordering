@@ -1,7 +1,8 @@
 import { OrdersPageView } from "@/components/orders/orders-page";
-import { orderRepository } from "@/repositories";
+import { listOrders } from "@/lib/api/orders";
 
 export default async function OrdersPage() {
-  const orders = await orderRepository.list();
-  return <OrdersPageView orders={orders} />;
+  const orders = await listOrders();
+  if (!orders.success) throw new Error(orders.error);
+  return <OrdersPageView orders={orders.data} />;
 }

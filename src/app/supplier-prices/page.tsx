@@ -1,7 +1,8 @@
 import { SupplierPricesPageView } from "@/components/daily-sales/supplier-prices-page";
-import { supplierRepository } from "@/repositories";
+import { listSuppliers } from "@/lib/api/suppliers";
 
 export default async function SupplierPricesPage() {
-  const suppliers = await supplierRepository.list();
-  return <SupplierPricesPageView suppliers={suppliers} />;
+  const suppliers = await listSuppliers();
+  if (!suppliers.success) throw new Error(suppliers.error);
+  return <SupplierPricesPageView suppliers={suppliers.data} />;
 }

@@ -1,7 +1,8 @@
 import { PromoSalesPageView } from "@/components/daily-sales/promo-sales-page";
-import { storeRepository } from "@/repositories";
+import { listStores } from "@/lib/api/stores";
 
 export default async function PromoSalesPage() {
-  const stores = await storeRepository.list();
-  return <PromoSalesPageView stores={stores} />;
+  const stores = await listStores();
+  if (!stores.success) throw new Error(stores.error);
+  return <PromoSalesPageView stores={stores.data} />;
 }

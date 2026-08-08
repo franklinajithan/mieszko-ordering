@@ -1,7 +1,8 @@
 import { BookStockPageView } from "@/components/daily-sales/book-stock-page";
-import { storeRepository } from "@/repositories";
+import { listStores } from "@/lib/api/stores";
 
 export default async function BookStockPage() {
-  const stores = await storeRepository.list();
-  return <BookStockPageView stores={stores} />;
+  const stores = await listStores();
+  if (!stores.success) throw new Error(stores.error);
+  return <BookStockPageView stores={stores.data} />;
 }
