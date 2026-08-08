@@ -9,7 +9,9 @@ import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { detectPromoColumns } from "@/parsers/file-parser";
-import { BOOK_STOCK_COLUMNS, type ErpType, type FilePreview, type ImportResult } from "@/types";
+import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
+import type { ErpType, FilePreview, ImportResult } from "@/types";
+import type { StoreOption } from "@/types/store";
 import {
   detectBookStockFileErpType,
   reportErpMismatch,
@@ -17,7 +19,6 @@ import {
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 
-type Store = { id: number; name: string; code: string; erpType: string };
 type PromoImport = {
   importId: number;
   fileName: string | null;
@@ -26,7 +27,7 @@ type PromoImport = {
   itemCount: number;
 };
 
-export function PromoImportForm({ stores }: { stores: Store[] }) {
+export function PromoImportForm({ stores }: { stores: StoreOption[] }) {
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [result, setResult] = useState<(ImportResult & { importId?: number }) | null>(null);
   const [error, setError] = useState<string | null>(null);

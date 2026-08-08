@@ -23,6 +23,11 @@ import { parseWastageFileBuffer } from "@/parsers/wastage-file-parser";
 import { prepareWastageImport } from "@/services/wastage-import-prepare";
 import { remapRtcBarcodeRowsToStoreProductCodes } from "@/services/rtc-import-prepare";
 import type { ImportResult } from "@/types";
+import type { StoreOption } from "@/types/store";
+import type {
+  WastageImportProgress,
+  WastagePreviewState,
+} from "@/components/wastage/types";
 import {
   detectWastageFileErpType,
   reportErpMismatch,
@@ -31,11 +36,6 @@ import {
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 import { decimalToDb } from "@/utils/decimal";
 import { formatSpreadsheetBarcode } from "@/utils/barcode";
-import type {
-  Store,
-  WastageImportProgress,
-  WastagePreviewState,
-} from "@/types/wastage";
 
 function mergeMatchResults(a: ImportResult, b: ImportResult): ImportResult {
   return {
@@ -54,7 +54,7 @@ function chunkRows<T>(rows: T[], size: number): T[][] {
   return batches;
 }
 
-export function WastageImportForm({ stores }: { stores: Store[] }) {
+export function WastageImportForm({ stores }: { stores: StoreOption[] }) {
   const [preview, setPreview] = useState<WastagePreviewState | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);

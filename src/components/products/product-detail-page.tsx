@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ComponentProps } from "react";
 import type { DepartmentOption } from "@/types/department";
-import { departmentName } from "@/types/department";
+import { departmentName } from "@/utils/department";
 import { AppShell } from "@/components/layout/app-shell";
 import { ProductDetailForms } from "@/components/products/product-detail-forms";
 

@@ -16,6 +16,11 @@ import {
 } from "@/parsers/daily-sales-file-parser";
 import { prepareDailySalesImport } from "@/services/daily-sales-import-prepare";
 import type { ImportResult } from "@/types";
+import type { StoreOption } from "@/types/store";
+import type {
+  DailySalesImportProgress,
+  DailySalesPreviewState,
+} from "@/components/daily-sales/types";
 import {
   detectDailySalesFileErpType,
   reportErpMismatch,
@@ -23,7 +28,6 @@ import {
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 import { decimalToDb } from "@/utils/decimal";
-import type { Store, PreviewState, ImportProgress } from "@/types/daily-sales";
 
 function mergeMatchResults(a: ImportResult, b: ImportResult): ImportResult {
   return {
@@ -42,8 +46,8 @@ function chunkRows<T>(rows: T[], size: number): T[][] {
   return batches;
 }
 
-export function DailySalesImportForm({ stores }: { stores: Store[] }) {
-  const [preview, setPreview] = useState<PreviewState | null>(null);
+export function DailySalesImportForm({ stores }: { stores: StoreOption[] }) {
+  const [preview, setPreview] = useState<DailySalesPreviewState | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -52,7 +56,7 @@ export function DailySalesImportForm({ stores }: { stores: Store[] }) {
   const [salesDate, setSalesDate] = useState("");
   const [excelSalesDate, setExcelSalesDate] = useState("");
   const [storeId, setStoreId] = useState("");
-  const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const [progress, setProgress] = useState<DailySalesImportProgress | null>(null);
   const [listRefreshKey, setListRefreshKey] = useState(0);
 
   async function validateSelectedFile(selected: File | null) {

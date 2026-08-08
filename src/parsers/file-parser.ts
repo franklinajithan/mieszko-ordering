@@ -1,7 +1,8 @@
 import { parse } from "papaparse";
 import ExcelJS from "exceljs";
 import type { FilePreview, ParsedRow } from "@/types";
-import { BOOK_STOCK_COLUMNS, type ErpType } from "@/types";
+import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
+import type { ErpType } from "@/types";
 
 function normalizeCell(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return "";

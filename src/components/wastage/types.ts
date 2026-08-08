@@ -1,6 +1,4 @@
-import type { FilePreview } from "@/types";
-
-export type Store = { id: number; name: string; code: string; erpType: string };
+import type { FilePreview } from "@/types/import";
 
 export type WastagePreviewState = FilePreview & {
   referenceColumn?: string;

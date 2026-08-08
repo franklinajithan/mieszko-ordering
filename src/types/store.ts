@@ -5,3 +5,6 @@ export type Store = {
   erpType: string;
   isActive: boolean;
 };
+
+/** Dropdown / import form props — full row not required. */
+export type StoreOption = Pick<Store, "id" | "name" | "code" | "erpType">;

@@ -18,7 +18,8 @@ import { detectBookStockColumns } from "@/parsers/file-parser";
 import { parseBookStockFileOnClient } from "@/lib/book-stock/parse-on-client";
 import type { BookStockFileParseResult } from "@/parsers/book-stock-file-parser";
 import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
-import { BOOK_STOCK_COLUMNS, type ErpType, type FilePreview, type ImportResult } from "@/types";
+import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
+import type { ErpType, FilePreview, ImportResult } from "@/types";
 import {
   detectBookStockFileErpType,
   reportErpMismatch,

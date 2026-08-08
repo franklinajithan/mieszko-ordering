@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { deleteDailySalesUpload, listDailySalesSummaries } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
-import type { DailySalesUploadRow, Store } from "@/types/daily-sales";
+import type { DailySalesUploadRow } from "@/components/daily-sales/types";
+import type { StoreOption } from "@/types/store";
 
 export function DailySalesListPage({
   storeId,
@@ -12,7 +13,7 @@ export function DailySalesListPage({
   refreshKey = 0,
 }: {
   storeId: string;
-  stores: Store[];
+  stores: StoreOption[];
   refreshKey?: number;
 }) {
   const [loadingRows, setLoadingRows] = useState(false);

@@ -1,13 +1,12 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { DailySalesImportForm } from "@/components/daily-sales/daily-sales-import-form";
+import type { StoreOption } from "@/types/store";
 
-type Store = { id: number; name: string; code: string; erpType: string };
-
-export function DailySalesPageView({ stores }: { stores: Store[] }) {
+export function DailySalesPageView({ stores }: { stores: StoreOption[] }) {
   return (
     <AppShell
-      title="Daily Sales Import"
-      description="Upload CSV or XLSX sales history and map columns to store products."
+      title="Daily Sales"
+      description="Import daily sales quantities by store and date from Excel."
     >
       <DailySalesImportForm stores={stores} />
     </AppShell>

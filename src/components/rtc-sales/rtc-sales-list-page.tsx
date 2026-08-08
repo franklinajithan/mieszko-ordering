@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { deleteRtcUpload, listRtcSummaries } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
-import type { RtcSavedRow, Store } from "@/types/rtc";
+import type { RtcSavedRow } from "@/components/rtc-sales/types";
+import type { StoreOption } from "@/types/store";
 
 export function RtcSalesListPage({
   storeId,
@@ -12,7 +13,7 @@ export function RtcSalesListPage({
   refreshKey = 0,
 }: {
   storeId: string;
-  stores: Store[];
+  stores: StoreOption[];
   refreshKey?: number;
 }) {
   const [loadingRows, setLoadingRows] = useState(false);

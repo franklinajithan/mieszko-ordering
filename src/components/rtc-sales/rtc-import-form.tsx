@@ -22,6 +22,8 @@ import {
   remapRtcBarcodeRowsToStoreProductCodes,
 } from "@/services/rtc-import-prepare";
 import type { ImportResult } from "@/types";
+import type { StoreOption } from "@/types/store";
+import type { RtcImportProgress, RtcPreviewState } from "@/components/rtc-sales/types";
 import {
   detectRtcFileErpType,
   reportErpMismatch,
@@ -30,7 +32,6 @@ import {
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 import { formatSpreadsheetBarcode } from "@/utils/barcode";
 import { decimalToDb } from "@/utils/decimal";
-import type { RtcImportProgress, RtcPreviewState, Store } from "@/types/rtc";
 
 function mergeMatchResults(a: ImportResult, b: ImportResult): ImportResult {
   return {
@@ -49,7 +50,7 @@ function chunkRows<T>(rows: T[], size: number): T[][] {
   return batches;
 }
 
-export function RtcImportForm({ stores }: { stores: Store[] }) {
+export function RtcImportForm({ stores }: { stores: StoreOption[] }) {
   const [preview, setPreview] = useState<RtcPreviewState | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);

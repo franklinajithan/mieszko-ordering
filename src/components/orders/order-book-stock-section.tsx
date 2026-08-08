@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { BOOK_STOCK_COLUMNS, type ErpType, type ImportResult } from "@/types";
+import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
+import type { ErpType, ImportResult } from "@/types";
 import {
   detectBookStockFileErpType,
   reportErpMismatch,

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { deleteWastageUpload, listWastageSummaries } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
-import type { Store, WastageSavedRow } from "@/types/wastage";
+import type { WastageSavedRow } from "@/components/wastage/types";
+import type { StoreOption } from "@/types/store";
 
 export function WastageListPage({
   storeId,
@@ -12,7 +13,7 @@ export function WastageListPage({
   refreshKey = 0,
 }: {
   storeId: string;
-  stores: Store[];
+  stores: StoreOption[];
   refreshKey?: number;
 }) {
   const [loadingRows, setLoadingRows] = useState(false);

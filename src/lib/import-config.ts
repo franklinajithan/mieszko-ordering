@@ -3,6 +3,8 @@
  * Chunk sizes are overridable via NEXT_PUBLIC_* so browser and API stay in sync.
  */
 
+import type { ErpType } from "@/types/import";
+
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw == null || raw === "") return fallback;
@@ -28,6 +30,42 @@ export const IMPORT_COLUMNS = {
   itemCode: "Item Code",
   qty: "Qty",
 } as const;
+
+export const ERP_TYPES: ErpType[] = ["msp", "glopos"];
+
+export const BOOK_STOCK_COLUMNS: Record<
+  ErpType,
+  { reference: string[]; quantity: string[]; label: string }
+> = {
+  msp: {
+    reference: ["ID", "Id"],
+    quantity: ["Qty", "QTY", "Quantity"],
+    label: "MSP (ID + Qty)",
+  },
+  glopos: {
+    reference: ["Item Code"],
+    quantity: ["Current Stock"],
+    label: "GloPOS (Item Code + Current Stock, pivoted)",
+  },
+};
+
+export const KNOWN_PRICE_COLUMNS: Record<
+  string,
+  { reference: string[]; price: string[] }
+> = {
+  MM: {
+    reference: ["Index", "index"],
+    price: ["Net Price (Invoice)", "Net Price", "net price (invoice)"],
+  },
+  SP: {
+    reference: ["Index", "index"],
+    price: ["NetPrice", "Net Price", "netprice"],
+  },
+  WAB: {
+    reference: ["Index", "index", "Code", "code"],
+    price: ["NetPrice", "Net Price", "Price", "price"],
+  },
+};
 
 // Named aliases — keep call sites readable without changing every symbol.
 export const PRODUCT_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.products;

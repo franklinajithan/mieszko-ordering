@@ -5,7 +5,8 @@ import { isGloposWastageReport } from "@/parsers/glopos-wastage-report-parser";
 import { isGloposStockVarianceWastageReport } from "@/parsers/glopos-stock-variance-wastage-parser";
 import { isGloposRetailReport } from "@/parsers/glopos-retail-parser";
 import { detectProductFileColumns } from "@/parsers/product-file-parser";
-import { BOOK_STOCK_COLUMNS, type ErpType } from "@/types";
+import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
+import type { ErpType } from "@/types";
 
 function normHeader(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();

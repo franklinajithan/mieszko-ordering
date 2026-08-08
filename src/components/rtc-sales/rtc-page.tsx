@@ -1,8 +1,8 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { RtcImportForm } from "@/components/rtc-sales/rtc-import-form";
-import type { Store } from "@/types/store";
+import type { StoreOption } from "@/types/store";
 
-export function RtcPageView({ stores }: { stores: Store[] }) {
+export function RtcPageView({ stores }: { stores: StoreOption[] }) {
   return (
     <AppShell
       title="RTC (Reduce to Clear)"

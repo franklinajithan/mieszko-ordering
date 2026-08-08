@@ -7,9 +7,27 @@ import {
   ProductImportProvider,
   ProductImportStatusBar,
 } from "@/components/products/product-import-context";
-import type { ProductsPageProps } from "@/types/product";
+import type { DepartmentOption } from "@/types/department";
+import type { ProductRow, ProductStoreRow } from "@/types/product";
 
-export type { ProductsPageProps };
+export type ProductsPageProps = {
+  stores: ProductStoreRow[];
+  departments: DepartmentOption[];
+  products: ProductRow[];
+  total: number;
+  duplicateNames: Set<string>;
+  selectedStore: ProductStoreRow | undefined;
+  validStoreId: number | undefined;
+  safePage: number;
+  pageSize: number;
+  pageSizeOptions: number[];
+  defaultPageSize: number;
+  lineOffset: number;
+  paginationParams: Record<string, string | undefined>;
+  search?: string;
+  activeFilter?: string;
+  departmentFilter?: string;
+};
 
 export function ProductsPageView({
   stores,

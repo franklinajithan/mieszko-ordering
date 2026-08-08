@@ -9,10 +9,24 @@ import {
   type ReactNode,
 } from "react";
 import type { ImportResult } from "@/types";
-import type {
-  ProductImportPhase,
-  ProductImportStatus,
-} from "@/types/product";
+
+type ProductImportPhase =
+  | "idle"
+  | "parsing"
+  | "importing"
+  | "done"
+  | "error";
+
+type ProductImportStatus = {
+  phase: ProductImportPhase;
+  fileName?: string;
+  storeName?: string;
+  processed: number;
+  total: number;
+  estimated?: boolean;
+  message?: string;
+  result?: ImportResult;
+};
 
 type ProductImportContextValue = {
   status: ProductImportStatus;

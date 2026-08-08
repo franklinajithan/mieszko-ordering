@@ -1,6 +1,4 @@
-export type Store = { id: number; name: string; erpType: string };
-
-export type PreviewState = {
+export type DailySalesPreviewState = {
   headers: string[];
   rows: Record<string, string>[];
   productColumn?: string;
@@ -10,7 +8,7 @@ export type PreviewState = {
   duplicateRows?: number;
 };
 
-export type ImportProgress = {
+export type DailySalesImportProgress = {
   processed: number;
   total: number;
   fileName: string;
@@ -26,11 +24,4 @@ export type DailySalesUploadRow = {
   matchedRows: number;
   totalSoldQty: string;
   uploadedAt: Date;
-};
-
-export type DailySalesDateSummary = {
-  salesDate: string;
-  itemCount: number;
-  totalSoldQty: string;
-  lastUpdated: string;
 };
