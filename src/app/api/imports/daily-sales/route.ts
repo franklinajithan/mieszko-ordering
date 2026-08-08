@@ -12,10 +12,7 @@ import {
   validateErpFileMatch,
 } from "@/utils/erp-file-validation";
 import { idSchema } from "@/validators/schemas";
-
-const DAILY_SALES_IMPORT_CHUNK_SIZE = parseInt(
-  process.env.NEXT_PUBLIC_DAILY_SALES_IMPORT_CHUNK_SIZE ?? "2000",
-);
+import { DAILY_SALES_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 
 const chunkSchema = z.object({
   storeId: z.number().int().positive(),

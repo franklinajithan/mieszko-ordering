@@ -5,7 +5,7 @@ import {
   importBookStockFromForm,
 } from "@/services/book-stock-import.service";
 import { listBookStockImportsForStore } from "@/services/apply-book-stock-to-order.service";
-import { BOOK_STOCK_IMPORT_CHUNK_SIZE } from "@/lib/book-stock-import-constants";
+import { BOOK_STOCK_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {
   detectBookStockFileErpType,

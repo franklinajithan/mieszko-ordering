@@ -27,6 +27,10 @@ import {
   WASTAGE_PRODUCT_CODE_COLUMN,
   WASTAGE_QTY_COLUMN,
 } from "@/parsers/glopos-wastage-report-parser";
+import {
+  tryParseGloposStockVarianceWastageReport,
+  type GloposStockVarianceWastageParseResult,
+} from "@/parsers/glopos-stock-variance-wastage-parser";
 import { tryParseMspStockAdjustmentReport } from "@/parsers/msp-stock-adjustment-parser";
 import { detectWastageColumns, parseUploadedFile } from "@/parsers/file-parser";
 import {
@@ -35,8 +39,8 @@ import {
 } from "@/utils/erp-file-validation";
 import {
   WASTAGE_ITEM_CODE_COLUMN,
-  WASTAGE_QTY_COLUMN as WASTAGE_IMPORT_QTY_COLUMN,
-} from "@/lib/wastage-import-constants";
+} from "@/lib/import-config";
+import { remapRtcBarcodeRowsToStoreProductCodes } from "@/services/rtc-import-prepare";
 
 export { prepareWastageImport, WASTAGE_ITEM_CODE_COLUMN };
 export type { PreparedWastageRow };
@@ -57,6 +61,66 @@ export type WastageParseResult = FilePreview & {
   unmatchedCodes?: string[];
 };
 
+/** Map stock-variance barcode rows → store product codes for preview/import. */
+export async function buildStockVarianceWastagePreviewWithStoreProductCodes(
+  storeId: number,
+  parsed: GloposStockVarianceWastageParseResult,
+) {
+  const fileBarcodes = parsed.rows.map((row) =>
+    formatSpreadsheetBarcode(row[parsed.barcodeColumn] ?? "").trim(),
+  );
+  const matches =
+    await productRepository.findStoreProductMatchesForFileBarcodes(
+      storeId,
+      fileBarcodes,
+    );
+  const remapped = remapRtcBarcodeRowsToStoreProductCodes({
+    barcodeColumn: parsed.barcodeColumn,
+    quantityColumn: parsed.quantityColumn,
+    rows: parsed.rows,
+    matches: matches.map((m) => ({
+      fileBarcode: m.fileBarcode,
+      storeProductCode: m.storeProductCode,
+      productName: m.productName,
+    })),
+  });
+  const byFileBarcode = new Map(matches.map((m) => [m.fileBarcode, m]));
+  const uniqueFileBarcodes = [...new Set(fileBarcodes.filter(Boolean))];
+  const matchedBarcodes = new Set(matches.map((m) => m.fileBarcode));
+  const unmatchedBarcodes = uniqueFileBarcodes.filter(
+    (b) => !matchedBarcodes.has(b),
+  );
+
+  const previewRows = remapped.rows.slice(0, 10).map((row) => {
+    const code = row[WASTAGE_ITEM_CODE_COLUMN] ?? "";
+    const match = [...byFileBarcode.values()].find(
+      (m) => m.storeProductCode === code,
+    );
+    return {
+      [WASTAGE_ITEM_CODE_COLUMN]: code,
+      [parsed.barcodeColumn]: match?.fileBarcode ?? "",
+      [parsed.quantityColumn]: row[parsed.quantityColumn] ?? "",
+    };
+  });
+
+  return {
+    headers: [
+      WASTAGE_ITEM_CODE_COLUMN,
+      parsed.barcodeColumn,
+      parsed.quantityColumn,
+    ],
+    rows: previewRows,
+    referenceColumn: WASTAGE_ITEM_CODE_COLUMN,
+    quantityColumn: parsed.quantityColumn,
+    mappingType: "barcode" as const,
+    wastageDate: parsed.wastageDate ?? undefined,
+    duplicateRows: parsed.duplicateRows,
+    matchedCount: remapped.matchedCount,
+    unmatchedCount: unmatchedBarcodes.length,
+    unmatchedCodes: unmatchedBarcodes.slice(0, 15),
+  };
+}
+
 /** Inspect a wastage upload for UI column mapping (does not persist). */
 export async function parseWastageImportFile(
   input: ParseImportFileInput,
@@ -65,6 +129,39 @@ export async function parseWastageImportFile(
     throw new Error(
       "This looks like an RTC / Price Override file. Use the RTC import page for that report, or upload an MSP Stock Adjustment / GloPOS WastageReport.",
     );
+  }
+
+  const stockVariance = await tryParseGloposStockVarianceWastageReport(
+    input.buffer,
+    input.fileName,
+  );
+  if (stockVariance) {
+    let preview: WastageParseResult = {
+      headers: stockVariance.headers,
+      rows: stockVariance.rows.slice(0, 10),
+      referenceColumn: stockVariance.barcodeColumn,
+      quantityColumn: stockVariance.quantityColumn,
+      wastageDate: stockVariance.wastageDate ?? undefined,
+      duplicateRows: stockVariance.duplicateRows,
+      mappingType: "barcode",
+    };
+    if (input.storeId) {
+      const enriched = await buildStockVarianceWastagePreviewWithStoreProductCodes(
+        input.storeId,
+        stockVariance,
+      );
+      preview = {
+        ...enriched,
+        rows: enriched.rows.slice(0, 10),
+      };
+    }
+    await assertStoreFileErpMatch({
+      storeId: input.storeId,
+      headers: preview.headers,
+      fileName: input.fileName,
+      detectFileErpType: detectWastageFileErpType,
+    });
+    return preview;
   }
 
   const gloposWastage = await tryParseGloposWastageReport(

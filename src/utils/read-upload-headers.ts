@@ -22,6 +22,12 @@ function looksLikeHeaderRow(headers: string[]): boolean {
   if (has(["Item Code"]) && normalized.some((h) => h.includes("stock"))) return true;
   if (has(["Item Code"]) && normalized.some((h) => h.includes("sales qty"))) return true;
   if (has(["Barcode"]) && has(["Qty", "QTY", "Quantity"])) return true;
+  if (
+    has(["Barcode"]) &&
+    normalized.some((h) => h.includes("qty variance") || h.includes("quantity variance"))
+  ) {
+    return true;
+  }
   if (has(["Product Code"]) && has(["Qty", "QTY", "Quantity"])) return true;
   if (has(["ProductCode", "Product Code"]) && has(["ItemName1", "Item Name"])) return true;
   if (has(["ID", "Id"]) && has(["Name", "Description"])) return true;

@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import type { ParsedRow } from "@/types";
 import { detectWastageColumns } from "@/parsers/file-parser";
 import { tryParseGloposWastageReport } from "@/parsers/glopos-wastage-report-parser";
+import { tryParseGloposStockVarianceWastageReport } from "@/parsers/glopos-stock-variance-wastage-parser";
 import { tryParseMspStockAdjustmentReport } from "@/parsers/msp-stock-adjustment-parser";
 
 function cellText(value: unknown): string {
@@ -93,6 +94,8 @@ export type WastageFileParseResult = {
   storeProductCodeMapped: boolean;
   /** GloPOS WastageReport (may need catalog enrichment). */
   gloposMapped: boolean;
+  /** Rows keyed by barcode — resolve to store product codes before import. */
+  barcodeMapped: boolean;
 };
 
 function assertNotRtcFile(fileName: string) {
@@ -116,6 +119,24 @@ export async function parseWastageFileBuffer(
       ? buffer
       : Buffer.from(buffer as ArrayBuffer);
 
+  const stockVariance = await tryParseGloposStockVarianceWastageReport(
+    buffer,
+    fileName,
+  );
+  if (stockVariance) {
+    return {
+      headers: stockVariance.headers,
+      rows: stockVariance.rows,
+      referenceColumn: stockVariance.barcodeColumn,
+      quantityColumn: stockVariance.quantityColumn,
+      wastageDate: stockVariance.wastageDate ?? undefined,
+      duplicateRows: stockVariance.duplicateRows,
+      storeProductCodeMapped: false,
+      gloposMapped: true,
+      barcodeMapped: true,
+    };
+  }
+
   const glopos = await tryParseGloposWastageReport(asBuffer, fileName);
   if (glopos) {
     return {
@@ -128,6 +149,7 @@ export async function parseWastageFileBuffer(
       skippedExcludedReasonRows: glopos.skippedExcludedReasonRows,
       storeProductCodeMapped: true,
       gloposMapped: true,
+      barcodeMapped: false,
     };
   }
 
@@ -142,6 +164,7 @@ export async function parseWastageFileBuffer(
       duplicateRows: msp.duplicateRows,
       storeProductCodeMapped: true,
       gloposMapped: false,
+      barcodeMapped: false,
     };
   }
 
@@ -156,5 +179,6 @@ export async function parseWastageFileBuffer(
     quantityColumn: detected.quantityColumn ?? undefined,
     storeProductCodeMapped: false,
     gloposMapped: false,
+    barcodeMapped: false,
   };
 }

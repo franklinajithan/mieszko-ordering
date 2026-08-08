@@ -8,9 +8,7 @@ import {
   validateErpFileMatch,
 } from "@/utils/erp-file-validation";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
-
-
-const PRODUCT_IMPORT_CHUNK_SIZE = parseInt(process.env.NEXT_PUBLIC_PRODUCT_IMPORT_CHUNK_SIZE ?? "2000");
+import { PRODUCT_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 
 const chunkSchema = z.object({
   storeId: z.number().int().positive(),

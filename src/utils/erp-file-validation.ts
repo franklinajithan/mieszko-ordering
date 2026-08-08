@@ -2,6 +2,7 @@ import { detectBookStockColumns } from "@/parsers/file-parser";
 import { isGloposRtcHistoryReport } from "@/parsers/glopos-rtc-history-parser";
 import { isGloposStockValuationReport } from "@/parsers/glopos-stock-valuation-parser";
 import { isGloposWastageReport } from "@/parsers/glopos-wastage-report-parser";
+import { isGloposStockVarianceWastageReport } from "@/parsers/glopos-stock-variance-wastage-parser";
 import { isGloposRetailReport } from "@/parsers/glopos-retail-parser";
 import { detectProductFileColumns } from "@/parsers/product-file-parser";
 import { BOOK_STOCK_COLUMNS, type ErpType } from "@/types";
@@ -99,6 +100,8 @@ export function detectWastageFileErpType(
   fileName: string,
 ): ErpType | null {
   if (isGloposWastageReport(headers, fileName)) return null;
+  // Sudbury / GloPOS stock variance (Barcode + QTY Variance) — accepted for GloPOS.
+  if (isGloposStockVarianceWastageReport(headers, fileName)) return "glopos";
   // MSP Stock Adjustment reports are accepted for MSP stores (and auto-parsed).
   if (/stock\s*adjustment/i.test(fileName)) return "msp";
   if (

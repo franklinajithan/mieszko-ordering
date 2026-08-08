@@ -6,7 +6,7 @@ import type {
 import {
   BOOK_STOCK_BULK_MAX_ROWS,
   BOOK_STOCK_IMPORT_CHUNK_SIZE,
-} from "@/lib/book-stock-import-constants";
+} from "@/lib/import-config";
 import { apiFormRequest, apiRequest } from "./client";
 
 export { BOOK_STOCK_IMPORT_CHUNK_SIZE, BOOK_STOCK_BULK_MAX_ROWS };

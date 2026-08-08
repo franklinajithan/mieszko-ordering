@@ -3,7 +3,7 @@ import type { ParsedRow } from "@/types";
 import {
   WASTAGE_ITEM_CODE_COLUMN,
   WASTAGE_QTY_COLUMN,
-} from "@/lib/wastage-import-constants";
+} from "@/lib/import-config";
 import { toDecimal } from "@/utils/decimal";
 
 export type MspStockAdjustmentParseResult = {

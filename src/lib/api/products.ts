@@ -7,9 +7,9 @@ import type {
   ProductSupplierMapping,
 } from "@/types/product";
 import { apiRequest } from "@/lib/api/client";
+import { PRODUCT_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 
-
-export const PRODUCT_IMPORT_CHUNK_SIZE = Number(process.env.NEXT_PUBLIC_PRODUCT_IMPORT_CHUNK_SIZE) || 2000;
+export { PRODUCT_IMPORT_CHUNK_SIZE };
 
 export function getProduct(id: number): Promise<ActionResult<Product>> {
   return apiRequest(`/products/${id}`);

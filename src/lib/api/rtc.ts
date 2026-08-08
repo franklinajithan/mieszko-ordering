@@ -1,5 +1,5 @@
 import type { ActionResult, FilePreview, ImportResult } from "@/types";
-import { RTC_IMPORT_CHUNK_SIZE } from "@/lib/rtc-import-constants";
+import { RTC_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiFormRequest, apiRequest } from "./client";
 
 export { RTC_IMPORT_CHUNK_SIZE };

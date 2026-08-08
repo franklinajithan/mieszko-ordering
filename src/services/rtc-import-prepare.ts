@@ -1,7 +1,7 @@
 import type { ImportResult, ParsedRow } from "@/types";
 import { toDecimal, type Decimal } from "@/utils/decimal";
 import { formatSpreadsheetBarcode } from "@/utils/barcode";
-import { RTC_ITEM_CODE_COLUMN } from "@/lib/rtc-import-constants";
+import { RTC_ITEM_CODE_COLUMN } from "@/lib/import-config";
 
 export type PreparedRtcRow = {
   reference: string;

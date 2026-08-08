@@ -5,7 +5,7 @@ import { productRepository, rtcSalesRepository } from "@/repositories";
 import type { GloposRtcHistoryParseResult } from "@/parsers/glopos-rtc-history-parser";
 import { tryParseGloposRtcHistoryReport } from "@/parsers/glopos-rtc-history-parser";
 import { parseUploadedFile } from "@/parsers/file-parser";
-import { RTC_ITEM_CODE_COLUMN } from "@/lib/rtc-import-constants";
+import { RTC_ITEM_CODE_COLUMN } from "@/lib/import-config";
 import {
   assertStoreFileErpMatch,
   type ParseImportFileInput,

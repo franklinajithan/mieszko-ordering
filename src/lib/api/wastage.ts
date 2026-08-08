@@ -1,5 +1,5 @@
 import type { ActionResult, FilePreview, ImportResult } from "@/types";
-import { WASTAGE_IMPORT_CHUNK_SIZE } from "@/lib/wastage-import-constants";
+import { WASTAGE_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiFormRequest, apiRequest } from "./client";
 
 export { WASTAGE_IMPORT_CHUNK_SIZE };
@@ -11,6 +11,9 @@ export type WastageParseResult = FilePreview & {
   duplicateRows?: number;
   mappingType?: "store_product_code" | "barcode";
   skippedExcludedReasonRows?: number;
+  matchedCount?: number;
+  unmatchedCount?: number;
+  unmatchedCodes?: string[];
 };
 
 export async function parseWastageFile(

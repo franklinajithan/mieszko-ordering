@@ -2,6 +2,7 @@
 
 import { useState, type ChangeEvent } from "react";
 import { importDailySalesChunk, parseDailySalesFile } from "@/lib/api";
+import { DAILY_SALES_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
@@ -23,10 +24,6 @@ import {
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 import { decimalToDb } from "@/utils/decimal";
 import type { Store, PreviewState, ImportProgress } from "@/types/daily-sales";
-
-const DAILY_SALES_IMPORT_CHUNK_SIZE = parseInt(
-  process.env.NEXT_PUBLIC_DAILY_SALES_IMPORT_CHUNK_SIZE ?? "2000",
-);
 
 function mergeMatchResults(a: ImportResult, b: ImportResult): ImportResult {
   return {

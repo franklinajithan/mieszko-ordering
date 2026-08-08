@@ -5,7 +5,7 @@ import {
   importWastageRows,
   listWastageSummariesForStore,
 } from "@/services/wastage-import.service";
-import { WASTAGE_IMPORT_CHUNK_SIZE } from "@/lib/wastage-import-constants";
+import { WASTAGE_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {
   detectWastageFileErpType,

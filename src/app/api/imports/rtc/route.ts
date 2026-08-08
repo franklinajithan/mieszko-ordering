@@ -5,7 +5,7 @@ import {
   importRtcRows,
   listRtcSummariesForStore,
 } from "@/services/rtc-import.service";
-import { RTC_IMPORT_CHUNK_SIZE } from "@/lib/rtc-import-constants";
+import { RTC_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {
   detectRtcFileErpType,

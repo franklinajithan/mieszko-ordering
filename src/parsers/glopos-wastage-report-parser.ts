@@ -1,11 +1,12 @@
 import ExcelJS from "exceljs";
 import type { ParsedRow } from "@/types";
+import { IMPORT_COLUMNS } from "@/lib/import-config";
 import { normalizeProductCode } from "@/parsers/product-file-parser";
 import { formatSpreadsheetBarcode } from "@/utils/barcode";
 
 /** Stable row keys for import (Excel header text varies). */
 export const WASTAGE_PRODUCT_CODE_COLUMN = "Product Code";
-export const WASTAGE_QTY_COLUMN = "Qty";
+export const WASTAGE_QTY_COLUMN = IMPORT_COLUMNS.qty;
 export const WASTAGE_BARCODE_COLUMN = "Barcode";
 
 export type GloposWastageReportParseResult = {

@@ -7,7 +7,7 @@ import {
   parseRtcFile,
   RTC_IMPORT_CHUNK_SIZE,
 } from "@/lib/api";
-import { RTC_ITEM_CODE_COLUMN } from "@/lib/rtc-import-constants";
+import { RTC_ITEM_CODE_COLUMN } from "@/lib/import-config";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";

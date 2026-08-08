@@ -3,13 +3,14 @@
 import { useState, type ChangeEvent } from "react";
 import {
   importWastageChunk,
+  matchRtcBarcodes,
   parseWastageFile,
   WASTAGE_IMPORT_CHUNK_SIZE,
 } from "@/lib/api";
 import {
   WASTAGE_ITEM_CODE_COLUMN,
   WASTAGE_QTY_COLUMN,
-} from "@/lib/wastage-import-constants";
+} from "@/lib/import-config";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
@@ -20,6 +21,7 @@ import { WastageListPage } from "@/components/wastage/wastage-list-page";
 import { detectWastageColumns } from "@/parsers/file-parser";
 import { parseWastageFileBuffer } from "@/parsers/wastage-file-parser";
 import { prepareWastageImport } from "@/services/wastage-import-prepare";
+import { remapRtcBarcodeRowsToStoreProductCodes } from "@/services/rtc-import-prepare";
 import type { ImportResult } from "@/types";
 import {
   detectWastageFileErpType,
@@ -28,6 +30,7 @@ import {
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 import { decimalToDb } from "@/utils/decimal";
+import { formatSpreadsheetBarcode } from "@/utils/barcode";
 import type {
   Store,
   WastageImportProgress,
@@ -188,33 +191,94 @@ export function WastageImportForm({ stores }: { stores: Store[] }) {
         parsed.quantityColumn ||
         detectWastageColumns(parsed.headers, erpType).quantityColumn ||
         WASTAGE_QTY_COLUMN;
-      const codeColumn =
+
+      let importRows = parsed.rows;
+      let codeColumn =
         referenceColumn ||
         parsed.referenceColumn ||
         detectWastageColumns(parsed.headers, erpType).referenceColumn ||
         WASTAGE_ITEM_CODE_COLUMN;
+      let prepResult: ImportResult = {
+        totalRows: parsed.rows.length,
+        matchedRows: 0,
+        unmatchedRows: 0,
+        invalidRows: 0,
+        duplicateRows: parsed.duplicateRows ?? 0,
+        errors: [],
+      };
 
-      if (!codeColumn || !qtyColumn) {
-        setError("Could not detect product code / quantity columns.");
-        return;
+      const useBarcodeLookup =
+        parsed.barcodeMapped || mappingType === "barcode";
+
+      if (useBarcodeLookup) {
+        const barcodeColumn = parsed.referenceColumn || referenceColumn;
+        if (!barcodeColumn || !qtyColumn) {
+          setError("Could not detect barcode / quantity columns.");
+          return;
+        }
+        const barcodes = parsed.rows
+          .map((row) => formatSpreadsheetBarcode(row[barcodeColumn]).trim())
+          .filter(Boolean);
+        const matched = await matchRtcBarcodes({
+          storeId: Number(storeId),
+          barcodes,
+        });
+        if (!matched.success) {
+          setError(matched.error);
+          return;
+        }
+        const remapped = remapRtcBarcodeRowsToStoreProductCodes({
+          barcodeColumn,
+          quantityColumn: qtyColumn,
+          rows: parsed.rows,
+          matches: matched.data,
+        });
+        if (!remapped.rows.length) {
+          setError(
+            remapped.unmatchedBarcodes.length
+              ? `No store products found for file barcodes (${remapped.unmatchedBarcodes.length} unmatched). Add barcodes to this store's catalog, then try again.`
+              : "No wastage product rows found in the file.",
+          );
+          return;
+        }
+        importRows = remapped.rows;
+        codeColumn = WASTAGE_ITEM_CODE_COLUMN;
+        prepResult = {
+          ...prepResult,
+          totalRows: remapped.rows.length,
+          unmatchedRows: remapped.unmatchedBarcodes.length,
+          duplicateRows: parsed.duplicateRows ?? 0,
+        };
+      } else {
+        if (!codeColumn || !qtyColumn) {
+          setError("Could not detect product code / quantity columns.");
+          return;
+        }
+
+        const prepared = prepareWastageImport({
+          referenceColumn: codeColumn,
+          quantityColumn: qtyColumn,
+          rows: parsed.rows,
+        });
+        if (!prepared.rows.length) {
+          setError("No valid wastage rows found in the file.");
+          setResult(prepared.result);
+          return;
+        }
+        importRows = prepared.rows.map((row) => ({
+          [codeColumn]: row.reference,
+          [qtyColumn]: decimalToDb(row.qty),
+          __productName: row.productName ?? "",
+          __rowNumber: String(row.rowNumber),
+        }));
+        prepResult = prepared.result;
       }
 
-      const prepared = prepareWastageImport({
-        referenceColumn: codeColumn,
-        quantityColumn: qtyColumn,
-        rows: parsed.rows,
-      });
-      if (!prepared.rows.length) {
-        setError("No valid wastage rows found in the file.");
-        setResult(prepared.result);
-        return;
-      }
-
-      const slimRows = prepared.rows.map((row) => ({
-        [codeColumn]: row.reference,
-        [qtyColumn]: decimalToDb(row.qty),
-        __productName: row.productName ?? "",
-        __rowNumber: String(row.rowNumber),
+      const slimRows = importRows.map((row) => ({
+        [codeColumn]: row[codeColumn] ?? "",
+        [qtyColumn]: row[qtyColumn] ?? "",
+        __productName: row.__productName ?? "",
+        __rowNumber: row.__rowNumber ?? "",
       }));
 
       const batches = chunkRows(slimRows, WASTAGE_IMPORT_CHUNK_SIZE);
@@ -228,11 +292,10 @@ export function WastageImportForm({ stores }: { stores: Store[] }) {
       });
 
       let aggregated: ImportResult = {
-        ...prepared.result,
+        ...prepResult,
         matchedRows: 0,
-        unmatchedRows: prepared.result.unmatchedRows,
-        duplicateRows:
-          (prepared.result.duplicateRows ?? 0) + (parsed.duplicateRows ?? 0),
+        unmatchedRows: prepResult.unmatchedRows,
+        duplicateRows: prepResult.duplicateRows ?? parsed.duplicateRows ?? 0,
       };
       let processed = 0;
 
@@ -267,7 +330,9 @@ export function WastageImportForm({ stores }: { stores: Store[] }) {
       setPreview(null);
       if (aggregated.matchedRows === 0 && aggregated.totalRows > 0) {
         setError(
-          "Import finished but no products matched. Ensure each item code exists on this store's catalog.",
+          useBarcodeLookup
+            ? "Import finished but no products matched. Ensure each file barcode exists on this store's catalog."
+            : "Import finished but no products matched. Ensure each item code exists on this store's catalog.",
         );
       }
       setListRefreshKey((key) => key + 1);
@@ -288,8 +353,9 @@ export function WastageImportForm({ stores }: { stores: Store[] }) {
     <div className="space-y-6">
       <p className="text-sm text-zinc-600">
         Upload MSP <strong>Stock Adjustment</strong> reports (item code + qty), GloPOS{" "}
-        <strong>WastageReport</strong>, or legacy wastage spreadsheets. Duplicate item
-        codes are summed before insert.
+        <strong>WastageReport</strong>, or Sudbury stock variance sheets (
+        <strong>Barcode</strong> + <strong>QTY Variance</strong>, negated to wastage
+        qty). Duplicate codes are summed before insert.
       </p>
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
@@ -403,7 +469,8 @@ export function WastageImportForm({ stores }: { stores: Store[] }) {
                   }
                 >
                   Catalog lookup: {preview.matchedCount} product
-                  {preview.matchedCount === 1 ? "" : "s"} matched to store item codes
+                  {preview.matchedCount === 1 ? "" : "s"} matched
+                  {mappingType === "barcode" ? " via barcode" : " to store item codes"}
                   {preview.unmatchedCount
                     ? ` · ${preview.unmatchedCount} unmatched`
                     : ""}
@@ -412,7 +479,8 @@ export function WastageImportForm({ stores }: { stores: Store[] }) {
               ) : null}
               {preview.unmatchedCodes?.length ? (
                 <p className="text-xs text-zinc-600">
-                  Unmatched product codes (sample): {preview.unmatchedCodes.join(", ")}
+                  Unmatched {mappingType === "barcode" ? "barcodes" : "product codes"}{" "}
+                  (sample): {preview.unmatchedCodes.join(", ")}
                 </p>
               ) : null}
               {preview.skippedExcludedReasonRows ? (
@@ -446,8 +514,19 @@ export function WastageImportForm({ stores }: { stores: Store[] }) {
               </div>
               {mappedReport ? (
                 <p className="text-sm text-zinc-600">
-                  Report uses store item codes via <strong>{referenceColumn}</strong>{" "}
-                  and <strong>{quantityColumn}</strong>. Duplicate codes are summed.
+                  {mappingType === "barcode" ? (
+                    <>
+                      Matched via store barcodes (
+                      <strong>{referenceColumn}</strong>). QTY Variance is multiplied
+                      by −1 for wastage qty. Choose a date and import.
+                    </>
+                  ) : (
+                    <>
+                      Report uses store item codes via{" "}
+                      <strong>{referenceColumn}</strong> and{" "}
+                      <strong>{quantityColumn}</strong>. Duplicate codes are summed.
+                    </>
+                  )}
                 </p>
               ) : (
                 <div className="grid gap-3">

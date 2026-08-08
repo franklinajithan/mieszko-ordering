@@ -17,7 +17,7 @@ import { bookStockImportSchema } from "@/validators/schemas";
 import {
   BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE,
   BOOK_STOCK_INSERT_BATCH_SIZE,
-} from "@/lib/book-stock-import-constants";
+} from "@/lib/import-config";
 import {
   catalogCodeKey,
   indexStoreProducts,

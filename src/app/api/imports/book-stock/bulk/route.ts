@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { storeRepository } from "@/repositories";
 import { importBookStockBulk } from "@/services/book-stock-import.service";
-import { BOOK_STOCK_BULK_MAX_ROWS } from "@/lib/book-stock-import-constants";
+import { BOOK_STOCK_BULK_MAX_ROWS } from "@/lib/import-config";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {
   detectBookStockFileErpType,
