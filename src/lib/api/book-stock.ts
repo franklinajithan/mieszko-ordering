@@ -1,18 +1,16 @@
 import type { ActionResult, FilePreview, ImportResult } from "@/types";
 import type { BookStockUploadSummary } from "@/services/apply-book-stock-to-order.service";
-import {
-  BOOK_STOCK_BULK_MAX_ROWS,
-  BOOK_STOCK_IMPORT_CHUNK_SIZE,
-} from "@/lib/import-config";
+import { BOOK_STOCK_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiFormRequest, apiRequest } from "./client";
 
-export { BOOK_STOCK_IMPORT_CHUNK_SIZE, BOOK_STOCK_BULK_MAX_ROWS };
+export { BOOK_STOCK_IMPORT_CHUNK_SIZE };
 
 export type BookStockParseResult = FilePreview & {
   referenceColumn?: string;
   quantityColumn?: string;
   bookStockDate?: string;
   duplicateRows?: number;
+  totalProducts?: number;
 };
 
 export type LatestBookStockSummary = BookStockUploadSummary;
@@ -30,12 +28,6 @@ export async function parseBookStockFile(
   return result.data;
 }
 
-export function importBookStock(
-  formData: FormData,
-): Promise<ActionResult<ImportResult & { importedAt: string }>> {
-  return apiFormRequest("/imports/book-stock", formData);
-}
-
 export type BookStockImportChunkInput = {
   storeId: number;
   bookStockDate: string;
@@ -50,26 +42,6 @@ export function importBookStockChunk(
   input: BookStockImportChunkInput,
 ): Promise<ActionResult<ImportResult & { importedAt: string }>> {
   return apiRequest("/imports/book-stock", { method: "POST", body: input });
-}
-
-export type BookStockBulkImportInput = {
-  storeId: number;
-  bookStockDate: string;
-  referenceColumn: string;
-  quantityColumn: string;
-  fileName: string;
-  duplicateRows?: number;
-  importedAt?: string;
-  rows: Array<Record<string, string>>;
-};
-
-export function importBookStockBulk(
-  input: BookStockBulkImportInput,
-): Promise<ActionResult<ImportResult & { importedAt: string }>> {
-  return apiRequest("/imports/book-stock/bulk", {
-    method: "POST",
-    body: input,
-  });
 }
 
 export function listBookStockImports(

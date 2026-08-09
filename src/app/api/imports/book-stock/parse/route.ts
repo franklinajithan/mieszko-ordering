@@ -1,4 +1,5 @@
 import { apiError, apiOk, route } from "@/lib/api/http";
+import { parseOptionalStoreId } from "@/services/import-parse.service";
 import { parseBookStockImportFile } from "@/services/book-stock-import.service";
 
 export const POST = route(async (req) => {
@@ -9,6 +10,7 @@ export const POST = route(async (req) => {
   const data = await parseBookStockImportFile({
     buffer: Buffer.from(await file.arrayBuffer()),
     fileName: file.name,
+    storeId: parseOptionalStoreId(formData.get("storeId")),
   });
   return apiOk(data);
 });

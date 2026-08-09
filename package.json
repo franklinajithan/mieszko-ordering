@@ -19,6 +19,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-checkbox": "^1.3.8",
     "@radix-ui/react-dialog": "^1.1.20",
     "@radix-ui/react-label": "^2.1.12",
@@ -31,9 +32,6 @@
     "decimal.js": "^10.6.0",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
-
-
-    
     "lucide-react": "^1.25.0",
     "next": "16.2.10",
     "papaparse": "^5.5.4",

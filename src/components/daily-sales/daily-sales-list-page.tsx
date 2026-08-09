@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteDailySalesUpload, listDailySalesSummaries } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
 import type { DailySalesUploadRow } from "@/components/daily-sales/types";
 import type { StoreOption } from "@/types/store";
@@ -19,6 +20,9 @@ export function DailySalesListPage({
   const [loadingRows, setLoadingRows] = useState(false);
   const [uploadRows, setUploadRows] = useState<DailySalesUploadRow[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<DailySalesUploadRow | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const loadUploadRows = useCallback(
@@ -55,14 +59,9 @@ export function DailySalesListPage({
     void loadUploadRows(storeId);
   }, [storeId, refreshKey, loadUploadRows]);
 
-  async function onDeleteRow(row: DailySalesUploadRow) {
-    if (
-      !window.confirm(
-        `Delete all saved daily sales for ${row.storeName} on ${row.salesDate}?`,
-      )
-    ) {
-      return;
-    }
+  async function confirmDelete() {
+    const row = pendingDelete;
+    if (!row) return;
     setDeletingId(row.id);
     setError(null);
     const response = await deleteDailySalesUpload(
@@ -70,6 +69,7 @@ export function DailySalesListPage({
       row.salesDate,
     );
     setDeletingId(null);
+    setPendingDelete(null);
     if (!response.success) {
       setError(response.error);
       return;
@@ -117,7 +117,7 @@ export function DailySalesListPage({
                       variant="outline"
                       size="sm"
                       disabled={deletingId === row.id}
-                      onClick={() => onDeleteRow(row)}
+                      onClick={() => setPendingDelete(row)}
                     >
                       {deletingId === row.id ? "Deleting…" : "Delete"}
                     </Button>
@@ -133,6 +133,21 @@ export function DailySalesListPage({
         </p>
       )}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <ConfirmAlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingId) setPendingDelete(null);
+        }}
+        title="Delete daily sales?"
+        description={
+          pendingDelete
+            ? `Delete all saved daily sales for ${pendingDelete.storeName} on ${pendingDelete.salesDate}?`
+            : ""
+        }
+        confirming={Boolean(pendingDelete && deletingId === pendingDelete.id)}
+        onConfirm={() => void confirmDelete()}
+      />
     </section>
   );
 }

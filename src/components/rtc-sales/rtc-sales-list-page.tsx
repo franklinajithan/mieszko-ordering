@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteRtcUpload, listRtcSummaries } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
 import type { RtcSavedRow } from "@/components/rtc-sales/types";
 import type { StoreOption } from "@/types/store";
@@ -19,51 +20,51 @@ export function RtcSalesListPage({
   const [loadingRows, setLoadingRows] = useState(false);
   const [savedRows, setSavedRows] = useState<RtcSavedRow[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<RtcSavedRow | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const loadSavedRows = useCallback(async (forStoreId: string) => {
-    if (!forStoreId) {
-      setSavedRows([]);
-      return;
-    }
-    setLoadingRows(true);
-    setError(null);
-    const response = await listRtcSummaries(Number(forStoreId));
-    setLoadingRows(false);
-    if (!response.success) {
-      setError(response.error);
-      return;
-    }
-    const store = stores.find((s) => String(s.id) === forStoreId);
-    setSavedRows(
-      response.data.map((row) => ({
-        id: `${forStoreId}|${row.rtcDate}`,
-        storeId: forStoreId,
-        storeName: store?.name ?? "",
-        rtcDate: row.rtcDate,
-        productCount: row.itemCount,
-        totalRtcQty: row.totalRtcQty,
-        lastUpdated: new Date(row.lastUpdated),
-      })),
-    );
-  }, [stores]);
+  const loadSavedRows = useCallback(
+    async (forStoreId: string) => {
+      if (!forStoreId) {
+        setSavedRows([]);
+        return;
+      }
+      setLoadingRows(true);
+      setError(null);
+      const response = await listRtcSummaries(Number(forStoreId));
+      setLoadingRows(false);
+      if (!response.success) {
+        setError(response.error);
+        return;
+      }
+      const store = stores.find((s) => String(s.id) === forStoreId);
+      setSavedRows(
+        response.data.map((row) => ({
+          id: `${forStoreId}|${row.rtcDate}`,
+          storeId: forStoreId,
+          storeName: store?.name ?? "",
+          rtcDate: row.rtcDate,
+          productCount: row.itemCount,
+          totalRtcQty: row.totalRtcQty,
+          lastUpdated: new Date(row.lastUpdated),
+        })),
+      );
+    },
+    [stores],
+  );
 
   useEffect(() => {
     void loadSavedRows(storeId);
   }, [storeId, refreshKey, loadSavedRows]);
 
-  async function onDeleteRow(row: RtcSavedRow) {
-    if (
-      !window.confirm(
-        `Delete all saved RTC data for ${row.storeName} on ${row.rtcDate}?`,
-      )
-    ) {
-      return;
-    }
+  async function confirmDelete() {
+    const row = pendingDelete;
+    if (!row) return;
     setDeletingId(row.id);
     setError(null);
     const response = await deleteRtcUpload(Number(row.storeId), row.rtcDate);
     setDeletingId(null);
+    setPendingDelete(null);
     if (!response.success) {
       setError(response.error);
       return;
@@ -111,7 +112,7 @@ export function RtcSalesListPage({
                       variant="outline"
                       size="sm"
                       disabled={deletingId === row.id}
-                      onClick={() => onDeleteRow(row)}
+                      onClick={() => setPendingDelete(row)}
                     >
                       {deletingId === row.id ? "Deleting…" : "Delete"}
                     </Button>
@@ -127,6 +128,21 @@ export function RtcSalesListPage({
         </p>
       )}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <ConfirmAlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingId) setPendingDelete(null);
+        }}
+        title="Delete RTC data?"
+        description={
+          pendingDelete
+            ? `Delete all saved RTC data for ${pendingDelete.storeName} on ${pendingDelete.rtcDate}?`
+            : ""
+        }
+        confirming={Boolean(pendingDelete && deletingId === pendingDelete.id)}
+        onConfirm={() => void confirmDelete()}
+      />
     </section>
   );
 }

@@ -1,25 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
-  BOOK_STOCK_BULK_MAX_ROWS,
   BOOK_STOCK_IMPORT_CHUNK_SIZE,
   deleteBookStockUpload,
-  importBookStockBulk,
   importBookStockChunk,
   listBookStockImports,
+  parseBookStockFile,
 } from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
-import { DateField } from "@/components/ui/date-field";
 import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parseBookStockFileOnClient } from "@/lib/book-stock/parse-on-client";
-import type { BookStockFileParseResult } from "@/parsers/book-stock-file-parser";
-import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
+import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
+import { parseBookStockFileBuffer } from "@/parsers/book-stock-file-parser";
+import {
+  prepareBookStockImport,
+  resolveBookStockColumns,
+} from "@/services/book-stock-import-prepare";
 import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
-import type { ErpType, FilePreview, ImportResult } from "@/types";
+import type { ErpType, ImportResult } from "@/types";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
 import {
   detectBookStockFileErpType,
@@ -27,208 +28,44 @@ import {
   resolveStoreErpType,
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
-
-const GLOPOS_ID_COLUMN = "ID";
-const GLOPOS_QTY_COLUMN = "QTY";
-const STOCK_VALUATION_ITEM_CODE_COLUMN = "Item Code";
-const STOCK_VALUATION_CURRENT_STOCK_COLUMN = "Current Stock";
+import type {
+  BookStockImportProgress,
+  BookStockPreviewState,
+  BookStockUploadSummary,
+} from "@/components/book-stock/types";
 
 function toDatetimeLocalValue(date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function datetimeLocalToIso(value: string): string {
+/** Prefer `_YYYYMMDD_HHMMSS` from Stock Valuation filenames; fall back to date-only + now time. */
+function datetimeLocalFromFile(fileName: string, bookStockDate?: string): string {
+  const withTime = fileName.match(/_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+  if (withTime) {
+    const [, yyyy, mm, dd, hh, min] = withTime;
+    return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+  }
+  if (bookStockDate && /^\d{4}-\d{2}-\d{2}$/.test(bookStockDate)) {
+    const now = toDatetimeLocalValue();
+    return `${bookStockDate}T${now.slice(11)}`;
+  }
+  return toDatetimeLocalValue();
+}
+
+function datetimeLocalToParts(value: string): {
+  bookStockDate: string;
+  importedAt: string;
+} {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    throw new Error("Select a valid upload date and time");
+    throw new Error("Select a valid book-stock date and time");
   }
-  return parsed.toISOString();
-}
-
-function resolveBookStockColumns(
-  parsed: BookStockFileParseResult,
-  erpType: ErpType,
-): { refCol: string; qtyCol: string } {
-  if (parsed.referenceColumn && parsed.quantityColumn) {
-    return { refCol: parsed.referenceColumn, qtyCol: parsed.quantityColumn };
-  }
-  if (parsed.gloposStockValuation || erpType === "msp") {
-    return {
-      refCol: STOCK_VALUATION_ITEM_CODE_COLUMN,
-      qtyCol: STOCK_VALUATION_CURRENT_STOCK_COLUMN,
-    };
-  }
-  return { refCol: GLOPOS_ID_COLUMN, qtyCol: GLOPOS_QTY_COLUMN };
-}
-
-type BookStockJobProgress = {
-  job: "preview" | "import";
-  phase: "workbook" | "rows" | "saving";
-  processed: number;
-  total: number;
-  fileName: string;
-  storeName: string;
-  done: boolean;
-  savingBatch?: number;
-  savingBatchTotal?: number;
-};
-
-function jobProgressPercent(progress: BookStockJobProgress): number {
-  if (progress.done) return 100;
-  if (progress.phase === "workbook") {
-    if (progress.total <= 0) return 1;
-    return Math.min(15, Math.floor((progress.processed / progress.total) * 15));
-  }
-  if (progress.phase === "rows") {
-    if (progress.total <= 0) return 15;
-    return Math.min(
-      99,
-      15 + Math.floor((progress.processed / progress.total) * 84),
-    );
-  }
-  if (progress.phase === "saving") {
-    if (progress.total <= 0) return progress.done ? 100 : 1;
-    if (progress.done) return 100;
-    const fromProducts = Math.floor((progress.processed / progress.total) * 100);
-    if (fromProducts > 0) return Math.min(99, fromProducts);
-    if (
-      progress.savingBatch &&
-      progress.savingBatchTotal &&
-      progress.savingBatchTotal > 1
-    ) {
-      const completed = Math.max(0, progress.savingBatch - 1);
-      return Math.min(
-        98,
-        Math.floor((completed / progress.savingBatchTotal) * 100) + 2,
-      );
-    }
-    return 8;
-  }
-  return 0;
-}
-
-function jobProgressTitle(progress: BookStockJobProgress): string {
-  if (progress.done) {
-    return progress.job === "preview" ? "Preview ready" : "Book stock import complete";
-  }
-  if (progress.job === "preview") {
-    if (progress.phase === "workbook") return "Loading workbook…";
-    return "Reading rows and pivoting stock…";
-  }
-  if (progress.phase === "workbook" || progress.phase === "rows") {
-    return "Reading and preparing file…";
-  }
-  if (!progress.done && progress.processed === 0) {
-    return "Uploading book stock to the server…";
-  }
-  return "Saving book stock to database…";
-}
-
-function jobProgressDetail(progress: BookStockJobProgress, percent: number): string {
-  if (progress.phase === "workbook") {
-    return `Loading spreadsheet · ${percent}%`;
-  }
-  if (progress.phase === "rows") {
-    return `Processed ${progress.processed.toLocaleString()} of ${progress.total.toLocaleString()} spreadsheet rows · ${percent}%`;
-  }
-  if (!progress.done && progress.processed === 0) {
-    if (progress.savingBatchTotal === 1) {
-      return `Uploading ${progress.total.toLocaleString()} products to the server… · ${percent}%`;
-    }
-    return `Uploading batch ${progress.savingBatch ?? 1} of ${progress.savingBatchTotal ?? 1}… · ${percent}%`;
-  }
-  return `Saved ${progress.processed.toLocaleString()} of ${progress.total.toLocaleString()} products${
-    progress.savingBatch && progress.savingBatchTotal
-      ? progress.savingBatchTotal === 1
-        ? " · single fast upload"
-        : ` · batch ${progress.savingBatch} of ${progress.savingBatchTotal}`
-      : ""
-  } · ${percent}%`;
-}
-
-function fileImportKey(file: File): string {
-  return `${file.name}:${file.size}:${file.lastModified}`;
-}
-
-type PreparedBookStockImport = {
-  refCol: string;
-  qtyCol: string;
-  stockDate: string;
-  duplicateRows: number;
-  slimRows: Array<Record<string, string>>;
-};
-
-function prepareSlimRows(
-  parsed: BookStockFileParseResult,
-  refCol: string,
-  qtyCol: string,
-  _storeErpType: ErpType,
-): PreparedBookStockImport {
-  // Dedicated parsers already sum qty by product code.
-  let rows = parsed.rows;
-  let duplicateRows = parsed.duplicateRows ?? 0;
-  if (!parsed.preAggregated && !parsed.gloposStockValuation) {
-    const pivoted = pivotBookStockByReference(rows, refCol, qtyCol);
-    rows = pivoted.rows;
-    duplicateRows += pivoted.duplicateRows;
-  }
-
-  const slimRows = rows
-    .map((row) => ({
-      [refCol]: String(row[refCol] ?? "").trim(),
-      [qtyCol]: String(row[qtyCol] ?? "").trim(),
-      __rowNumber: String(row.__rowNumber ?? ""),
-    }))
-    .filter((row) => row[refCol] && row[qtyCol] !== "");
-
   return {
-    refCol,
-    qtyCol,
-    stockDate: parsed.bookStockDate ?? "",
-    duplicateRows,
-    slimRows,
+    bookStockDate: value.slice(0, 10),
+    importedAt: parsed.toISOString(),
   };
 }
-
-function BookStockProgressPanel({
-  progress,
-  percent,
-}: {
-  progress: BookStockJobProgress;
-  percent: number;
-}) {
-  return (
-    <div className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-      <h4 className="font-semibold text-zinc-900">
-        {progress.job === "preview" ? "Preview progress" : "Import progress"}
-      </h4>
-      <p className="font-medium text-zinc-900">{jobProgressTitle(progress)}</p>
-      <p className="text-sm text-zinc-600">
-        {progress.fileName} · {progress.storeName}
-      </p>
-      <div
-        className="h-3 overflow-hidden rounded-full bg-zinc-200"
-        role="progressbar"
-        aria-label={
-          progress.job === "preview" ? "Preview progress" : "Book stock import progress"
-        }
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-      >
-        <div
-          className={`h-full rounded-full transition-[width] duration-300 ${
-            progress.done ? "bg-emerald-500" : "bg-emerald-600"
-          }`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-      <p className="text-sm text-zinc-600">{jobProgressDetail(progress, percent)}</p>
-    </div>
-  );
-}
-
 
 function mergeImportResults(a: ImportResult, b: ImportResult): ImportResult {
   return {
@@ -249,102 +86,26 @@ function chunkRows<T>(rows: T[], size: number): T[][] {
   return batches;
 }
 
-function mapParseProgress(
-  job: "preview" | "import",
-  fileName: string,
-  storeName: string,
-  p: { phase: "workbook" | "rows"; processed: number; total: number },
-  done = false,
-): BookStockJobProgress {
-  return {
-    job,
-    phase: p.phase,
-    processed: p.processed,
-    total: p.total,
-    fileName,
-    storeName,
-    done,
-  };
-}
-
 type Store = { id: number; name: string; code: string; erpType: string };
-type BookStockUploadSummary = {
-  bookStockDate: string;
-  importedAt: string;
-  itemCount: number;
-  totalBookStockQty: string;
-};
-
-type BookStockPreview = FilePreview & {
-  referenceColumn?: string;
-  quantityColumn?: string;
-  bookStockDate?: string;
-  duplicateRows?: number;
-  totalProducts?: number;
-};
 
 export function BookStockImportForm({ stores }: { stores: Store[] }) {
-  const [preview, setPreview] = useState<BookStockPreview | null>(null);
+  const [preview, setPreview] = useState<BookStockPreviewState | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [storeId, setStoreId] = useState("");
-  const [referenceColumn, setReferenceColumn] = useState("");
-  const [quantityColumn, setQuantityColumn] = useState("");
+  const [bookStockAtLocal, setBookStockAtLocal] = useState(() =>
+    toDatetimeLocalValue(),
+  );
+  const [excelBookStockAt, setExcelBookStockAt] = useState("");
   const [imports, setImports] = useState<BookStockUploadSummary[]>([]);
   const [listRefreshKey, setListRefreshKey] = useState(0);
   const [deletingUpload, setDeletingUpload] = useState<string | null>(null);
-  const [bookStockDate, setBookStockDate] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
-  const [importedAtLocal, setImportedAtLocal] = useState(() =>
-    toDatetimeLocalValue(),
-  );
-  const [progress, setProgress] = useState<BookStockJobProgress | null>(null);
-  const [previewing, setPreviewing] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const mountedRef = useRef(true);
-  const parseAbortRef = useRef<AbortController | null>(null);
-  const importCacheRef = useRef<{
-    fileKey: string;
-    prepared: PreparedBookStockImport;
+  const [pendingDelete, setPendingDelete] = useState<{
+    importedAt: string;
+    bookStockDate: string;
   } | null>(null);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      parseAbortRef.current?.abort();
-    };
-  }, []);
-
-  function scheduleParseProgress(
-    job: "preview" | "import",
-    fileName: string,
-    storeName: string,
-    p: { phase: "workbook" | "rows"; processed: number; total: number },
-    done = false,
-  ) {
-    queueMicrotask(() => {
-      if (!mountedRef.current) return;
-      setProgress(mapParseProgress(job, fileName, storeName, p, done));
-    });
-  }
-
-  async function parseFileOnClient(
-    job: "preview" | "import",
-    fileBlob: File,
-    storeName: string,
-  ) {
-    parseAbortRef.current?.abort();
-    const controller = new AbortController();
-    parseAbortRef.current = controller;
-
-    return parseBookStockFileOnClient(await fileBlob.arrayBuffer(), fileBlob.name, {
-      signal: controller.signal,
-      onProgress: (p) => scheduleParseProgress(job, fileBlob.name, storeName, p),
-    });
-  }
+  const [progress, setProgress] = useState<BookStockImportProgress | null>(null);
 
   const selectedStore = useMemo(
     () => stores.find((store) => String(store.id) === storeId) ?? null,
@@ -352,13 +113,12 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
   );
   const erpType: ErpType = selectedStore?.erpType === "glopos" ? "glopos" : "msp";
   const erpHelp = BOOK_STOCK_COLUMNS[erpType];
-  const storeErpType = resolveStoreErpType(selectedStore?.erpType);
 
   async function validateSelectedFile(selected: File | null) {
     if (!selected || !storeId) return true;
     const mismatch = await checkUploadErpMismatch(
       selected,
-      storeErpType,
+      resolveStoreErpType(selectedStore?.erpType),
       detectBookStockFileErpType,
     );
     if (mismatch) {
@@ -373,7 +133,7 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
     const selected = event.target.files?.[0] ?? null;
     setPreview(null);
     setResult(null);
-    importCacheRef.current = null;
+    setExcelBookStockAt("");
     if (!selected) {
       setFile(null);
       return;
@@ -402,19 +162,17 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
     });
   }, [storeId, listRefreshKey]);
 
-  async function onDeleteSavedUpload(importedAt: string, bookStockDate: string) {
-    const store = stores.find((s) => String(s.id) === storeId);
-    if (
-      !window.confirm(
-        `Delete book stock upload for ${store?.name ?? "this store"} on ${bookStockDate} (imported ${new Date(importedAt).toLocaleString()})?`,
-      )
-    ) {
-      return;
-    }
-    setDeletingUpload(importedAt);
+  async function confirmDeleteUpload() {
+    const pending = pendingDelete;
+    if (!pending || !storeId) return;
+    setDeletingUpload(pending.importedAt);
     setError(null);
-    const response = await deleteBookStockUpload(Number(storeId), importedAt);
+    const response = await deleteBookStockUpload(
+      Number(storeId),
+      pending.importedAt,
+    );
     setDeletingUpload(null);
+    setPendingDelete(null);
     if (!response.success) {
       setError(response.error);
       return;
@@ -422,80 +180,34 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
     setListRefreshKey((key) => key + 1);
   }
 
-  async function onPreviewClick() {
-    if (!file || !storeId) {
-      setError("Select a store and file before previewing.");
-      return;
-    }
-    if (!(await validateSelectedFile(file))) {
-      return;
-    }
-
-    const storeName = selectedStore?.name ?? "";
+  async function onPreview(formData: FormData) {
     setError(null);
     setResult(null);
     setPreview(null);
-    setPreviewing(true);
-    importCacheRef.current = null;
-
     try {
-      scheduleParseProgress("preview", file.name, storeName, {
-        phase: "workbook",
-        processed: 0,
-        total: 2,
-      });
-
-      const parsed = await parseFileOnClient("preview", file, storeName);
-
-      scheduleParseProgress(
-        "preview",
-        file.name,
-        storeName,
-        { phase: "rows", processed: parsed.rows.length, total: parsed.rows.length },
-        true,
-      );
-
-      const { refCol, qtyCol } = resolveBookStockColumns(parsed, erpType);
-      const prepared = prepareSlimRows(parsed, refCol, qtyCol, erpType);
-
-      if (!prepared.slimRows.length) {
-        setError(
-          parsed.gloposStockValuation || /stock\s*valuation/i.test(file.name)
-            ? "No Item Code / Current Stock rows found in this Stock Valuation file."
-            : "No book stock rows found. For GloPOS use a file with ID and QTY columns (or Stock Valuation with Item Code + Current Stock).",
-        );
-        setProgress(null);
+      if (!storeId) {
+        setError("Select a store before previewing the file.");
         return;
       }
-
-      setPreview({
-        headers: parsed.headers,
-        rows: parsed.rows.slice(0, 10),
-        referenceColumn: refCol,
-        quantityColumn: qtyCol,
-        bookStockDate: parsed.bookStockDate,
-        duplicateRows: prepared.duplicateRows,
-        totalProducts: prepared.slimRows.length,
-      });
-      setReferenceColumn(refCol);
-      setQuantityColumn(qtyCol);
-      if (parsed.bookStockDate) setBookStockDate(parsed.bookStockDate);
-      setImportedAtLocal(toDatetimeLocalValue());
-
-      importCacheRef.current = {
-        fileKey: fileImportKey(file),
-        prepared,
-      };
-
-      setProgress(null);
+      const selected = formData.get("file") as File;
+      if (!(selected instanceof File) || selected.size === 0) {
+        setError("Choose an Excel file to preview.");
+        return;
+      }
+      if (!(await validateSelectedFile(selected))) {
+        return;
+      }
+      setFile(selected);
+      formData.set("storeId", storeId);
+      const data = await parseBookStockFile(formData);
+      setPreview(data);
+      const fromFile = datetimeLocalFromFile(selected.name, data.bookStockDate);
+      setBookStockAtLocal(fromFile);
+      setExcelBookStockAt(fromFile);
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Preview failed");
-      setProgress(null);
-    } finally {
-      setPreviewing(false);
+      const message = err instanceof Error ? err.message : "Preview failed";
+      setError(message);
+      reportErpMismatch(message);
     }
   }
 
@@ -504,23 +216,19 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
       setError("Select a store and file first");
       return;
     }
-    if (!(await validateSelectedFile(file))) {
-      return;
-    }
-    if (!referenceColumn || !quantityColumn) {
-      setError(
-        erpType === "glopos"
-          ? "File must include ID and QTY columns (or Stock Valuation Item Code + Current Stock)"
-          : "File must include Item Code and Current Stock columns",
-      );
+
+    let bookStockDate: string;
+    let uploadImportedAt: string;
+    try {
+      const parts = datetimeLocalToParts(bookStockAtLocal);
+      bookStockDate = parts.bookStockDate;
+      uploadImportedAt = parts.importedAt;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Select a book-stock date and time");
       return;
     }
 
-    let uploadImportedAt: string;
-    try {
-      uploadImportedAt = datetimeLocalToIso(importedAtLocal);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Invalid upload date and time");
+    if (!(await validateSelectedFile(file))) {
       return;
     }
 
@@ -528,159 +236,68 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
     const storeName = store?.name ?? "";
     setError(null);
     setResult(null);
-    setImporting(true);
 
     try {
-      let prepared: PreparedBookStockImport | null = null;
-      const cache = importCacheRef.current;
-      if (cache && cache.fileKey === fileImportKey(file)) {
-        prepared = cache.prepared;
-      } else {
-        scheduleParseProgress("import", file.name, storeName, {
-          phase: "workbook",
-          processed: 0,
-          total: 2,
-        });
-
-        const parsed = await parseFileOnClient("import", file, storeName);
-        const { refCol, qtyCol } = resolveBookStockColumns(
-          parsed,
-          resolveStoreErpType(store?.erpType),
+      const parsed = await parseBookStockFileBuffer(
+        await file.arrayBuffer(),
+        file.name,
+      );
+      const columns = resolveBookStockColumns(parsed, erpType);
+      if (!columns.refCol || !columns.qtyCol) {
+        setError(
+          erpType === "glopos"
+            ? "File must include ID and QTY columns (or Stock Valuation Item Code + Current Stock)"
+            : "File must include Item Code and Current Stock columns",
         );
-        prepared = prepareSlimRows(
-          parsed,
-          refCol,
-          qtyCol,
-          resolveStoreErpType(store?.erpType),
-        );
-        if (parsed.bookStockDate) setBookStockDate(parsed.bookStockDate);
-        setReferenceColumn(refCol);
-        setQuantityColumn(qtyCol);
-        importCacheRef.current = {
-          fileKey: fileImportKey(file),
-          prepared,
-        };
+        return;
       }
 
-      const refCol = prepared.refCol;
-      const qtyCol = prepared.qtyCol;
-      const stockDate = prepared.stockDate || bookStockDate;
-      const duplicateRows = prepared.duplicateRows;
-      const slimRows = prepared.slimRows;
+      const prepared = prepareBookStockImport({
+        parsed,
+        referenceColumn: columns.refCol,
+        quantityColumn: columns.qtyCol,
+        bookStockDate,
+      });
 
-      if (!slimRows.length) {
+      if (!prepared.slimRows.length) {
         setError(
-          /stock\s*valuation/i.test(file.name)
+          parsed.gloposStockValuation || /stock\s*valuation/i.test(file.name)
             ? "No Item Code / Current Stock rows found in this Stock Valuation file."
             : "No book stock rows found. For GloPOS use a file with ID and QTY columns (or Stock Valuation with Item Code + Current Stock).",
         );
-        setProgress(null);
-        setImporting(false);
         return;
       }
 
-      const totalRows = slimRows.length;
-      const useBulk = totalRows <= BOOK_STOCK_BULK_MAX_ROWS;
-
-      if (useBulk) {
-        setProgress({
-          job: "import",
-          phase: "saving",
-          processed: 0,
-          total: totalRows,
-          fileName: file.name,
-          storeName,
-          done: false,
-          savingBatch: 1,
-          savingBatchTotal: 1,
-        });
-
-        const bulk = await importBookStockBulk({
-          storeId: Number(storeId),
-          bookStockDate: stockDate,
-          referenceColumn: refCol,
-          quantityColumn: qtyCol,
-          fileName: file.name,
-          duplicateRows,
-          importedAt: uploadImportedAt,
-          rows: slimRows,
-        });
-        if (!bulk.success) {
-          setError(bulk.error);
-          reportErpMismatch(bulk.error);
-          setProgress(null);
-          setImporting(false);
-          return;
-        }
-
-        setProgress({
-          job: "import",
-          phase: "saving",
-          processed: totalRows,
-          total: totalRows,
-          fileName: file.name,
-          storeName,
-          done: true,
-          savingBatch: 1,
-          savingBatchTotal: 1,
-        });
-        setProgress(null);
-        setImporting(false);
-        const bulkResult = { ...bulk.data, duplicateRows };
-        setResult(bulkResult);
-        setListRefreshKey((key) => key + 1);
-        if (bulkResult.matchedRows === 0 && bulkResult.totalRows > 0) {
-          setError(
-            "Import finished but no products matched this store’s catalog — nothing was saved to book stock. Item codes in the file must match store product codes on the Products page.",
-          );
-        }
-        return;
-      }
-
+      const stockDate = prepared.stockDate || bookStockDate;
+      const slimRows = prepared.slimRows;
       const batches = chunkRows(slimRows, BOOK_STOCK_IMPORT_CHUNK_SIZE);
+      const totalRows = slimRows.length;
+
+      setProgress({
+        processed: 0,
+        total: totalRows,
+        fileName: file.name,
+        storeName,
+        done: false,
+      });
+
       let importedAt: string | undefined = uploadImportedAt;
       let aggregated: ImportResult = {
         totalRows: 0,
         matchedRows: 0,
         unmatchedRows: 0,
         invalidRows: 0,
-        duplicateRows,
+        duplicateRows: prepared.duplicateRows,
         errors: [],
       };
       let processed = 0;
 
-      setProgress({
-        job: "import",
-        phase: "saving",
-        processed: 0,
-        total: totalRows,
-        fileName: file.name,
-        storeName,
-        done: false,
-        savingBatch: 0,
-        savingBatchTotal: batches.length,
-      });
-
-      for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-        const batch = batches[batchIndex]!;
-        const batchNum = batchIndex + 1;
-        setProgress({
-          job: "import",
-          phase: "saving",
-          processed: batchIndex * BOOK_STOCK_IMPORT_CHUNK_SIZE,
-          total: totalRows,
-          fileName: file.name,
-          storeName,
-          done: false,
-          savingBatch: batchNum,
-          savingBatchTotal: batches.length,
-        });
-
+      for (const batch of batches) {
         const chunk = await importBookStockChunk({
           storeId: Number(storeId),
           bookStockDate: stockDate,
-          referenceColumn: refCol,
-          quantityColumn: qtyCol,
+          referenceColumn: prepared.refCol,
+          quantityColumn: prepared.qtyCol,
           fileName: file.name,
           importedAt,
           rows: batch,
@@ -689,149 +306,203 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
           setError(chunk.error);
           reportErpMismatch(chunk.error);
           setProgress(null);
-          setImporting(false);
           return;
         }
         importedAt = chunk.data.importedAt;
         aggregated = mergeImportResults(aggregated, chunk.data);
         processed += batch.length;
         setProgress({
-          job: "import",
-          phase: "saving",
           processed,
           total: totalRows,
           fileName: file.name,
           storeName,
           done: processed >= totalRows,
-          savingBatch: batchNum,
-          savingBatchTotal: batches.length,
         });
       }
 
-      setProgress(null);
-      setImporting(false);
-      const finalResult = { ...aggregated, duplicateRows };
+      const finalResult = { ...aggregated, duplicateRows: prepared.duplicateRows };
       setResult(finalResult);
+      setPreview(null);
+      setProgress(null);
       setListRefreshKey((key) => key + 1);
+
       if (finalResult.matchedRows === 0 && finalResult.totalRows > 0) {
         setError(
           "Import finished but no products matched this store’s catalog — nothing was saved to book stock. Item codes in the file must match store product codes on the Products page.",
         );
       }
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Import failed");
-      reportErpMismatch(err instanceof Error ? err.message : "");
+      const message = err instanceof Error ? err.message : "Import failed";
+      setError(message);
+      reportErpMismatch(message);
       setProgress(null);
-      setImporting(false);
     }
   }
 
-  const progressPercent = progress ? jobProgressPercent(progress) : 0;
-  const busy = previewing || importing;
+  const progressPercent = progress
+    ? Math.round((progress.processed / Math.max(1, progress.total)) * 100)
+    : 0;
+
+  const previewRef =
+    preview?.referenceColumn ??
+    (erpType === "glopos" ? "ID" : "Item Code");
+  const previewQty =
+    preview?.quantityColumn ??
+    (erpType === "glopos" ? "QTY" : "Current Stock");
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-zinc-600">
-        {erpType === "glopos" ? (
-          <>
-            Upload GloPOS book stock with <strong>ID</strong> + <strong>QTY</strong>, or a{" "}
-            <strong>Stock Valuation (Detail)</strong> file (
-            <strong>Item Code</strong> + <strong>Current Stock</strong>). Duplicate codes
-            are summed, then one qty per product is saved.{" "}
-          </>
-        ) : (
-          <>
-            Upload <strong>Stock Valuation (Detail)</strong> reports (
-            <strong>Item Code</strong> + <strong>Current Stock</strong>). Duplicate item
-            codes are summed, then one qty per product is saved.{" "}
-          </>
-        )}
-        <span className="text-zinc-500">({erpHelp.label})</span>
+        Columns are detected automatically. {erpHelp.label}.
       </p>
 
-      <div className="grid gap-4 rounded-xl border bg-white p-4 md:grid-cols-2">
-        <div>
-          <Label>Store</Label>
-          <Select
-            name="storeId"
-            required
-            value={storeId}
-            onChange={async (e) => {
-              const nextStoreId = e.target.value;
-              setStoreId(nextStoreId);
-              setPreview(null);
-              if (file && nextStoreId) {
-                const nextStore = stores.find((store) => String(store.id) === nextStoreId);
-                const mismatch = await checkUploadErpMismatch(
-                  file,
-                  resolveStoreErpType(nextStore?.erpType),
-                  detectBookStockFileErpType,
-                );
-                if (mismatch) {
-                  setError(mismatch);
-                  reportErpMismatch(mismatch);
-                  setFile(null);
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <form
+          action={onPreview}
+          className="grid gap-4 rounded-xl border border-zinc-200/80 bg-white p-5 shadow-sm"
+        >
+          <div>
+            <Label>Store</Label>
+            <Select
+              name="storeId"
+              required
+              value={storeId}
+              onChange={async (e) => {
+                const nextStoreId = e.target.value;
+                setStoreId(nextStoreId);
+                setPreview(null);
+                if (file && nextStoreId) {
+                  const nextStore = stores.find(
+                    (store) => String(store.id) === nextStoreId,
+                  );
+                  const mismatch = await checkUploadErpMismatch(
+                    file,
+                    resolveStoreErpType(nextStore?.erpType),
+                    detectBookStockFileErpType,
+                  );
+                  if (mismatch) {
+                    setError(mismatch);
+                    reportErpMismatch(mismatch);
+                    setFile(null);
+                  }
                 }
-              }
-            }}
-          >
-            <option value="" disabled>
-              Select store
-            </option>
-            {stores.map((store) => (
-              <option key={store.id} value={store.id}>
-                {store.name} ({store.code}) —{" "}
-                {store.erpType === "glopos" ? "GloPOS" : "MSP"}
+              }}
+            >
+              <option value="" disabled>
+                Select store
               </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <Label>Book-stock date</Label>
-          <DateField
-            name="bookStockDate"
-            value={bookStockDate}
-            onChange={(e) => setBookStockDate(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <Label>Upload date & time</Label>
-          <Input
-            type="datetime-local"
-            name="importedAt"
-            value={importedAtLocal}
-            onChange={(e) => setImportedAtLocal(e.target.value)}
-            required
-          />
-          <p className="mt-1 text-xs text-zinc-500">
-            Saved as this upload’s timestamp. Ordering uses the latest upload unless you
-            pick an older one.
-          </p>
-        </div>
-        <div className="md:col-span-2">
-          <Label>BK file (CSV or XLSX)</Label>
-          <FileUploadField
-            name="file"
-            accept=".csv,.xlsx,.xls"
-            required
-            onChange={onFileChange}
-          />
-        </div>
-        <div className="md:col-span-2 space-y-3">
-          <Button
-            type="button"
-            disabled={!storeId || !file || busy}
-            onClick={() => void onPreviewClick()}
-          >
-            {previewing ? "Previewing…" : "Preview file"}
-          </Button>
-          {progress && progress.job === "preview" ? (
-            <BookStockProgressPanel progress={progress} percent={progressPercent} />
-          ) : null}
+              {stores.map((store) => (
+                <option key={store.id} value={store.id}>
+                  {store.name} ({store.code}) —{" "}
+                  {store.erpType === "glopos" ? "GloPOS" : "MSP"}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label>BK file (CSV or XLSX)</Label>
+            <FileUploadField
+              name="file"
+              accept=".csv,.xlsx,.xls"
+              required
+              onChange={onFileChange}
+            />
+          </div>
+          <div>
+            <Button type="submit">Preview file</Button>
+          </div>
+        </form>
+
+        <div className="rounded-xl border border-zinc-200/80 bg-white p-5 shadow-sm lg:min-h-48">
+          {progress ? (
+            <div className="space-y-3">
+              <h3 className="font-semibold text-zinc-900">Import progress</h3>
+              <p className="font-medium text-zinc-900">
+                {progress.done
+                  ? "Book stock import complete"
+                  : "Saving book stock…"}
+              </p>
+              <p className="text-sm text-zinc-600">
+                {progress.fileName} · {progress.storeName}
+              </p>
+              <div
+                className="h-3 overflow-hidden rounded-full bg-zinc-200"
+                role="progressbar"
+                aria-label="Book stock import progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progressPercent}
+              >
+                <div
+                  className={`h-full rounded-full transition-[width] duration-300 ${
+                    progress.done ? "bg-emerald-500" : "bg-emerald-600"
+                  }`}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <p className="text-sm text-zinc-600">
+                Saved {progress.processed.toLocaleString()} of{" "}
+                {progress.total.toLocaleString()} products · {progressPercent}%
+              </p>
+            </div>
+          ) : result ? (
+            <div className="space-y-3">
+              <h3 className="font-semibold text-zinc-900">Last import result</h3>
+              <ImportSummary result={result} />
+            </div>
+          ) : preview ? (
+            <div className="space-y-4">
+              <h3 className="font-semibold text-zinc-900">Ready to import</h3>
+              {preview.duplicateRows ? (
+                <p className="text-sm text-emerald-800">
+                  Grouped {preview.duplicateRows.toLocaleString()} duplicate row(s)
+                  (quantities summed) before import.
+                </p>
+              ) : null}
+              {preview.totalProducts ? (
+                <p className="text-sm text-zinc-600">
+                  {preview.totalProducts.toLocaleString()} products · using{" "}
+                  <strong>{previewRef}</strong> + <strong>{previewQty}</strong>
+                </p>
+              ) : null}
+              <div className="max-w-sm">
+                <Label>Book-stock date & time</Label>
+                {excelBookStockAt ? (
+                  <p className="mb-1.5 text-xs text-zinc-500">
+                    Prefilled from the file (
+                    {new Date(excelBookStockAt).toLocaleString()}). Change below if
+                    needed.
+                  </p>
+                ) : null}
+                <Input
+                  type="datetime-local"
+                  value={bookStockAtLocal}
+                  onChange={(e) => setBookStockAtLocal(e.target.value)}
+                  required
+                />
+                {excelBookStockAt && bookStockAtLocal !== excelBookStockAt ? (
+                  <button
+                    type="button"
+                    className="mt-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                    onClick={() => setBookStockAtLocal(excelBookStockAt)}
+                  >
+                    Reset to file date & time
+                  </button>
+                ) : null}
+              </div>
+              <Button type="button" onClick={() => void onImport()}>
+                Import book stock
+              </Button>
+            </div>
+          ) : (
+            <div className="flex h-full min-h-40 flex-col justify-center text-sm text-zinc-500">
+              <p className="font-medium text-zinc-700">Import result</p>
+              <p className="mt-1">
+                Preview a file, then import to see matched, unmatched, and error
+                counts here.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -839,8 +510,7 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
         <section className="space-y-3 rounded-xl border bg-white p-4">
           <h3 className="font-semibold">Saved book stock uploads</h3>
           <p className="text-sm text-zinc-600">
-            Each upload keeps its timestamp. Ordering uses the latest upload unless you
-            pick an older one.
+            Ordering uses the latest upload unless you pick an older one.
           </p>
           {imports.length ? (
             <div className="overflow-x-auto">
@@ -879,10 +549,10 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
                           size="sm"
                           disabled={deletingUpload === entry.importedAt}
                           onClick={() =>
-                            void onDeleteSavedUpload(
-                              entry.importedAt,
-                              entry.bookStockDate,
-                            )
+                            setPendingDelete({
+                              importedAt: entry.importedAt,
+                              bookStockDate: entry.bookStockDate,
+                            })
                           }
                         >
                           {deletingUpload === entry.importedAt
@@ -903,31 +573,23 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
         </section>
       ) : null}
 
-      {preview ? (
-        <div className="space-y-4 rounded-xl border bg-white p-4">
-          <h3 className="font-semibold">Ready to import</h3>
-          <p className="text-sm text-zinc-600">
-            Using <strong>{referenceColumn}</strong> and <strong>{quantityColumn}</strong>
-            {preview.totalProducts
-              ? ` · ${preview.totalProducts.toLocaleString()} products`
-              : ""}
-            {preview.duplicateRows
-              ? ` · ${preview.duplicateRows.toLocaleString()} duplicate row(s) summed`
-              : ""}
-            .
-          </p>
+      <ConfirmAlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingUpload) setPendingDelete(null);
+        }}
+        title="Delete book stock upload?"
+        description={
+          pendingDelete
+            ? `Delete book stock upload for ${selectedStore?.name ?? "this store"} on ${pendingDelete.bookStockDate} (imported ${new Date(pendingDelete.importedAt).toLocaleString()})?`
+            : ""
+        }
+        confirming={Boolean(
+          pendingDelete && deletingUpload === pendingDelete.importedAt,
+        )}
+        onConfirm={() => void confirmDeleteUpload()}
+      />
 
-          <Button type="button" onClick={onImport} disabled={importing || previewing}>
-            {importing ? "Importing…" : "Import book stock"}
-          </Button>
-
-          {progress && progress.job === "import" ? (
-            <BookStockProgressPanel progress={progress} percent={progressPercent} />
-          ) : null}
-        </div>
-      ) : null}
-
-      {result && !progress ? <ImportSummary result={result} /> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>
   );

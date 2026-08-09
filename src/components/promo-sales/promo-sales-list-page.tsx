@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { deletePromoUpload, listPromoSummaries } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
 import type { PromoSavedRow } from "@/components/promo-sales/types";
 import type { StoreOption } from "@/types/store";
@@ -19,6 +20,7 @@ export function PromoSalesListPage({
   const [loadingRows, setLoadingRows] = useState(false);
   const [savedRows, setSavedRows] = useState<PromoSavedRow[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PromoSavedRow | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadSavedRows = useCallback(
@@ -55,18 +57,14 @@ export function PromoSalesListPage({
     void loadSavedRows(storeId);
   }, [storeId, refreshKey, loadSavedRows]);
 
-  async function onDeleteRow(row: PromoSavedRow) {
-    if (
-      !window.confirm(
-        `Delete all saved promo data for ${row.storeName} on ${row.promoDate}?`,
-      )
-    ) {
-      return;
-    }
+  async function confirmDelete() {
+    const row = pendingDelete;
+    if (!row) return;
     setDeletingId(row.id);
     setError(null);
     const response = await deletePromoUpload(Number(row.storeId), row.promoDate);
     setDeletingId(null);
+    setPendingDelete(null);
     if (!response.success) {
       setError(response.error);
       return;
@@ -111,7 +109,7 @@ export function PromoSalesListPage({
                       type="button"
                       variant="outline"
                       disabled={deletingId === row.id}
-                      onClick={() => void onDeleteRow(row)}
+                      onClick={() => setPendingDelete(row)}
                     >
                       {deletingId === row.id ? "Deleting…" : "Delete"}
                     </Button>
@@ -125,6 +123,21 @@ export function PromoSalesListPage({
         <p className="text-sm text-zinc-600">No promo data saved for this store yet.</p>
       )}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <ConfirmAlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingId) setPendingDelete(null);
+        }}
+        title="Delete promo data?"
+        description={
+          pendingDelete
+            ? `Delete all saved promo data for ${pendingDelete.storeName} on ${pendingDelete.promoDate}?`
+            : ""
+        }
+        confirming={Boolean(pendingDelete && deletingId === pendingDelete.id)}
+        onConfirm={() => void confirmDelete()}
+      />
     </section>
   );
 }

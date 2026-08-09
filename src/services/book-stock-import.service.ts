@@ -13,6 +13,7 @@ import {
   resolveStoreErpType,
   validateErpFileMatch,
 } from "@/utils/erp-file-validation";
+import { assertStoreFileErpMatch } from "@/services/import-parse.service";
 import { bookStockImportSchema } from "@/validators/schemas";
 import {
   BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE,
@@ -186,7 +187,7 @@ async function insertValidRows(
   }
 }
 
-/** Save an entire book-stock file as a new timestamped upload (keeps prior uploads). */
+/** Save an entire prepared book-stock upload (used by FormData / whole-file import). */
 export async function importBookStockBulk(input: {
   storeId: number;
   bookStockDate: string;
@@ -391,14 +392,24 @@ export type BookStockParseResult = {
   quantityColumn?: string;
   bookStockDate?: string;
   duplicateRows?: number;
+  totalProducts?: number;
 };
 
 /** Inspect a book-stock upload for UI preview (does not persist). */
 export async function parseBookStockImportFile(input: {
   buffer: Buffer;
   fileName: string;
+  storeId?: number;
 }): Promise<BookStockParseResult> {
   const parsed = await parseBookStockFileBuffer(input.buffer, input.fileName);
+
+  await assertStoreFileErpMatch({
+    storeId: input.storeId,
+    headers: parsed.headers,
+    fileName: input.fileName,
+    detectFileErpType: detectBookStockFileErpType,
+  });
+
   return {
     headers: parsed.headers,
     rows: parsed.rows.slice(0, 10),
@@ -406,5 +417,6 @@ export async function parseBookStockImportFile(input: {
     quantityColumn: parsed.quantityColumn,
     bookStockDate: parsed.bookStockDate,
     duplicateRows: parsed.duplicateRows,
+    totalProducts: parsed.rows.length,
   };
 }

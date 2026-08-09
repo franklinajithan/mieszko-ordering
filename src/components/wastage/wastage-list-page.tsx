@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteWastageUpload, listWastageSummaries } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
 import type { WastageSavedRow } from "@/components/wastage/types";
 import type { StoreOption } from "@/types/store";
@@ -19,6 +20,9 @@ export function WastageListPage({
   const [loadingRows, setLoadingRows] = useState(false);
   const [savedRows, setSavedRows] = useState<WastageSavedRow[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<WastageSavedRow | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const loadSavedRows = useCallback(
@@ -55,14 +59,9 @@ export function WastageListPage({
     void loadSavedRows(storeId);
   }, [storeId, refreshKey, loadSavedRows]);
 
-  async function onDeleteRow(row: WastageSavedRow) {
-    if (
-      !window.confirm(
-        `Delete all saved wastage data for ${row.storeName} on ${row.wastageDate}?`,
-      )
-    ) {
-      return;
-    }
+  async function confirmDelete() {
+    const row = pendingDelete;
+    if (!row) return;
     setDeletingId(row.id);
     setError(null);
     const response = await deleteWastageUpload(
@@ -70,6 +69,7 @@ export function WastageListPage({
       row.wastageDate,
     );
     setDeletingId(null);
+    setPendingDelete(null);
     if (!response.success) {
       setError(response.error);
       return;
@@ -117,7 +117,7 @@ export function WastageListPage({
                       variant="outline"
                       size="sm"
                       disabled={deletingId === row.id}
-                      onClick={() => onDeleteRow(row)}
+                      onClick={() => setPendingDelete(row)}
                     >
                       {deletingId === row.id ? "Deleting…" : "Delete"}
                     </Button>
@@ -133,6 +133,21 @@ export function WastageListPage({
         </p>
       )}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <ConfirmAlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingId) setPendingDelete(null);
+        }}
+        title="Delete wastage data?"
+        description={
+          pendingDelete
+            ? `Delete all saved wastage data for ${pendingDelete.storeName} on ${pendingDelete.wastageDate}?`
+            : ""
+        }
+        confirming={Boolean(pendingDelete && deletingId === pendingDelete.id)}
+        onConfirm={() => void confirmDelete()}
+      />
     </section>
   );
 }
