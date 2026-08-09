@@ -231,10 +231,9 @@ export const rtcImportSchema = z.object({
 export const promoImportSchema = z.object({
   storeId: idSchema,
   promoDate: z.string().date(),
-  mappingType: z.enum(["store_product_code", "barcode"]).default("store_product_code"),
   referenceColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
-  fileName: z.string().min(1),
+  fileName: z.string().min(1).optional(),
 });
 
 export const wastageImportSchema = z.object({

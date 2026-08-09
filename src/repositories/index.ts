@@ -9,6 +9,6 @@ export { dailySalesRepository } from "@/repositories/daily-sales";
 export { supplierPriceRepository } from "@/repositories/supplier-prices";
 export { bookStockRepository } from "@/repositories/book-stock";
 export { rtcSalesRepository } from "@/repositories/rtc";
-export { promoRepository, promoSalesRepository } from "@/repositories/promo";
+export { promoSalesRepository } from "@/repositories/promo";
 export { wastageRepository } from "@/repositories/wastage";
 export { orderRepository } from "@/repositories/orders";

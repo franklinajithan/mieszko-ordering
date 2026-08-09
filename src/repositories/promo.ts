@@ -1,7 +1,7 @@
 import "server-only";
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { promoImports, promoSales } from "@/db/schema";
+import { promoSales, storeProducts } from "@/db/schema";
 
 export const promoSalesRepository = {
   async upsert(data: typeof promoSales.$inferInsert) {
@@ -17,6 +17,21 @@ export const promoSalesRepository = {
       })
       .returning();
     return row;
+  },
+
+  async upsertBatch(data: Array<typeof promoSales.$inferInsert>) {
+    if (!data.length) return [];
+    return db
+      .insert(promoSales)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [promoSales.storeProductId, promoSales.promoDate],
+        set: {
+          promoQty: sql`excluded.promo_qty`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
   },
 
   async sumInPeriod(
@@ -38,37 +53,38 @@ export const promoSalesRepository = {
       );
     return row?.total ?? "0";
   },
-};
 
-export const promoRepository = {
-  async createImport(data: typeof promoImports.$inferInsert) {
-    const [row] = await db.insert(promoImports).values(data).returning();
-    return row;
+  async deleteForStoreAndDate(storeId: number, promoDate: string) {
+    const productIds = await db
+      .select({ id: storeProducts.id })
+      .from(storeProducts)
+      .where(eq(storeProducts.storeId, storeId));
+
+    const ids = productIds.map((row) => row.id);
+    if (!ids.length) return;
+
+    await db
+      .delete(promoSales)
+      .where(
+        and(
+          eq(promoSales.promoDate, promoDate),
+          inArray(promoSales.storeProductId, ids),
+        ),
+      );
   },
 
-  async updateMatchedRows(importId: number, matchedRows: number) {
-    const [row] = await db
-      .update(promoImports)
-      .set({ matchedRows })
-      .where(eq(promoImports.id, importId))
-      .returning();
-    return row ?? null;
-  },
-
-  async getImportById(importId: number) {
-    const [row] = await db
-      .select()
-      .from(promoImports)
-      .where(eq(promoImports.id, importId));
-    return row ?? null;
-  },
-
-  async listForStore(storeId: number, limit = 50) {
+  async listDateSummariesForStore(storeId: number) {
     return db
-      .select()
-      .from(promoImports)
-      .where(eq(promoImports.storeId, storeId))
-      .orderBy(desc(promoImports.importedAt))
-      .limit(limit);
+      .select({
+        promoDate: promoSales.promoDate,
+        itemCount: sql<number>`count(*)::int`,
+        totalPromoQty: sql<string>`coalesce(sum(${promoSales.promoQty}), 0)::text`,
+        lastUpdated: sql<string>`max(${promoSales.updatedAt})::text`,
+      })
+      .from(promoSales)
+      .innerJoin(storeProducts, eq(storeProducts.id, promoSales.storeProductId))
+      .where(eq(storeProducts.storeId, storeId))
+      .groupBy(promoSales.promoDate)
+      .orderBy(desc(promoSales.promoDate));
   },
 };

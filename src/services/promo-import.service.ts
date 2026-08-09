@@ -1,138 +1,266 @@
-import { db } from "@/db";
-import type { ErpType, ImportResult, ParsedRow, SalesMappingType } from "@/types";
+import type { FilePreview, ImportResult, ParsedRow } from "@/types";
+import { decimalToDb } from "@/utils/decimal";
+import { formatSpreadsheetBarcode } from "@/utils/barcode";
 import {
-  promoRepository,
+  productRepository,
   promoSalesRepository,
   storeRepository,
 } from "@/repositories";
-import { parseAllRows } from "@/parsers/file-parser";
-import { pivotBookStockByReference } from "@/services/book-stock-pivot.service";
-import { importStoreQuantityRows } from "@/services/store-quantity-import.service";
 import {
-  detectBookStockFileErpType,
+  assertStoreFileErpMatch,
+  type ParseImportFileInput,
+} from "@/services/import-parse.service";
+import {
+  preparePromoImport,
+  PROMO_ITEM_CODE_COLUMN,
+  remapPromoBarcodeRowsToStoreProductCodes,
+  type PreparedPromoRow,
+} from "@/services/promo-import-prepare";
+import {
+  tryParseMspPromotionItemDetailReport,
+  type MspPromotionItemDetailParseResult,
+} from "@/parsers/msp-promotion-item-detail-parser";
+import { detectPromoColumns, parseUploadedFile } from "@/parsers/file-parser";
+import {
+  detectPromoFileErpType,
   resolveStoreErpType,
-  validateErpFileMatch,
 } from "@/utils/erp-file-validation";
-import { promoImportSchema } from "@/validators/schemas";
 
+export { preparePromoImport, PROMO_ITEM_CODE_COLUMN };
+export type { PreparedPromoRow };
+
+export type PromoParseResult = FilePreview & {
+  referenceColumn?: string;
+  quantityColumn?: string;
+  promoDate?: string;
+  duplicateRows?: number;
+  mappingType?: "store_product_code" | "barcode";
+  matchedCount?: number;
+  unmatchedCount?: number;
+  unmatchedCodes?: string[];
+};
+
+export async function buildMspPromoPreviewWithStoreProductCodes(
+  storeId: number,
+  parsed: MspPromotionItemDetailParseResult,
+) {
+  const fileBarcodes = parsed.rows.map((row) =>
+    formatSpreadsheetBarcode(row[parsed.barcodeColumn] ?? "").trim(),
+  );
+  const matches =
+    await productRepository.findStoreProductMatchesForFileBarcodes(
+      storeId,
+      fileBarcodes,
+    );
+  const remapped = remapPromoBarcodeRowsToStoreProductCodes({
+    barcodeColumn: parsed.barcodeColumn,
+    quantityColumn: parsed.quantityColumn,
+    rows: parsed.rows,
+    matches: matches.map((m) => ({
+      fileBarcode: m.fileBarcode,
+      storeProductCode: m.storeProductCode,
+      productName: m.productName,
+    })),
+  });
+
+  const byFileBarcode = new Map(matches.map((m) => [m.fileBarcode, m]));
+  const uniqueFileBarcodes = [...new Set(fileBarcodes.filter(Boolean))];
+  const matchedBarcodes = new Set(matches.map((m) => m.fileBarcode));
+  const unmatchedBarcodes = uniqueFileBarcodes.filter(
+    (b) => !matchedBarcodes.has(b),
+  );
+
+  const previewRows = remapped.rows.slice(0, 10).map((row) => {
+    const code = row[PROMO_ITEM_CODE_COLUMN] ?? "";
+    const match = [...byFileBarcode.values()].find(
+      (m) => m.storeProductCode === code,
+    );
+    return {
+      [PROMO_ITEM_CODE_COLUMN]: code,
+      [parsed.barcodeColumn]: match?.fileBarcode ?? "",
+      [parsed.quantityColumn]: row[parsed.quantityColumn] ?? "",
+    };
+  });
+
+  return {
+    headers: [
+      PROMO_ITEM_CODE_COLUMN,
+      parsed.barcodeColumn,
+      parsed.quantityColumn,
+    ],
+    rows: previewRows,
+    referenceColumn: PROMO_ITEM_CODE_COLUMN,
+    quantityColumn: parsed.quantityColumn,
+    mappingType: "barcode" as const,
+    promoDate: parsed.promoDate ?? undefined,
+    duplicateRows: parsed.duplicateRows,
+    matchedCount: remapped.matchedCount,
+    unmatchedCount: unmatchedBarcodes.length,
+    unmatchedCodes: unmatchedBarcodes.slice(0, 15),
+  };
+}
+
+export async function parsePromoImportFile(
+  input: ParseImportFileInput,
+): Promise<PromoParseResult> {
+  const mspPromo = await tryParseMspPromotionItemDetailReport(
+    input.buffer,
+    input.fileName,
+  );
+
+  if (mspPromo) {
+    let preview: PromoParseResult = {
+      headers: mspPromo.headers,
+      rows: mspPromo.rows.slice(0, 10),
+      referenceColumn: mspPromo.barcodeColumn,
+      quantityColumn: mspPromo.quantityColumn,
+      promoDate: mspPromo.promoDate ?? undefined,
+      duplicateRows: mspPromo.duplicateRows,
+      mappingType: "barcode",
+    };
+    if (input.storeId) {
+      const enriched = await buildMspPromoPreviewWithStoreProductCodes(
+        input.storeId,
+        mspPromo,
+      );
+      preview = { ...enriched, rows: enriched.rows.slice(0, 10) };
+    }
+    await assertStoreFileErpMatch({
+      storeId: input.storeId,
+      headers: ["Barcode", "Promo Qty"],
+      fileName: input.fileName,
+      detectFileErpType: detectPromoFileErpType,
+    });
+    return preview;
+  }
+
+  let preview: PromoParseResult = await parseUploadedFile(
+    input.buffer,
+    input.fileName,
+  );
+  if (input.storeId) {
+    const store = await storeRepository.getById(input.storeId);
+    if (store) {
+      const detected = detectPromoColumns(
+        preview.headers,
+        resolveStoreErpType(store.erpType),
+      );
+      preview = {
+        ...preview,
+        referenceColumn: detected.referenceColumn ?? undefined,
+        quantityColumn: detected.quantityColumn ?? undefined,
+      };
+    }
+  }
+
+  await assertStoreFileErpMatch({
+    storeId: input.storeId,
+    headers: preview.headers,
+    fileName: input.fileName,
+    detectFileErpType: detectPromoFileErpType,
+  });
+
+  return preview;
+}
+
+export async function importPromoQuantityBatch(input: {
+  storeId: number;
+  promoDate: string;
+  rows: PreparedPromoRow[];
+  result: ImportResult;
+}) {
+  if (!input.rows.length) return;
+
+  const references = [...new Set(input.rows.map((row) => row.reference))];
+  const products = await productRepository.findStoreProductsByCodes(
+    input.storeId,
+    references,
+  );
+  const storeProductByReference = new Map(
+    products.map((product) => [product.storeProductCode, product.id]),
+  );
+
+  const toUpsert: Array<{
+    storeProductId: number;
+    promoDate: string;
+    promoQty: string;
+  }> = [];
+
+  for (const row of input.rows) {
+    const storeProductId = storeProductByReference.get(row.reference);
+    if (!storeProductId) {
+      input.result.unmatchedRows += 1;
+      if (input.result.errors.length < 25) {
+        input.result.errors.push({
+          rowNumber: row.rowNumber,
+          reference: row.reference,
+          message: `No matching store product. ${
+            row.productName ? `Name: ${row.productName}` : "Check item code"
+          }`,
+        });
+      }
+      continue;
+    }
+
+    toUpsert.push({
+      storeProductId,
+      promoDate: input.promoDate,
+      promoQty: decimalToDb(row.qty),
+    });
+  }
+
+  if (toUpsert.length) {
+    await promoSalesRepository.upsertBatch(toUpsert);
+    input.result.matchedRows += toUpsert.length;
+  }
+}
+
+/** Import promo rows already keyed by store product code. */
 export async function importPromoRows(input: {
   storeId: number;
   promoDate: string;
-  mappingType: SalesMappingType;
   referenceColumn: string;
   quantityColumn: string;
-  fileName: string;
   rows: ParsedRow[];
-  erpType?: ErpType;
-}): Promise<ImportResult & { importId: number }> {
-  let rows = input.rows;
-  let duplicateRows = 0;
-
-  if (input.erpType === "glopos") {
-    const pivoted = pivotBookStockByReference(
-      rows,
-      input.referenceColumn,
-      input.quantityColumn,
-    );
-    rows = pivoted.rows;
-    duplicateRows = pivoted.duplicateRows;
-  }
-
-  let importId = 0;
-  let result: ImportResult = {
-    totalRows: rows.length,
-    matchedRows: 0,
-    unmatchedRows: 0,
-    invalidRows: 0,
-    duplicateRows,
-    errors: [],
-  };
-
-  await db.transaction(async () => {
-    const promoImport = await promoRepository.createImport({
-      storeId: input.storeId,
-      promoDate: input.promoDate,
-      fileName: input.fileName,
-      referenceColumn: input.referenceColumn,
-      quantityColumn: input.quantityColumn,
-    });
-    importId = promoImport.id;
-
-    result = await importStoreQuantityRows({
-      storeId: input.storeId,
-      mappingType: input.mappingType,
-      productColumn: input.referenceColumn,
-      quantityColumn: input.quantityColumn,
-      recordDate: input.promoDate,
-      rows,
-      upsert: async ({ storeProductId, quantity }) => {
-        await promoSalesRepository.upsert({
-          storeProductId,
-          promoDate: input.promoDate,
-          promoQty: quantity,
-        });
-      },
-    });
-
-    result.duplicateRows = (result.duplicateRows ?? 0) + duplicateRows;
-    await promoRepository.updateMatchedRows(importId, result.matchedRows);
+}): Promise<ImportResult> {
+  const prepared = preparePromoImport({
+    referenceColumn: input.referenceColumn,
+    quantityColumn: input.quantityColumn,
+    rows: input.rows,
   });
 
-  return { ...result, importId };
+  await importPromoQuantityBatch({
+    storeId: input.storeId,
+    promoDate: input.promoDate,
+    rows: prepared.rows,
+    result: prepared.result,
+  });
+
+  return prepared.result;
 }
 
-export type PromoImportSummary = {
-  importId: number;
-  fileName: string | null;
+export type PromoStoreSummary = {
   promoDate: string;
-  importedAt: Date;
   itemCount: number;
+  totalPromoQty: string;
+  lastUpdated: string;
 };
 
-export async function listPromoImportsForStore(
+export async function listPromoSummariesForStore(
   storeId: number,
-): Promise<PromoImportSummary[]> {
-  const imports = await promoRepository.listForStore(storeId);
-  return imports.map((entry) => ({
-    importId: entry.id,
-    fileName: entry.fileName,
-    promoDate: entry.promoDate,
-    importedAt: entry.importedAt,
-    itemCount: entry.matchedRows ?? 0,
+): Promise<PromoStoreSummary[]> {
+  const rows = await promoSalesRepository.listDateSummariesForStore(storeId);
+  return rows.map((row) => ({
+    promoDate: row.promoDate,
+    itemCount: row.itemCount,
+    totalPromoQty: String(row.totalPromoQty),
+    lastUpdated: String(row.lastUpdated),
   }));
 }
 
-export async function importPromoFromForm(
-  formData: FormData,
-): Promise<ImportResult & { importId: number }> {
-  const file = formData.get("file");
-  if (!(file instanceof File)) throw new Error("No file uploaded");
-
-  const meta = promoImportSchema.safeParse({
-    storeId: formData.get("storeId"),
-    promoDate: formData.get("promoDate"),
-    mappingType: formData.get("mappingType") || "store_product_code",
-    referenceColumn: formData.get("referenceColumn"),
-    quantityColumn: formData.get("quantityColumn"),
-    fileName: file.name,
-  });
-  if (!meta.success) throw new Error(meta.error.message);
-
-  const store = await storeRepository.getById(meta.data.storeId);
-  if (!store) throw new Error("Store not found");
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { headers, rows } = await parseAllRows(buffer, file.name);
-  const storeErpType = resolveStoreErpType(store.erpType);
-  const mismatch = validateErpFileMatch(
-    detectBookStockFileErpType(headers),
-    storeErpType,
-  );
-  if (mismatch) throw new Error(mismatch);
-
-  return importPromoRows({
-    ...meta.data,
-    rows,
-    erpType: storeErpType,
-  });
+export async function deletePromoForStoreDate(
+  storeId: number,
+  promoDate: string,
+): Promise<void> {
+  await promoSalesRepository.deleteForStoreAndDate(storeId, promoDate);
 }

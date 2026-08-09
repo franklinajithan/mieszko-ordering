@@ -4,6 +4,7 @@ import { isGloposStockValuationReport } from "@/parsers/glopos-stock-valuation-p
 import { isGloposWastageReport } from "@/parsers/glopos-wastage-report-parser";
 import { isGloposStockVarianceWastageReport } from "@/parsers/glopos-stock-variance-wastage-parser";
 import { isGloposRetailReport } from "@/parsers/glopos-retail-parser";
+import { isMspPromotionItemDetailReport } from "@/parsers/msp-promotion-item-detail-parser";
 import { detectProductFileColumns } from "@/parsers/product-file-parser";
 import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
 import type { ErpType } from "@/types";
@@ -113,6 +114,15 @@ export function detectWastageFileErpType(
     return "msp";
   }
   return detectBookStockFileErpType(headers);
+}
+
+export function detectPromoFileErpType(
+  headers: string[],
+  fileName: string,
+): ErpType | null {
+  // MSP Promotion Item Detail (Barcode + Promo Qty).
+  if (isMspPromotionItemDetailReport(headers, fileName)) return "msp";
+  return detectBookStockFileErpType(headers, fileName);
 }
 
 export function detectDailySalesFileErpType(
