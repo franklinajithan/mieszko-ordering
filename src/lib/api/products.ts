@@ -72,8 +72,9 @@ export function addBarcode(input: {
 export function addSupplierProductMapping(input: {
   productId: number;
   supplierId: unknown;
-  supplierCode: unknown;
+  supplierCode?: unknown;
   isActive?: boolean;
+  unavailable?: boolean;
 }): Promise<ActionResult<{ id: number }>> {
   const { productId, ...body } = input;
   return apiRequest(`/products/${productId}/supplier-codes`, {

@@ -10,12 +10,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { formatSupplierCodeDisplay } from "@/lib/supplier-code-unavailable";
 import type { Product } from "@/types/product";
 import type { DepartmentOption } from "@/types/department";
 
 type Barcode = { id: number; barcode: string };
 type SupplierProduct = {
-  supplierProduct: { supplierCode: string };
+  supplierProduct: { supplierCode: string; isActive?: boolean };
   supplier: { code: string; name: string };
 };
 type Supplier = { id: number; code: string; name: string };
@@ -39,6 +40,9 @@ export function ProductDetailForms({
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [supplierMode, setSupplierMode] = useState<"code" | "unavailable">(
+    "code",
+  );
 
   async function onBarcode(formData: FormData) {
     setError(null);
@@ -57,9 +61,24 @@ export function ProductDetailForms({
 
   async function onSupplierProduct(formData: FormData) {
     setError(null);
+    const supplierId = formData.get("supplierId");
+    if (supplierMode === "unavailable") {
+      const result = await addSupplierProductMapping({
+        productId,
+        supplierId,
+        unavailable: true,
+        isActive: false,
+      });
+      if (!result.success) setError(result.error);
+      else {
+        setSupplierMode("code");
+        router.refresh();
+      }
+      return;
+    }
     const result = await addSupplierProductMapping({
       productId,
-      supplierId: formData.get("supplierId"),
+      supplierId,
       supplierCode: formData.get("supplierCode"),
       isActive: true,
     });
@@ -138,7 +157,11 @@ export function ProductDetailForms({
         <ul className="space-y-1 text-sm">
           {supplierProducts.map(({ supplierProduct, supplier }) => (
             <li key={`${supplier.code}-${supplierProduct.supplierCode}`}>
-              {supplier.code}: {supplierProduct.supplierCode}
+              {supplier.code}:{" "}
+              {formatSupplierCodeDisplay(
+                supplierProduct.supplierCode,
+                supplier.code,
+              )}
             </li>
           ))}
         </ul>
@@ -157,10 +180,35 @@ export function ProductDetailForms({
             </Select>
           </div>
           <div>
-            <Label>Supplier code</Label>
-            <Input name="supplierCode" required />
+            <Label>Mapping</Label>
+            <Select
+              value={supplierMode}
+              onChange={(e) =>
+                setSupplierMode(
+                  e.target.value === "unavailable" ? "unavailable" : "code",
+                )
+              }
+            >
+              <option value="code">Supplier code</option>
+              <option value="unavailable">Not with this supplier</option>
+            </Select>
           </div>
-          <Button type="submit">Add supplier code</Button>
+          {supplierMode === "code" ? (
+            <div>
+              <Label>Supplier code</Label>
+              <Input name="supplierCode" required placeholder="e.g. 12345" />
+            </div>
+          ) : (
+            <p className="text-xs text-zinc-500">
+              Saves as confirmed unavailable for the selected supplier (same as
+              spreadsheet “Not in MM / SP / WAB”).
+            </p>
+          )}
+          <Button type="submit">
+            {supplierMode === "unavailable"
+              ? "Mark not with supplier"
+              : "Add supplier code"}
+          </Button>
         </form>
       </section>
 

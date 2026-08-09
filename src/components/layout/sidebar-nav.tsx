@@ -75,6 +75,12 @@ export const navGroups: NavGroup[] = [
       },
       { href: "/supplier-prices", label: "Supplier Prices", icon: Truck },
       {
+        href: "/supplier-codes",
+        label: "Supplier Codes",
+        icon: Tags,
+        match: (p) => p.startsWith("/supplier-codes"),
+      },
+      {
         href: "/book-stock",
         label: "Book Stock",
         icon: BookOpen,
@@ -83,7 +89,7 @@ export const navGroups: NavGroup[] = [
       {
         href: "/rtc",
         label: "RTC (Reduce to Clear)",
-        icon: Tags,
+        icon: ArrowLeftRight,
         match: (p) => p.startsWith("/rtc"),
       },
       {

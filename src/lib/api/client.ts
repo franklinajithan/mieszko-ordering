@@ -53,7 +53,7 @@ export async function apiRequest<T>(
     const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
       method,
       headers:
-        body !== undefined ? { "Content-Type": "application/json" } : undefined,
+        body !== undefined ? { "Content-Type": "application/json; charset=utf-8" } : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
       cache: method === "GET" ? "no-store" : undefined,
     });

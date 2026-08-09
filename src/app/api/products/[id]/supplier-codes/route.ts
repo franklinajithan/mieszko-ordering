@@ -1,4 +1,9 @@
 import { productRepository } from "@/repositories";
+import {
+  isUnavailableSupplierMarker,
+  normalizeUtf8SupplierCode,
+} from "@/parsers/supplier-code-file-parser";
+import { unavailableSupplierCode } from "@/lib/supplier-code-unavailable";
 import { supplierProductSchema } from "@/validators/schemas";
 import { apiError, apiOk, numericParam, parseJson, route } from "@/lib/api/http";
 
@@ -24,12 +29,33 @@ export const POST = route(
     );
     if (!parsed.ok) return parsed.response;
 
-    const row = await productRepository.addSupplierProduct({
+    const rawCode = normalizeUtf8SupplierCode(parsed.data.supplierCode ?? "");
+    const markUnavailable =
+      parsed.data.unavailable === true ||
+      (!!rawCode && isUnavailableSupplierMarker(rawCode));
+
+    if (markUnavailable) {
+      const result = await productRepository.upsertSupplierProduct({
+        productId,
+        supplierId: parsed.data.supplierId,
+        supplierCode: unavailableSupplierCode(productId),
+        isActive: false,
+      });
+      return apiOk({ id: result.row.id }, 201);
+    }
+
+    if (!rawCode) {
+      return apiError(
+        "Enter a supplier code, or choose “Not with this supplier”.",
+      );
+    }
+
+    const result = await productRepository.upsertSupplierProduct({
       productId,
       supplierId: parsed.data.supplierId,
-      supplierCode: parsed.data.supplierCode,
-      isActive: parsed.data.isActive,
+      supplierCode: rawCode,
+      isActive: true,
     });
-    return apiOk({ id: row.id }, 201);
+    return apiOk({ id: result.row.id }, 201);
   },
 );

@@ -478,6 +478,91 @@ export const productRepository = {
     return row?.storeProduct ?? null;
   },
 
+  async findSupplierProductByCode(supplierId: number, supplierCode: string) {
+    const [row] = await db
+      .select()
+      .from(supplierProducts)
+      .where(
+        and(
+          eq(supplierProducts.supplierId, supplierId),
+          eq(supplierProducts.supplierCode, supplierCode),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  },
+
+  async findSupplierProductsByCodes(supplierId: number, codes: string[]) {
+    if (!codes.length) return [];
+    return db
+      .select()
+      .from(supplierProducts)
+      .where(
+        and(
+          eq(supplierProducts.supplierId, supplierId),
+          inArray(supplierProducts.supplierCode, codes),
+        ),
+      );
+  },
+
+  async listSupplierProductsForProductIds(productIds: number[]) {
+    if (!productIds.length) return [];
+    return db
+      .select()
+      .from(supplierProducts)
+      .where(inArray(supplierProducts.productId, productIds));
+  },
+
+  /** Upsert supplier code for a product: update existing link for this supplier, or insert. */
+  async upsertSupplierProduct(input: {
+    productId: number;
+    supplierId: number;
+    supplierCode: string;
+    isActive?: boolean;
+  }) {
+    const isActive = input.isActive ?? true;
+    const [existingForProduct] = await db
+      .select()
+      .from(supplierProducts)
+      .where(
+        and(
+          eq(supplierProducts.productId, input.productId),
+          eq(supplierProducts.supplierId, input.supplierId),
+        ),
+      )
+      .limit(1);
+
+    if (existingForProduct) {
+      if (
+        existingForProduct.supplierCode === input.supplierCode &&
+        existingForProduct.isActive === isActive
+      ) {
+        return { row: existingForProduct, action: "unchanged" as const };
+      }
+      const [updated] = await db
+        .update(supplierProducts)
+        .set({
+          supplierCode: input.supplierCode,
+          isActive,
+          updatedAt: new Date(),
+        })
+        .where(eq(supplierProducts.id, existingForProduct.id))
+        .returning();
+      return { row: updated, action: "updated" as const };
+    }
+
+    const [inserted] = await db
+      .insert(supplierProducts)
+      .values({
+        productId: input.productId,
+        supplierId: input.supplierId,
+        supplierCode: input.supplierCode,
+        isActive,
+      })
+      .returning();
+    return { row: inserted, action: "created" as const };
+  },
+
   async getDepartments(storeId?: number) {
     if (storeId) {
       const rows = await db

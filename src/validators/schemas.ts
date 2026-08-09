@@ -78,8 +78,10 @@ export const barcodeSchema = z.object({
 export const supplierProductSchema = z.object({
   productId: idSchema,
   supplierId: idSchema,
-  supplierCode: z.string().min(1).max(100),
+  supplierCode: z.string().max(100).optional().default(""),
   isActive: z.boolean().default(true),
+  /** When true, mark confirmed unavailable (same as “Not in MM/SP/WAB”). */
+  unavailable: z.boolean().optional().default(false),
 });
 
 export const salesPeriodSchema = z.object({

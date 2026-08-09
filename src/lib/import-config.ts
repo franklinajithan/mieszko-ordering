@@ -19,6 +19,7 @@ export const IMPORT_CHUNK = {
   rtc: envInt("NEXT_PUBLIC_RTC_IMPORT_CHUNK_SIZE", 500),
   wastage: envInt("NEXT_PUBLIC_WASTAGE_IMPORT_CHUNK_SIZE", 500),
   promo: envInt("NEXT_PUBLIC_PROMO_IMPORT_CHUNK_SIZE", 500),
+  supplierCodes: envInt("NEXT_PUBLIC_SUPPLIER_CODES_IMPORT_CHUNK_SIZE", 500),
 } as const;
 
 /** Server-only batch sizes for book-stock DB work (not exposed to the browser). */
@@ -75,6 +76,7 @@ export const BOOK_STOCK_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.bookStock;
 export const RTC_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.rtc;
 export const WASTAGE_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.wastage;
 export const PROMO_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.promo;
+export const SUPPLIER_CODES_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.supplierCodes;
 
 export const RTC_ITEM_CODE_COLUMN = IMPORT_COLUMNS.itemCode;
 export const WASTAGE_ITEM_CODE_COLUMN = IMPORT_COLUMNS.itemCode;
