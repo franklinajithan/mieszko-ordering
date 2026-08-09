@@ -32,7 +32,7 @@ export async function processStockUpload(input: {
   let rows = input.rows;
   let duplicateRows = 0;
 
-  if (input.uploadType === "book_stock" && input.erpType === "glopos") {
+  if (input.uploadType === "book_stock") {
     const pivoted = pivotBookStockByReference(
       rows,
       input.referenceColumn,

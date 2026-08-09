@@ -12,7 +12,7 @@ export type ClientBookStockParseOptions = BookStockFileParseOptions & {
 };
 
 function shouldUseWorker(fileName: string): boolean {
-  return /stock\s*valuation/i.test(fileName);
+  return /stock\s*valuation/i.test(fileName) || /^bk\b|\bbook\s*stock\b/i.test(fileName);
 }
 
 async function waitForNextFrame(): Promise<void> {
@@ -88,6 +88,8 @@ export async function parseBookStockFileOnClient(
       if (error instanceof DOMException && error.name === "AbortError") {
         throw error;
       }
+      // Fall through to main-thread parse; do not swallow the final failure.
+      console.warn("Book stock worker parse failed; retrying on main thread", error);
     }
   }
 

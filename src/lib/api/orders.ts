@@ -88,11 +88,15 @@ export function uploadOrderStockFile(
 
 export function applyStoredBookStockToOrder(input: {
   orderId: number;
-  importId: number;
+  importedAt?: string;
+  bookStockDate?: string;
 }): Promise<ActionResult<ImportResult & { uploadId: number }>> {
   return apiRequest(`/orders/${input.orderId}/apply-book-stock`, {
     method: "POST",
-    body: { importId: input.importId },
+    body: {
+      importedAt: input.importedAt,
+      bookStockDate: input.bookStockDate,
+    },
   });
 }
 

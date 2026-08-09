@@ -247,5 +247,6 @@ export const wastageImportSchema = z.object({
 
 export const applyStoredBookStockSchema = z.object({
   orderId: idSchema,
-  importId: idSchema,
+  importedAt: z.string().datetime().optional(),
+  bookStockDate: z.string().date().optional(),
 });

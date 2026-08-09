@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { storeRepository } from "@/repositories";
 import {
+  deleteBookStockForStoreUpload,
   importBookStockChunk,
   importBookStockFromForm,
+  listBookStockSummariesForStore,
 } from "@/services/book-stock-import.service";
-import { listBookStockImportsForStore } from "@/services/apply-book-stock-to-order.service";
 import { BOOK_STOCK_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {
@@ -20,7 +21,7 @@ const chunkSchema = z.object({
   referenceColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
   fileName: z.string().min(1),
-  importId: z.number().int().positive().optional(),
+  importedAt: z.string().datetime().optional(),
   rows: z
     .array(z.record(z.string(), z.string()))
     .min(1)
@@ -32,7 +33,18 @@ export const GET = route(async (req) => {
     new URL(req.url).searchParams.get("storeId"),
   );
   if (!storeId.success) return apiError("storeId is required");
-  return apiOk(await listBookStockImportsForStore(storeId.data));
+  return apiOk(await listBookStockSummariesForStore(storeId.data));
+});
+
+export const DELETE = route(async (req) => {
+  const params = new URL(req.url).searchParams;
+  const storeId = idSchema.safeParse(params.get("storeId"));
+  const importedAt = z.string().datetime().safeParse(params.get("importedAt"));
+  if (!storeId.success || !importedAt.success) {
+    return apiError("storeId and importedAt (ISO timestamp) are required");
+  }
+  await deleteBookStockForStoreUpload(storeId.data, importedAt.data);
+  return apiOk(undefined);
 });
 
 export const POST = route(async (req) => {

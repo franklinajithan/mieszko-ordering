@@ -12,10 +12,11 @@ export function pivotBookStockByReference(
   >();
 
   for (const row of rows) {
-    const reference = row[referenceColumn]?.trim() ?? "";
+    const reference = String(row[referenceColumn] ?? "").trim();
     if (!reference) continue;
 
-    const qtyRaw = row[quantityColumn]?.trim() ?? "";
+    // Keep zero quantities — "0" is valid book stock.
+    const qtyRaw = String(row[quantityColumn] ?? "").trim();
     if (!qtyRaw) continue;
 
     let quantity;

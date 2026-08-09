@@ -66,7 +66,7 @@ async function loadStoreProductMap(storeId: number, codes: string[]) {
 
 async function processBookStockRowBatch(input: {
   storeId: number;
-  importId: number;
+  bookStockDate: string;
   referenceColumn: string;
   quantityColumn: string;
   rows: ParsedRow[];
@@ -74,10 +74,9 @@ async function processBookStockRowBatch(input: {
 }): Promise<{
   result: ImportResult;
   validRows: Array<{
-    importId: number;
     storeProductId: number;
-    storeProductCode: string;
-    quantity: string;
+    bookStockDate: string;
+    bookStockQty: string;
   }>;
 }> {
   const result: ImportResult = {
@@ -138,10 +137,9 @@ async function processBookStockRowBatch(input: {
     ));
 
   const validRows: Array<{
-    importId: number;
     storeProductId: number;
-    storeProductCode: string;
-    quantity: string;
+    bookStockDate: string;
+    bookStockQty: string;
   }> = [];
 
   for (const entry of parsed) {
@@ -157,10 +155,9 @@ async function processBookStockRowBatch(input: {
     }
 
     validRows.push({
-      importId: input.importId,
       storeProductId: storeProduct.id,
-      storeProductCode: storeProduct.storeProductCode,
-      quantity: decimalToDb(entry.quantity),
+      bookStockDate: input.bookStockDate,
+      bookStockQty: decimalToDb(entry.quantity),
     });
     result.matchedRows += 1;
   }
@@ -168,7 +165,28 @@ async function processBookStockRowBatch(input: {
   return { result, validRows };
 }
 
-/** Save an entire book-stock file in one request (fewer round-trips than chunked import). */
+async function insertValidRows(
+  validRows: Array<{
+    storeProductId: number;
+    bookStockDate: string;
+    bookStockQty: string;
+  }>,
+  importedAt: Date,
+) {
+  for (const insertBatch of chunkArray(validRows, BOOK_STOCK_INSERT_BATCH_SIZE)) {
+    if (!insertBatch.length) continue;
+    await bookStockRepository.insertBatch(
+      insertBatch.map((row) => ({
+        ...row,
+        importedAt,
+        updatedAt: importedAt,
+        createdAt: importedAt,
+      })),
+    );
+  }
+}
+
+/** Save an entire book-stock file as a new timestamped upload (keeps prior uploads). */
 export async function importBookStockBulk(input: {
   storeId: number;
   bookStockDate: string;
@@ -177,9 +195,17 @@ export async function importBookStockBulk(input: {
   fileName: string;
   rows: ParsedRow[];
   duplicateRows?: number;
-}): Promise<ImportResult & { importId: number }> {
+  importedAt?: string;
+}): Promise<ImportResult & { importedAt: string }> {
   if (!input.rows.length) {
     throw new Error("No rows to import");
+  }
+
+  const importedAt = input.importedAt
+    ? new Date(input.importedAt)
+    : new Date();
+  if (Number.isNaN(importedAt.getTime())) {
+    throw new Error("Invalid importedAt timestamp");
   }
 
   const uniqueCodes = [
@@ -193,48 +219,29 @@ export async function importBookStockBulk(input: {
   ];
   const productByCode = await loadStoreProductMap(input.storeId, uniqueCodes);
 
-  let importId = 0;
-  const aggregate: ImportResult = {
-    totalRows: input.rows.length,
-    matchedRows: 0,
-    unmatchedRows: 0,
-    invalidRows: 0,
-    duplicateRows: input.duplicateRows ?? 0,
-    errors: [],
-  };
-
-  const bookStockImport = await bookStockRepository.createImport({
-    storeId: input.storeId,
-    bookStockDate: input.bookStockDate,
-    fileName: input.fileName,
-    referenceColumn: input.referenceColumn,
-    quantityColumn: input.quantityColumn,
-  });
-  importId = bookStockImport.id;
-
   const { result, validRows } = await processBookStockRowBatch({
     storeId: input.storeId,
-    importId,
+    bookStockDate: input.bookStockDate,
     referenceColumn: input.referenceColumn,
     quantityColumn: input.quantityColumn,
     rows: input.rows,
     productByCode,
   });
-  aggregate.matchedRows = result.matchedRows;
-  aggregate.unmatchedRows = result.unmatchedRows;
-  aggregate.invalidRows = result.invalidRows;
-  aggregate.errors = result.errors;
 
-  for (const insertBatch of chunkArray(validRows, BOOK_STOCK_INSERT_BATCH_SIZE)) {
-    if (insertBatch.length) {
-      await bookStockRepository.insertItemsFast(insertBatch);
-    }
-  }
+  await insertValidRows(validRows, importedAt);
 
-  return { ...aggregate, importId };
+  return {
+    ...result,
+    duplicateRows: input.duplicateRows ?? result.duplicateRows,
+    importedAt: importedAt.toISOString(),
+  };
 }
 
-/** Import one chunk of book-stock rows (rows must already be pivoted if needed). */
+/**
+ * Import one chunk of book-stock rows.
+ * Pass the same `importedAt` across chunks so they share one upload timestamp.
+ * First chunk may omit it; the returned `importedAt` must be reused.
+ */
 export async function importBookStockChunk(input: {
   storeId: number;
   bookStockDate: string;
@@ -242,28 +249,17 @@ export async function importBookStockChunk(input: {
   quantityColumn: string;
   fileName: string;
   rows: ParsedRow[];
-  importId?: number;
-}): Promise<ImportResult & { importId: number }> {
+  importedAt?: string;
+}): Promise<ImportResult & { importedAt: string }> {
   if (!input.rows.length) {
     throw new Error("No rows to import");
   }
 
-  let importId = input.importId ?? 0;
-
-  if (!importId) {
-    const bookStockImport = await bookStockRepository.createImport({
-      storeId: input.storeId,
-      bookStockDate: input.bookStockDate,
-      fileName: input.fileName,
-      referenceColumn: input.referenceColumn,
-      quantityColumn: input.quantityColumn,
-    });
-    importId = bookStockImport.id;
-  } else {
-    const existing = await bookStockRepository.getImportById(importId);
-    if (!existing || existing.storeId !== input.storeId) {
-      throw new Error("Book stock import not found for this store");
-    }
+  const importedAt = input.importedAt
+    ? new Date(input.importedAt)
+    : new Date();
+  if (Number.isNaN(importedAt.getTime())) {
+    throw new Error("Invalid importedAt timestamp");
   }
 
   const chunkCodes = [
@@ -279,18 +275,19 @@ export async function importBookStockChunk(input: {
 
   const { result: chunkResult, validRows } = await processBookStockRowBatch({
     storeId: input.storeId,
-    importId,
+    bookStockDate: input.bookStockDate,
     referenceColumn: input.referenceColumn,
     quantityColumn: input.quantityColumn,
     rows: input.rows,
     productByCode,
   });
 
-  if (validRows.length) {
-    await bookStockRepository.insertItemsFast(validRows);
-  }
+  await insertValidRows(validRows, importedAt);
 
-  return { ...chunkResult, importId };
+  return {
+    ...chunkResult,
+    importedAt: importedAt.toISOString(),
+  };
 }
 
 export async function importBookStockRows(input: {
@@ -301,74 +298,28 @@ export async function importBookStockRows(input: {
   fileName: string;
   rows: ParsedRow[];
   erpType?: ErpType;
-}): Promise<ImportResult & { importId: number }> {
-  let rows = input.rows;
-  let duplicateRows = 0;
+}): Promise<ImportResult & { importedAt: string }> {
+  // Always sum qty by product code before saving (Stock Valuation Detail duplicates).
+  const pivoted = pivotBookStockByReference(
+    input.rows,
+    input.referenceColumn,
+    input.quantityColumn,
+  );
 
-  if (input.erpType === "glopos") {
-    const pivoted = pivotBookStockByReference(
-      rows,
-      input.referenceColumn,
-      input.quantityColumn,
-    );
-    rows = pivoted.rows;
-    duplicateRows = pivoted.duplicateRows;
-  }
-
-  const result: ImportResult = {
-    totalRows: rows.length,
-    matchedRows: 0,
-    unmatchedRows: 0,
-    invalidRows: 0,
-    duplicateRows,
-    errors: [],
-  };
-
-  let importId = 0;
-
-  const bookStockImport = await bookStockRepository.createImport({
+  return importBookStockBulk({
     storeId: input.storeId,
     bookStockDate: input.bookStockDate,
+    referenceColumn: input.referenceColumn,
+    quantityColumn: input.quantityColumn,
     fileName: input.fileName,
-    referenceColumn: input.referenceColumn,
-    quantityColumn: input.quantityColumn,
+    rows: pivoted.rows,
+    duplicateRows: pivoted.duplicateRows,
   });
-  importId = bookStockImport.id;
-
-  const uniqueCodes = [
-    ...new Set(
-      rows
-        .map((row) =>
-          normalizeProductCode(row[input.referenceColumn]?.trim() ?? ""),
-        )
-        .filter(Boolean),
-    ),
-  ];
-  const productByCode = await loadStoreProductMap(input.storeId, uniqueCodes);
-
-  const { result: batchResult, validRows } = await processBookStockRowBatch({
-    storeId: input.storeId,
-    importId: bookStockImport.id,
-    referenceColumn: input.referenceColumn,
-    quantityColumn: input.quantityColumn,
-    rows,
-    productByCode,
-  });
-  result.matchedRows = batchResult.matchedRows;
-  result.unmatchedRows = batchResult.unmatchedRows;
-  result.invalidRows = batchResult.invalidRows;
-  result.errors = batchResult.errors;
-
-  if (validRows.length) {
-    await bookStockRepository.insertItems(validRows);
-  }
-
-  return { ...result, importId };
 }
 
 export async function importBookStockFromForm(
   formData: FormData,
-): Promise<ImportResult & { importId: number }> {
+): Promise<ImportResult> {
   const file = formData.get("file");
   if (!(file instanceof File)) throw new Error("No file uploaded");
 
@@ -416,6 +367,21 @@ export async function importBookStockFromForm(
       ? { ...result, duplicateRows: parsed.duplicateRows }
       : result,
   );
+}
+
+export async function listBookStockSummariesForStore(storeId: number) {
+  return bookStockRepository.listUploadSummariesForStore(storeId);
+}
+
+export async function deleteBookStockForStoreUpload(
+  storeId: number,
+  importedAtIso: string,
+) {
+  const importedAt = new Date(importedAtIso);
+  if (Number.isNaN(importedAt.getTime())) {
+    throw new Error("Invalid importedAt timestamp");
+  }
+  await bookStockRepository.deleteForStoreAndImportedAt(storeId, importedAt);
 }
 
 export type BookStockParseResult = {

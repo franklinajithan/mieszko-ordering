@@ -133,12 +133,17 @@ function parsePlainNumber(value: string): number | null {
 }
 
 function isMetaDataRow(itemCode: string, itemName: string): boolean {
-  const codeLower = itemCode.trim().toLowerCase();
+  const code = itemCode.trim();
+  if (!code) return true;
+
+  const codeLower = code.toLowerCase();
   const nameLower = itemName.trim().toLowerCase();
-  if (!itemCode.trim()) return true;
   if (codeLower.startsWith("total") || codeLower.startsWith("grand total")) return true;
   if (nameLower.startsWith("total") || nameLower.startsWith("grand total")) return true;
-  if (!itemName.trim()) return true;
+
+  // Section headers like "GROCERY - Standard VAT" are not product codes.
+  if (!/^[A-Za-z0-9._-]+$/.test(code)) return true;
+
   return false;
 }
 
@@ -160,6 +165,10 @@ export async function tryParseGloposStockValuationReport(
   }
 }
 
+/**
+ * Parse Stock Valuation (Detail) Excel (MSP / GloPOS).
+ * Duplicate Item Codes are summed on Current Stock before import.
+ */
 export async function parseGloposStockValuationReport(
   buffer: SpreadsheetBytes,
   fileName: string,

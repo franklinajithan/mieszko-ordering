@@ -6,7 +6,6 @@ import { isGloposStockVarianceWastageReport } from "@/parsers/glopos-stock-varia
 import { isGloposRetailReport } from "@/parsers/glopos-retail-parser";
 import { isMspPromotionItemDetailReport } from "@/parsers/msp-promotion-item-detail-parser";
 import { detectProductFileColumns } from "@/parsers/product-file-parser";
-import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
 import type { ErpType } from "@/types";
 
 function normHeader(value: string): string {
@@ -53,37 +52,29 @@ export function detectBookStockFileErpType(
   headers: string[],
   fileName = "",
 ): ErpType | null {
+  // Stock Valuation (Detail) — Item Code + Current Stock — accepted for any store.
   if (isGloposStockValuationReport(headers, fileName)) return null;
 
-  const hasItemCode = hasHeader(headers, BOOK_STOCK_COLUMNS.glopos.reference);
+  const hasItemCode = hasHeader(headers, ["Item Code"]);
   const hasCurrentStock = headers.some((header) =>
     normHeader(header).includes("current stock"),
   );
-  const hasId = hasHeader(headers, BOOK_STOCK_COLUMNS.msp.reference);
-  const hasQty = hasHeader(headers, BOOK_STOCK_COLUMNS.msp.quantity);
+  const hasId = hasHeader(headers, ["ID", "Id"]);
+  const hasQty = hasHeader(headers, ["Qty", "QTY", "Quantity"]);
 
-  if (hasItemCode && hasCurrentStock) return "glopos";
+  if (hasItemCode && hasCurrentStock) return null;
+
+  // GloPOS product/book-stock export: ID + QTY
+  if (hasId && hasQty && !hasItemCode) return "glopos";
 
   const gloposColumns = detectBookStockColumns(headers, "glopos");
   if (
     gloposColumns.referenceColumn &&
     gloposColumns.quantityColumn &&
-    normHeader(gloposColumns.referenceColumn) === "item code" &&
-    normHeader(gloposColumns.quantityColumn).includes("current stock")
+    hasHeader([gloposColumns.referenceColumn], ["ID", "Id"]) &&
+    hasHeader([gloposColumns.quantityColumn], ["Qty", "QTY", "Quantity"])
   ) {
     return "glopos";
-  }
-
-  if (hasId && hasQty && !hasItemCode) return "msp";
-
-  const mspColumns = detectBookStockColumns(headers, "msp");
-  if (
-    mspColumns.referenceColumn &&
-    mspColumns.quantityColumn &&
-    hasHeader([mspColumns.referenceColumn], BOOK_STOCK_COLUMNS.msp.reference) &&
-    hasHeader([mspColumns.quantityColumn], BOOK_STOCK_COLUMNS.msp.quantity)
-  ) {
-    return "msp";
   }
 
   return null;

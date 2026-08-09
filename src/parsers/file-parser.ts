@@ -198,9 +198,8 @@ export function detectBookStockColumns(
     findExact(known.reference) ?? detectSalesColumns(headers).productColumn;
   const quantityColumn =
     findExact(known.quantity) ??
-    (erpType === "glopos"
-      ? headers.find((h) => h.toLowerCase().includes("current stock")) ?? null
-      : detectSalesColumns(headers).quantityColumn);
+    headers.find((h) => h.toLowerCase().includes("current stock")) ??
+    detectSalesColumns(headers).quantityColumn;
 
   return { referenceColumn, quantityColumn };
 }

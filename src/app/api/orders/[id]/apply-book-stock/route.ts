@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { applyBookStockImportToOrder } from "@/services/apply-book-stock-to-order.service";
+import { applyBookStockUploadToOrder } from "@/services/apply-book-stock-to-order.service";
 import {
   apiError,
   apiOk,
@@ -7,10 +7,10 @@ import {
   parseJson,
   route,
 } from "@/lib/api/http";
-import { idSchema } from "@/validators/schemas";
 
 const bodySchema = z.object({
-  importId: idSchema,
+  importedAt: z.string().datetime().optional(),
+  bookStockDate: z.string().date().optional(),
 });
 
 export const POST = route(
@@ -22,9 +22,10 @@ export const POST = route(
     if (!parsed.ok) return parsed.response;
 
     return apiOk(
-      await applyBookStockImportToOrder({
+      await applyBookStockUploadToOrder({
         orderId,
-        importId: parsed.data.importId,
+        importedAt: parsed.data.importedAt,
+        bookStockDate: parsed.data.bookStockDate,
       }),
     );
   },

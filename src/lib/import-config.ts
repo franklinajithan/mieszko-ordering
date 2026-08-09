@@ -39,14 +39,15 @@ export const BOOK_STOCK_COLUMNS: Record<
   { reference: string[]; quantity: string[]; label: string }
 > = {
   msp: {
-    reference: ["ID", "Id"],
-    quantity: ["Qty", "QTY", "Quantity"],
-    label: "MSP (ID + Qty)",
-  },
-  glopos: {
     reference: ["Item Code"],
     quantity: ["Current Stock"],
-    label: "GloPOS (Item Code + Current Stock, pivoted)",
+    label:
+      "MSP: Stock Valuation (Detail) — Item Code + Current Stock (duplicates summed)",
+  },
+  glopos: {
+    reference: ["ID", "Id"],
+    quantity: ["QTY", "Qty", "Quantity"],
+    label: "GloPOS: ID + QTY (duplicates summed)",
   },
 };
 

@@ -1,8 +1,5 @@
 import type { ActionResult, FilePreview, ImportResult } from "@/types";
-import type {
-  BookStockImportSummary,
-  LatestBookStockSummary,
-} from "@/services/apply-book-stock-to-order.service";
+import type { BookStockUploadSummary } from "@/services/apply-book-stock-to-order.service";
 import {
   BOOK_STOCK_BULK_MAX_ROWS,
   BOOK_STOCK_IMPORT_CHUNK_SIZE,
@@ -18,6 +15,10 @@ export type BookStockParseResult = FilePreview & {
   duplicateRows?: number;
 };
 
+export type LatestBookStockSummary = BookStockUploadSummary;
+export type BookStockImportSummary = BookStockUploadSummary;
+export type BookStockDateSummary = BookStockUploadSummary;
+
 export async function parseBookStockFile(
   formData: FormData,
 ): Promise<BookStockParseResult> {
@@ -31,7 +32,7 @@ export async function parseBookStockFile(
 
 export function importBookStock(
   formData: FormData,
-): Promise<ActionResult<ImportResult & { importId: number }>> {
+): Promise<ActionResult<ImportResult & { importedAt: string }>> {
   return apiFormRequest("/imports/book-stock", formData);
 }
 
@@ -41,13 +42,13 @@ export type BookStockImportChunkInput = {
   referenceColumn: string;
   quantityColumn: string;
   fileName: string;
-  importId?: number;
+  importedAt?: string;
   rows: Array<Record<string, string>>;
 };
 
 export function importBookStockChunk(
   input: BookStockImportChunkInput,
-): Promise<ActionResult<ImportResult & { importId: number }>> {
+): Promise<ActionResult<ImportResult & { importedAt: string }>> {
   return apiRequest("/imports/book-stock", { method: "POST", body: input });
 }
 
@@ -58,12 +59,13 @@ export type BookStockBulkImportInput = {
   quantityColumn: string;
   fileName: string;
   duplicateRows?: number;
+  importedAt?: string;
   rows: Array<Record<string, string>>;
 };
 
 export function importBookStockBulk(
   input: BookStockBulkImportInput,
-): Promise<ActionResult<ImportResult & { importId: number }>> {
+): Promise<ActionResult<ImportResult & { importedAt: string }>> {
   return apiRequest("/imports/book-stock/bulk", {
     method: "POST",
     body: input,
@@ -72,8 +74,21 @@ export function importBookStockBulk(
 
 export function listBookStockImports(
   storeId: number,
-): Promise<ActionResult<BookStockImportSummary[]>> {
+): Promise<ActionResult<BookStockUploadSummary[]>> {
   return apiRequest(`/imports/book-stock?storeId=${storeId}`);
+}
+
+export function deleteBookStockUpload(
+  storeId: number,
+  importedAt: string,
+): Promise<ActionResult<void>> {
+  const params = new URLSearchParams({
+    storeId: String(storeId),
+    importedAt,
+  });
+  return apiRequest(`/imports/book-stock?${params.toString()}`, {
+    method: "DELETE",
+  });
 }
 
 export function getLatestBookStockForStore(

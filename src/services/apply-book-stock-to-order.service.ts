@@ -4,35 +4,55 @@ import {
   orderRepository,
 } from "@/repositories";
 
-export async function applyBookStockImportToOrder(input: {
+export async function applyBookStockUploadToOrder(input: {
   orderId: number;
-  importId: number;
+  /** ISO timestamp of the upload batch. If omitted, latest for the store is used. */
+  importedAt?: string;
+  /** Prefer latest upload for this business date when importedAt is omitted. */
+  bookStockDate?: string;
 }): Promise<ImportResult & { uploadId: number }> {
   const order = await orderRepository.getById(input.orderId);
   if (!order) throw new Error("Order not found");
 
-  const bookStockImport = await bookStockRepository.getImportById(input.importId);
-  if (!bookStockImport) throw new Error("Book stock import not found");
-
-  if (bookStockImport.storeId !== order.storeId) {
-    throw new Error("Book stock import belongs to a different store");
+  let importedAt: Date | null = null;
+  if (input.importedAt) {
+    importedAt = new Date(input.importedAt);
+    if (Number.isNaN(importedAt.getTime())) {
+      throw new Error("Invalid importedAt timestamp");
+    }
+  } else if (input.bookStockDate) {
+    importedAt = await bookStockRepository.getLatestImportedAtForDate(
+      order.storeId,
+      input.bookStockDate,
+    );
+  } else {
+    importedAt = await bookStockRepository.getLatestImportedAt(order.storeId);
   }
 
-  const storedItems = await bookStockRepository.getItems(input.importId);
+  if (!importedAt) {
+    throw new Error("No book stock uploaded for this store yet");
+  }
+
+  const storedItems = await bookStockRepository.listForStoreAndImportedAt(
+    order.storeId,
+    importedAt,
+  );
   if (!storedItems.length) {
-    throw new Error("Book stock import has no matched products");
+    throw new Error("Selected book stock upload has no matched products");
   }
+
+  const bookStockDate = storedItems[0]?.bookStockDate ?? order.bookStockDate;
 
   await orderRepository.clearBookStockEvents(input.orderId);
 
   const upload = await orderRepository.createUpload({
     orderId: input.orderId,
     uploadType: "book_stock",
-    fileName: bookStockImport.fileName ?? `book-stock-import-${bookStockImport.id}`,
+    fileName: `book-stock-${bookStockDate}-${importedAt.toISOString()}`,
     mappingType: "store_product_code",
-    referenceColumn: bookStockImport.referenceColumn,
-    quantityColumn: bookStockImport.quantityColumn,
-    bookStockImportId: bookStockImport.id,
+    referenceColumn: "store_product_code",
+    quantityColumn: "book_stock_qty",
+    bookStockImportId: null,
     supplierId: null,
     deliveryDate: null,
   });
@@ -49,7 +69,7 @@ export async function applyBookStockImportToOrder(input: {
     storedItems.map((item) => ({
       eventId: event.id,
       storeProductId: item.storeProductId,
-      quantity: item.quantity,
+      quantity: item.bookStockQty,
     })),
   );
 
@@ -63,40 +83,22 @@ export async function applyBookStockImportToOrder(input: {
   };
 }
 
-export type BookStockImportSummary = {
-  importId: number;
-  fileName: string | null;
+export type BookStockUploadSummary = {
   bookStockDate: string;
-  importedAt: Date;
+  importedAt: string;
   itemCount: number;
+  totalBookStockQty: string;
 };
-
-export type LatestBookStockSummary = BookStockImportSummary;
 
 export async function listBookStockImportsForStore(
   storeId: number,
-): Promise<BookStockImportSummary[]> {
-  const imports = await bookStockRepository.listForStore(storeId);
-  const summaries: BookStockImportSummary[] = [];
-
-  for (const bookStockImport of imports) {
-    const itemCount = await bookStockRepository.countItems(bookStockImport.id);
-    if (itemCount === 0) continue;
-    summaries.push({
-      importId: bookStockImport.id,
-      fileName: bookStockImport.fileName,
-      bookStockDate: bookStockImport.bookStockDate,
-      importedAt: bookStockImport.importedAt,
-      itemCount,
-    });
-  }
-
-  return summaries;
+): Promise<BookStockUploadSummary[]> {
+  return bookStockRepository.listUploadSummariesForStore(storeId);
 }
 
 export async function getLatestBookStockSummary(
   storeId: number,
-): Promise<LatestBookStockSummary | null> {
-  const imports = await listBookStockImportsForStore(storeId);
-  return imports[0] ?? null;
+): Promise<BookStockUploadSummary | null> {
+  const summaries = await listBookStockImportsForStore(storeId);
+  return summaries[0] ?? null;
 }

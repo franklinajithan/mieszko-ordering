@@ -16,6 +16,7 @@ const bulkSchema = z.object({
   quantityColumn: z.string().min(1),
   fileName: z.string().min(1),
   duplicateRows: z.number().int().nonnegative().optional(),
+  importedAt: z.string().datetime().optional(),
   rows: z
     .array(z.record(z.string(), z.string()))
     .min(1)

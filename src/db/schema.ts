@@ -436,55 +436,37 @@ export const supplierPrices = pgTable("supplier_prices", {
 
 
 
-export const bookStockImports = pgTable("book_stock_imports", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  storeId: integer("store_id")
-
-    .notNull()
-
-    .references(() => stores.id),
-
-  bookStockDate: date("book_stock_date").notNull(),
-
-  fileName: varchar("file_name", { length: 500 }),
-
-  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
-
-  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
-
-  importedAt: timestamp("imported_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
-export const bookStockItems = pgTable("book_stock_items", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  importId: integer("import_id")
-
-    .notNull()
-
-    .references(() => bookStockImports.id, { onDelete: "cascade" }),
-
-  storeProductId: integer("store_product_id")
-
-    .notNull()
-
-    .references(() => storeProducts.id),
-
-  storeProductCode: varchar("store_product_code", { length: 100 }).notNull(),
-
-  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-
-});
+/**
+ * Book stock snapshots. Each upload gets one `imported_at` timestamp.
+ * Multiple uploads for the same store/date are kept; ordering uses the latest.
+ */
+export const bookStock = pgTable(
+  "book_stock",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    bookStockDate: date("book_stock_date").notNull(),
+    bookStockQty: numeric("book_stock_qty", { precision: 18, scale: 4 }).notNull(),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("book_stock_store_product_imported_at_unique").on(
+      t.storeProductId,
+      t.importedAt,
+    ),
+    index("book_stock_date_imported_at_idx").on(t.bookStockDate, t.importedAt),
+  ],
+);
 
 
 
@@ -606,11 +588,8 @@ export const orderUploads = pgTable("order_uploads", {
 
   supplierId: integer("supplier_id").references(() => suppliers.id),
 
-  bookStockImportId: integer("book_stock_import_id").references(
-
-    () => bookStockImports.id,
-
-  ),
+  /** Legacy column; apply-from-catalog no longer uses import headers. */
+  bookStockImportId: integer("book_stock_import_id"),
 
   deliveryDate: date("delivery_date"),
 

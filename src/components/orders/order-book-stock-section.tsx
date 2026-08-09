@@ -18,18 +18,18 @@ import {
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
 
-type BookStockImport = {
-  importId: number;
-  fileName: string | null;
+type BookStockUploadSummary = {
   bookStockDate: string;
-  importedAt: Date;
+  importedAt: string;
   itemCount: number;
+  totalBookStockQty: string;
 };
 
-function formatImportLabel(entry: BookStockImport) {
+function formatUploadLabel(entry: BookStockUploadSummary, isLatest: boolean) {
   const when = new Date(entry.importedAt).toLocaleString();
-  const file = entry.fileName ?? "Import";
-  return `${when} — ${file} (${entry.itemCount} products)`;
+  return `${when} — BK ${entry.bookStockDate} (${entry.itemCount} products)${
+    isLatest ? " · latest" : ""
+  }`;
 }
 
 export function OrderBookStockSection({
@@ -43,20 +43,20 @@ export function OrderBookStockSection({
   erpType: ErpType;
   onApplied: (label: string, result: ImportResult) => void;
 }) {
-  const [imports, setImports] = useState<BookStockImport[]>([]);
-  const [selectedImportId, setSelectedImportId] = useState<number | null>(null);
+  const [imports, setImports] = useState<BookStockUploadSummary[]>([]);
+  const [selectedImportedAt, setSelectedImportedAt] = useState<string | null>(null);
   const [loadingImports, setLoadingImports] = useState(true);
   const [mode, setMode] = useState<"stored" | "upload">("stored");
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
 
   const erpHelp = BOOK_STOCK_COLUMNS[erpType];
-  const defaultReference = erpHelp.reference[0] ?? "ID";
-  const defaultQuantity = erpHelp.quantity[0] ?? "Qty";
+  const defaultReference = erpHelp.reference[0] ?? "Item Code";
+  const defaultQuantity = erpHelp.quantity[0] ?? "Current Stock";
 
   const selectedImport = useMemo(
-    () => imports.find((entry) => entry.importId === selectedImportId) ?? null,
-    [imports, selectedImportId],
+    () => imports.find((entry) => entry.importedAt === selectedImportedAt) ?? null,
+    [imports, selectedImportedAt],
   );
 
   useEffect(() => {
@@ -66,11 +66,11 @@ export function OrderBookStockSection({
       if (cancelled) return;
       if (response.success && response.data.length) {
         setImports(response.data);
-        setSelectedImportId(response.data[0].importId);
+        setSelectedImportedAt(response.data[0].importedAt);
         setMode("stored");
       } else {
         setImports([]);
-        setSelectedImportId(null);
+        setSelectedImportedAt(null);
         setMode("upload");
       }
       setLoadingImports(false);
@@ -81,19 +81,22 @@ export function OrderBookStockSection({
   }, [storeId]);
 
   async function applyStored() {
-    if (!selectedImportId) return;
+    if (!selectedImportedAt) return;
     setError(null);
     setApplying(true);
     const result = await applyStoredBookStockToOrder({
       orderId,
-      importId: selectedImportId,
+      importedAt: selectedImportedAt,
     });
     setApplying(false);
     if (!result.success) {
       setError(result.error);
       return;
     }
-    onApplied(`Book stock (${formatImportLabel(selectedImport!)})`, result.data);
+    onApplied(
+      `Book stock (${formatUploadLabel(selectedImport!, selectedImportedAt === imports[0]?.importedAt)})`,
+      result.data,
+    );
   }
 
   async function validateSelectedFile(selected: File) {
@@ -143,7 +146,7 @@ export function OrderBookStockSection({
   if (loadingImports) {
     return (
       <div className="rounded-xl border bg-white p-4 text-sm text-zinc-600">
-        Loading stored book stock imports…
+        Loading saved book stock…
       </div>
     );
   }
@@ -157,7 +160,9 @@ export function OrderBookStockSection({
 
       {imports.length ? (
         <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-sm">
-          <p className="font-medium text-emerald-900">Stored imports for this store</p>
+          <p className="font-medium text-emerald-900">
+            Saved uploads for this store (latest first)
+          </p>
 
           <div className="space-y-2">
             <label className="flex items-center gap-2">
@@ -167,7 +172,7 @@ export function OrderBookStockSection({
                 checked={mode === "stored"}
                 onChange={() => setMode("stored")}
               />
-              Use a stored import
+              Use a saved upload by timestamp
             </label>
             <label className="flex items-center gap-2">
               <input
@@ -183,14 +188,14 @@ export function OrderBookStockSection({
           {mode === "stored" ? (
             <div className="space-y-3">
               <div>
-                <Label>Select import by timestamp</Label>
+                <Label>Select upload</Label>
                 <Select
-                  value={selectedImportId ? String(selectedImportId) : ""}
-                  onChange={(e) => setSelectedImportId(Number(e.target.value))}
+                  value={selectedImportedAt ?? ""}
+                  onChange={(e) => setSelectedImportedAt(e.target.value)}
                 >
-                  {imports.map((entry) => (
-                    <option key={entry.importId} value={entry.importId}>
-                      {formatImportLabel(entry)} — BK {entry.bookStockDate}
+                  {imports.map((entry, index) => (
+                    <option key={entry.importedAt} value={entry.importedAt}>
+                      {formatUploadLabel(entry, index === 0)}
                     </option>
                   ))}
                 </Select>
@@ -198,13 +203,19 @@ export function OrderBookStockSection({
 
               {selectedImport ? (
                 <ul className="space-y-1 text-emerald-900/90">
-                  <li>Imported: {new Date(selectedImport.importedAt).toLocaleString()}</li>
+                  <li>
+                    Uploaded: {new Date(selectedImport.importedAt).toLocaleString()}
+                  </li>
                   <li>Book-stock date: {selectedImport.bookStockDate}</li>
-                  <li>Products matched: {selectedImport.itemCount}</li>
+                  <li>Products: {selectedImport.itemCount}</li>
                 </ul>
               ) : null}
 
-              <Button type="button" disabled={applying || !selectedImportId} onClick={applyStored}>
+              <Button
+                type="button"
+                disabled={applying || !selectedImportedAt}
+                onClick={applyStored}
+              >
                 {applying ? "Applying…" : "Apply selected book stock"}
               </Button>
             </div>
@@ -212,15 +223,15 @@ export function OrderBookStockSection({
         </div>
       ) : (
         <p className="text-sm text-zinc-600">
-          No stored book stock for this store yet. Upload a file below, or import one from
+          No saved book stock for this store yet. Upload a file below, or import one from
           the Book Stock menu first.
         </p>
       )}
 
       {mode === "upload" || !imports.length ? (
         <form action={handleUpload} className="grid gap-3 md:grid-cols-2">
-          <div>
-            <Label>BK file</Label>
+          <div className="md:col-span-2">
+            <Label>Excel file</Label>
             <FileUploadField
               name="file"
               accept=".csv,.xlsx,.xls"
@@ -236,14 +247,8 @@ export function OrderBookStockSection({
             <Label>Quantity column</Label>
             <Input name="quantityColumn" defaultValue={defaultQuantity} required />
           </div>
-          {erpType === "glopos" ? (
-            <p className="md:col-span-2 text-sm text-amber-800">
-              GloPOS files are pivoted automatically: Current Stock is summed by Item
-              Code.
-            </p>
-          ) : null}
           <div className="md:col-span-2">
-            <Button type="submit">Upload book stock for this order</Button>
+            <Button type="submit">Upload & apply book stock</Button>
           </div>
         </form>
       ) : null}
