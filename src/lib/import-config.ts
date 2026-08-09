@@ -20,6 +20,7 @@ export const IMPORT_CHUNK = {
   wastage: envInt("NEXT_PUBLIC_WASTAGE_IMPORT_CHUNK_SIZE", 500),
   promo: envInt("NEXT_PUBLIC_PROMO_IMPORT_CHUNK_SIZE", 500),
   supplierCodes: envInt("NEXT_PUBLIC_SUPPLIER_CODES_IMPORT_CHUNK_SIZE", 500),
+  supplierPrices: envInt("NEXT_PUBLIC_SUPPLIER_PRICES_IMPORT_CHUNK_SIZE", 2000),
 } as const;
 
 /** Server-only batch sizes for book-stock DB work (not exposed to the browser). */
@@ -53,19 +54,22 @@ export const BOOK_STOCK_COLUMNS: Record<
 
 export const KNOWN_PRICE_COLUMNS: Record<
   string,
-  { reference: string[]; price: string[] }
+  { reference: string[]; price: string[]; caseSize: string[] }
 > = {
   MM: {
     reference: ["Index", "index"],
     price: ["Net Price (Invoice)", "Net Price", "net price (invoice)"],
+    caseSize: ["Package", "package"],
   },
   SP: {
     reference: ["Index", "index"],
     price: ["NetPrice", "Net Price", "netprice"],
+    caseSize: ["Jednostek", "jednostek"],
   },
   WAB: {
     reference: ["Index", "index", "Code", "code"],
     price: ["NetPrice", "Net Price", "Price", "price"],
+    caseSize: ["Jednostek", "jednostek"],
   },
 };
 
@@ -77,6 +81,7 @@ export const RTC_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.rtc;
 export const WASTAGE_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.wastage;
 export const PROMO_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.promo;
 export const SUPPLIER_CODES_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.supplierCodes;
+export const SUPPLIER_PRICES_IMPORT_CHUNK_SIZE = IMPORT_CHUNK.supplierPrices;
 
 export const RTC_ITEM_CODE_COLUMN = IMPORT_COLUMNS.itemCode;
 export const WASTAGE_ITEM_CODE_COLUMN = IMPORT_COLUMNS.itemCode;

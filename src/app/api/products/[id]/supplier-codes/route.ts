@@ -2,7 +2,7 @@ import { productRepository } from "@/repositories";
 import {
   isUnavailableSupplierMarker,
   normalizeUtf8SupplierCode,
-} from "@/parsers/supplier-code-file-parser";
+} from "@/parsers/supplier-codes/supplier-code-file-parser";
 import { unavailableSupplierCode } from "@/lib/supplier-code-unavailable";
 import { supplierProductSchema } from "@/validators/schemas";
 import { apiError, apiOk, numericParam, parseJson, route } from "@/lib/api/http";

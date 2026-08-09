@@ -1,5 +1,5 @@
-import type { SupplierCodeConflict } from "@/services/supplier-code-import-prepare";
-import type { SupplierCodePreviewResult } from "@/services/supplier-code-import.service";
+import type { SupplierCodeConflict } from "@/services/supplier-codes/supplier-code-import-prepare";
+import type { SupplierCodePreviewResult } from "@/services/supplier-codes/supplier-code-import.service";
 
 export type SupplierCodeImportProgress = {
   phase: "importing" | "done";

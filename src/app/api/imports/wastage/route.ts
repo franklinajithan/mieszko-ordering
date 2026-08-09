@@ -4,7 +4,7 @@ import {
   deleteWastageForStoreDate,
   importWastageRows,
   listWastageSummariesForStore,
-} from "@/services/wastage-import.service";
+} from "@/services/wastage/wastage-import.service";
 import { WASTAGE_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {

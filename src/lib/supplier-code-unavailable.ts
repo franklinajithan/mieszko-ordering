@@ -1,4 +1,4 @@
-import { isUnavailableSupplierMarker } from "@/parsers/supplier-code-file-parser";
+import { isUnavailableSupplierMarker } from "@/parsers/supplier-codes/supplier-code-file-parser";
 
 /** Sentinel stored on supplier_products when HO/user confirms no supplier. */
 export const UNAVAILABLE_SUPPLIER_CODE_PREFIX = "__NONE__:";

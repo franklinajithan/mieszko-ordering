@@ -1,4 +1,4 @@
-import { getLatestBookStockSummary } from "@/services/apply-book-stock-to-order.service";
+import { getLatestBookStockSummary } from "@/services/book-stock/apply-book-stock-to-order.service";
 import { apiError, apiOk, numericParam, route } from "@/lib/api/http";
 
 export const GET = route(

@@ -1,4 +1,4 @@
-import { SupplierPricesPageView } from "@/components/daily-sales/supplier-prices-page";
+import { SupplierPricesPageView } from "@/components/supplier-prices/supplier-prices-page";
 import { listSuppliers } from "@/lib/api/suppliers";
 
 export default async function SupplierPricesPage() {

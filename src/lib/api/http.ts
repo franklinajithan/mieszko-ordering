@@ -83,6 +83,12 @@ export function route<Args extends unknown[]>(
             500,
           );
         }
+        if (/column ["']?case_size["']? .*does not exist/i.test(message)) {
+          return apiError(
+            "Database schema is out of date. Run: npx tsx scripts/migrate-supplier-prices-case-size.ts",
+            500,
+          );
+        }
         return apiError("Something went wrong. Please try again.", 500);
       }
       return apiError(message, 500);

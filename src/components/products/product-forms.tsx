@@ -17,7 +17,7 @@ import {
 import {
   detectProductFileColumns,
   parseProductFileBuffer,
-} from "@/parsers/product-file-parser";
+} from "@/parsers/products/product-file-parser";
 import { Button } from "@/components/ui/button";
 import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";

@@ -1,11 +1,11 @@
 import { detectBookStockColumns } from "@/parsers/file-parser";
-import { isGloposRtcHistoryReport } from "@/parsers/glopos-rtc-history-parser";
-import { isGloposStockValuationReport } from "@/parsers/glopos-stock-valuation-parser";
-import { isGloposWastageReport } from "@/parsers/glopos-wastage-report-parser";
-import { isGloposStockVarianceWastageReport } from "@/parsers/glopos-stock-variance-wastage-parser";
-import { isGloposRetailReport } from "@/parsers/glopos-retail-parser";
-import { isMspPromotionItemDetailReport } from "@/parsers/msp-promotion-item-detail-parser";
-import { detectProductFileColumns } from "@/parsers/product-file-parser";
+import { isGloposRtcHistoryReport } from "@/parsers/rtc/glopos-rtc-history-parser";
+import { isGloposStockValuationReport } from "@/parsers/book-stock/glopos-stock-valuation-parser";
+import { isGloposWastageReport } from "@/parsers/wastage/glopos-wastage-report-parser";
+import { isGloposStockVarianceWastageReport } from "@/parsers/wastage/glopos-stock-variance-wastage-parser";
+import { isGloposRetailReport } from "@/parsers/daily-sales/glopos-retail-parser";
+import { isMspPromotionItemDetailReport } from "@/parsers/promo/msp-promotion-item-detail-parser";
+import { detectProductFileColumns } from "@/parsers/products/product-file-parser";
 import type { ErpType } from "@/types";
 
 function normHeader(value: string): string {

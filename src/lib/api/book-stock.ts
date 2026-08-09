@@ -1,5 +1,5 @@
 import type { ActionResult, FilePreview, ImportResult } from "@/types";
-import type { BookStockUploadSummary } from "@/services/apply-book-stock-to-order.service";
+import type { BookStockUploadSummary } from "@/services/book-stock/apply-book-stock-to-order.service";
 import { BOOK_STOCK_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiFormRequest, apiRequest } from "./client";
 

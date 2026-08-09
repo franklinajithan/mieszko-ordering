@@ -1,5 +1,5 @@
 import { apiError, apiOk, route } from "@/lib/api/http";
-import { parseDailySalesImportFile } from "@/services/daily-sales-import.service";
+import { parseDailySalesImportFile } from "@/services/daily-sales/daily-sales-import.service";
 import { parseOptionalStoreId } from "@/services/import-parse.service";
 
 export const POST = route(async (req) => {

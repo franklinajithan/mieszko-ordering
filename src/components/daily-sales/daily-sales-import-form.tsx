@@ -13,8 +13,8 @@ import { DailySalesListPage } from "@/components/daily-sales/daily-sales-list-pa
 import {
   detectSalesColumns,
   parseDailySalesFileBuffer,
-} from "@/parsers/daily-sales-file-parser";
-import { prepareDailySalesImport } from "@/services/daily-sales-import-prepare";
+} from "@/parsers/daily-sales/daily-sales-file-parser";
+import { prepareDailySalesImport } from "@/services/daily-sales/daily-sales-import-prepare";
 import type { ImportResult } from "@/types";
 import type { StoreOption } from "@/types/store";
 import type {

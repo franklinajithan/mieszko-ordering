@@ -197,7 +197,10 @@ export const supplierPriceImportSchema = z.object({
   supplierId: idSchema,
   referenceColumn: z.string().min(1),
   priceColumn: z.string().min(1),
+  caseSizeColumn: z.string().min(1).optional(),
   effectiveDate: z.string().date(),
+  /** ISO timestamp — distinguishes multiple uploads on the same day. */
+  importedAt: z.string().datetime().optional(),
   fileName: z.string().min(1),
 });
 

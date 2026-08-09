@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { orderRepository } from "@/repositories";
-import { recalculateLineCost } from "@/services/supplier-price.service";
+import { recalculateLineCost } from "@/services/supplier-prices/supplier-price.service";
 import { decimalToDb, parseDbDecimal } from "@/utils/decimal";
 import { apiError, apiOk, numericParam, parseJson, route } from "@/lib/api/http";
 

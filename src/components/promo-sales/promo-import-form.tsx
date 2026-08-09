@@ -7,7 +7,7 @@ import {
   parsePromoFile,
   PROMO_IMPORT_CHUNK_SIZE,
 } from "@/lib/api";
-import { PROMO_ITEM_CODE_COLUMN } from "@/services/promo-import-prepare";
+import { PROMO_ITEM_CODE_COLUMN } from "@/services/promo/promo-import-prepare";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
@@ -16,11 +16,11 @@ import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PromoSalesListPage } from "@/components/promo-sales/promo-sales-list-page";
 import { detectPromoColumns } from "@/parsers/file-parser";
-import { parsePromoFileBuffer } from "@/parsers/promo-file-parser";
+import { parsePromoFileBuffer } from "@/parsers/promo/promo-file-parser";
 import {
   preparePromoImport,
   remapPromoBarcodeRowsToStoreProductCodes,
-} from "@/services/promo-import-prepare";
+} from "@/services/promo/promo-import-prepare";
 import type { ImportResult } from "@/types";
 import type { StoreOption } from "@/types/store";
 import type {

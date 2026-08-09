@@ -1,4 +1,4 @@
-import { exportHoDairyWithTemplateFromForm } from "@/services/ho-dairy-export.service";
+import { exportHoDairyWithTemplateFromForm } from "@/services/orders/ho-dairy-export.service";
 import { apiError, apiOk, numericParam, route } from "@/lib/api/http";
 
 export const POST = route(

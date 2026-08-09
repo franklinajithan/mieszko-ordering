@@ -4,7 +4,7 @@ import {
   deleteDailySalesForStoreDate,
   importDailySalesRows,
   listDailySalesSummariesForStore,
-} from "@/services/daily-sales-import.service";
+} from "@/services/daily-sales/daily-sales-import.service";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {
   detectDailySalesFileErpType,

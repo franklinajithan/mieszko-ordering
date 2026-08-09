@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { applyBookStockUploadToOrder } from "@/services/apply-book-stock-to-order.service";
+import { applyBookStockUploadToOrder } from "@/services/book-stock/apply-book-stock-to-order.service";
 import {
   apiError,
   apiOk,

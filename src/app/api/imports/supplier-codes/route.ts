@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import { SUPPLIER_CODES_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
-import { importSupplierCodeAssignmentsChunk } from "@/services/supplier-code-import.service";
+import { importSupplierCodeAssignmentsChunk } from "@/services/supplier-codes/supplier-code-import.service";
 import { storeRepository } from "@/repositories";
 
 const assignmentSchema = z.discriminatedUnion("kind", [

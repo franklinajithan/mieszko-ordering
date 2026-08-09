@@ -1,4 +1,4 @@
-import { uploadOrderStockFromForm } from "@/services/stock-upload.service";
+import { uploadOrderStockFromForm } from "@/services/orders/stock-upload.service";
 import { apiError, apiOk, numericParam, route } from "@/lib/api/http";
 
 export const POST = route(

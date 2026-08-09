@@ -2,8 +2,8 @@ import type { ActionResult, ErpType } from "@/types";
 import type {
   SupplierCodeImportResult,
   SupplierCodePreviewResult,
-} from "@/services/supplier-code-import.service";
-import type { SupplierCodeAssignment } from "@/services/supplier-code-import-prepare";
+} from "@/services/supplier-codes/supplier-code-import.service";
+import type { SupplierCodeAssignment } from "@/services/supplier-codes/supplier-code-import-prepare";
 import { SUPPLIER_CODES_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiFormRequest, apiRequest } from "./client";
 

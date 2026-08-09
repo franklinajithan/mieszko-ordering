@@ -5,7 +5,7 @@ import {
   importBookStockChunk,
   importBookStockFromForm,
   listBookStockSummariesForStore,
-} from "@/services/book-stock-import.service";
+} from "@/services/book-stock/book-stock-import.service";
 import { BOOK_STOCK_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {

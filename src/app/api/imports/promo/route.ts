@@ -4,7 +4,7 @@ import {
   deletePromoForStoreDate,
   importPromoRows,
   listPromoSummariesForStore,
-} from "@/services/promo-import.service";
+} from "@/services/promo/promo-import.service";
 import { PROMO_IMPORT_CHUNK_SIZE } from "@/lib/import-config";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import {

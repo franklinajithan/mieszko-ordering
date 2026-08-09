@@ -18,11 +18,11 @@ import type {
   SupplierCodeConflict,
   SupplierCodePreviewState,
 } from "@/components/supplier-codes/types";
-import { parseSupplierCodeFileBuffer } from "@/parsers/supplier-code-file-parser";
+import { parseSupplierCodeFileBuffer } from "@/parsers/supplier-codes/supplier-code-file-parser";
 import {
   expandSupplierCodeAssignments,
   findInFileSupplierCodeConflicts,
-} from "@/services/supplier-code-import-prepare";
+} from "@/services/supplier-codes/supplier-code-import-prepare";
 import {
   detectBookStockFileErpType,
   reportErpMismatch,

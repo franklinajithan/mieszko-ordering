@@ -1,4 +1,4 @@
-import { calculateOrder } from "@/services/order-calculation.service";
+import { calculateOrder } from "@/services/orders/order-calculation.service";
 import { apiError, apiOk, numericParam, route } from "@/lib/api/http";
 
 export const POST = route(

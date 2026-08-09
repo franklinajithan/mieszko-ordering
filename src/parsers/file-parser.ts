@@ -1,7 +1,7 @@
 import { parse } from "papaparse";
 import ExcelJS from "exceljs";
 import type { FilePreview, ParsedRow } from "@/types";
-import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
+import { BOOK_STOCK_COLUMNS, KNOWN_PRICE_COLUMNS } from "@/lib/import-config";
 import type { ErpType } from "@/types";
 
 function normalizeCell(value: ExcelJS.CellValue): string {
@@ -134,14 +134,20 @@ export async function parseAllRows(
 export function detectKnownColumns(
   supplierCode: string,
   headers: string[],
-): { referenceColumn: string | null; priceColumn: string | null } {
-  const known = {
-    MM: { reference: ["Index"], price: ["Net Price (Invoice)"] },
-    SP: { reference: ["Index"], price: ["NetPrice"] },
-    WAB: { reference: ["Index", "Code"], price: ["NetPrice", "Price"] },
-  }[supplierCode.toUpperCase()];
+): {
+  referenceColumn: string | null;
+  priceColumn: string | null;
+  caseSizeColumn: string | null;
+} {
+  const known = KNOWN_PRICE_COLUMNS[supplierCode.toUpperCase()];
 
-  if (!known) return { referenceColumn: null, priceColumn: null };
+  if (!known) {
+    return {
+      referenceColumn: null,
+      priceColumn: null,
+      caseSizeColumn: null,
+    };
+  }
 
   const findMatch = (candidates: string[]) =>
     headers.find((h) =>
@@ -151,6 +157,7 @@ export function detectKnownColumns(
   return {
     referenceColumn: findMatch(known.reference),
     priceColumn: findMatch(known.price),
+    caseSizeColumn: findMatch(known.caseSize),
   };
 }
 

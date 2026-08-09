@@ -19,9 +19,9 @@ import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { WastageListPage } from "@/components/wastage/wastage-list-page";
 import { detectWastageColumns } from "@/parsers/file-parser";
-import { parseWastageFileBuffer } from "@/parsers/wastage-file-parser";
-import { prepareWastageImport } from "@/services/wastage-import-prepare";
-import { remapRtcBarcodeRowsToStoreProductCodes } from "@/services/rtc-import-prepare";
+import { parseWastageFileBuffer } from "@/parsers/wastage/wastage-file-parser";
+import { prepareWastageImport } from "@/services/wastage/wastage-import-prepare";
+import { remapRtcBarcodeRowsToStoreProductCodes } from "@/services/rtc/rtc-import-prepare";
 import type { ImportResult } from "@/types";
 import type { StoreOption } from "@/types/store";
 import type {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { storeRepository } from "@/repositories";
-import { importProductRows } from "@/services/product-import.service";
+import { importProductRows } from "@/services/products/product-import.service";
 
 import {
   inferProductFileErpTypeFromColumns,

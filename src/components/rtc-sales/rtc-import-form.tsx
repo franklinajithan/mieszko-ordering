@@ -16,11 +16,11 @@ import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RtcSalesListPage } from "@/components/rtc-sales/rtc-sales-list-page";
 import { detectRtcColumns } from "@/parsers/file-parser";
-import { parseRtcFileBuffer } from "@/parsers/rtc-file-parser";
+import { parseRtcFileBuffer } from "@/parsers/rtc/rtc-file-parser";
 import {
   prepareRtcImport,
   remapRtcBarcodeRowsToStoreProductCodes,
-} from "@/services/rtc-import-prepare";
+} from "@/services/rtc/rtc-import-prepare";
 import type { ImportResult } from "@/types";
 import type { StoreOption } from "@/types/store";
 import type { RtcImportProgress, RtcPreviewState } from "@/components/rtc-sales/types";

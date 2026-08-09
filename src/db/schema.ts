@@ -374,39 +374,13 @@ export const wastage = pgTable(
 
 
 
-export const supplierPriceImports = pgTable("supplier_price_imports", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  supplierId: integer("supplier_id")
-
-    .notNull()
-
-    .references(() => suppliers.id),
-
-  effectiveDate: date("effective_date").notNull(),
-
-  fileName: varchar("file_name", { length: 500 }),
-
-  importedAt: timestamp("imported_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
+/**
+ * Supplier prices are product-wise (via supplier_products), not store-wise.
+ * Each upload stamps the same importedAt on all rows; reads use the latest.
+ */
 export const supplierPrices = pgTable("supplier_prices", {
 
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  importId: integer("import_id")
-
-    .notNull()
-
-    .references(() => supplierPriceImports.id),
 
   supplierId: integer("supplier_id")
 
@@ -424,7 +398,18 @@ export const supplierPrices = pgTable("supplier_prices", {
 
   netPrice: numeric("net_price", { precision: 18, scale: 4 }).notNull(),
 
+  /** MM Package text or SP/WAB Jednostek units — stored as text. */
+  caseSize: varchar("case_size", { length: 100 }),
+
   effectiveDate: date("effective_date").notNull(),
+
+  fileName: varchar("file_name", { length: 500 }),
+
+  importedAt: timestamp("imported_at", { withTimezone: true })
+
+    .notNull()
+
+    .defaultNow(),
 
   createdAt: timestamp("created_at", { withTimezone: true })
 

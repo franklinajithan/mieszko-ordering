@@ -1,4 +1,4 @@
-import { exportOrderDownload } from "@/services/order-export.service";
+import { exportOrderDownload } from "@/services/orders/order-export.service";
 import { apiError, apiOk, numericParam, route } from "@/lib/api/http";
 
 export const POST = route(

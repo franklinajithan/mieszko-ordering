@@ -14,11 +14,11 @@ import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
-import { parseBookStockFileBuffer } from "@/parsers/book-stock-file-parser";
+import { parseBookStockFileBuffer } from "@/parsers/book-stock/book-stock-file-parser";
 import {
   prepareBookStockImport,
   resolveBookStockColumns,
-} from "@/services/book-stock-import-prepare";
+} from "@/services/book-stock/book-stock-import-prepare";
 import { BOOK_STOCK_COLUMNS } from "@/lib/import-config";
 import type { ErpType, ImportResult } from "@/types";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";

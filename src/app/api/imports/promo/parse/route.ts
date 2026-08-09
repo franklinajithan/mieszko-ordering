@@ -1,6 +1,6 @@
 import { apiError, apiOk, route } from "@/lib/api/http";
 import { parseOptionalStoreId } from "@/services/import-parse.service";
-import { parsePromoImportFile } from "@/services/promo-import.service";
+import { parsePromoImportFile } from "@/services/promo/promo-import.service";
 
 export const POST = route(async (req) => {
   const formData = await req.formData();
