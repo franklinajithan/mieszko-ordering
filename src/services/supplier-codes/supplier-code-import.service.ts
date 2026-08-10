@@ -3,7 +3,6 @@ import { normalizeProductCode } from "@/parsers/products/product-file-parser";
 import {
   parseSupplierCodeFileBuffer,
   supplierCodeCellLabel,
-  supplierCodeCompareKey,
   type SupplierCodeFileParseResult,
 } from "@/parsers/supplier-codes/supplier-code-file-parser";
 import { unavailableSupplierCode } from "@/lib/supplier-code-unavailable";
@@ -68,20 +67,6 @@ function detectFileErpFromParse(
   return parsed.erpType;
 }
 
-function assignmentConflictKey(assignment: {
-  supplierKey: string;
-  supplierCode: string | null;
-  storeProductCode: string;
-  rowNumber: number;
-  kind: string;
-}): string {
-  const code =
-    assignment.kind === "unavailable"
-      ? "__unavailable__"
-      : supplierCodeCompareKey(assignment.supplierCode ?? "");
-  return `${assignment.supplierKey}|${code}|${assignment.storeProductCode.toLowerCase()}|${assignment.rowNumber}`;
-}
-
 async function classifyAssignments(input: {
   storeId: number;
   assignments: SupplierCodeAssignment[];
@@ -115,17 +100,6 @@ async function classifyAssignments(input: {
   }
 
   const conflicts = [...input.inFileConflicts];
-  const conflictAssignmentKeys = new Set(
-    input.inFileConflicts.map((c) =>
-      assignmentConflictKey({
-        supplierKey: c.supplierKey,
-        supplierCode: c.supplierCode,
-        storeProductCode: c.storeProductCode,
-        rowNumber: c.rowNumber,
-        kind: "code",
-      }),
-    ),
-  );
 
   const unmatchedCodes: string[] = [];
   const seenUnmatched = new Set<string>();
@@ -134,37 +108,7 @@ async function classifyAssignments(input: {
     SupplierCodeAssignment & { productId: number; supplierId: number }
   > = [];
 
-  // Preload existing real supplier codes for conflict checks (skip unavailable)
-  const codesBySupplier = new Map<SupplierKey, string[]>();
-  for (const key of SUPPLIER_KEYS) {
-    codesBySupplier.set(
-      key,
-      input.assignments
-        .filter((a) => a.supplierKey === key && a.kind === "code" && a.supplierCode)
-        .map((a) => a.supplierCode!),
-    );
-  }
-  const existingBySupplierCode = new Map<string, { productId: number }>();
-  for (const key of SUPPLIER_KEYS) {
-    const supplierId = supplierIds.get(key)!;
-    const codes = [...new Set(codesBySupplier.get(key) ?? [])];
-    const existing = await productRepository.findSupplierProductsByCodes(
-      supplierId,
-      codes,
-    );
-    for (const row of existing) {
-      existingBySupplierCode.set(
-        `${key}|${supplierCodeCompareKey(row.supplierCode)}`,
-        { productId: row.productId },
-      );
-    }
-  }
-
   for (const assignment of input.assignments) {
-    if (conflictAssignmentKeys.has(assignmentConflictKey(assignment))) {
-      continue;
-    }
-
     const storeProduct = productByStoreCode.get(
       catalogCodeKey(assignment.storeProductCode),
     );
@@ -176,22 +120,6 @@ async function classifyAssignments(input: {
       continue;
     }
     matchedStoreCodeSet.add(catalogCodeKey(assignment.storeProductCode));
-
-    if (assignment.kind === "code" && assignment.supplierCode) {
-      const existing = existingBySupplierCode.get(
-        `${assignment.supplierKey}|${supplierCodeCompareKey(assignment.supplierCode)}`,
-      );
-      if (existing && existing.productId !== storeProduct.productId) {
-        conflicts.push({
-          storeProductCode: assignment.storeProductCode,
-          supplierKey: assignment.supplierKey,
-          supplierCode: assignment.supplierCode,
-          rowNumber: assignment.rowNumber,
-          reason: `This ${assignment.supplierKey} code is already linked to another product`,
-        });
-        continue;
-      }
-    }
 
     toApply.push({
       ...assignment,

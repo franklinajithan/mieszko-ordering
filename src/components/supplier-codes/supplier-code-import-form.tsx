@@ -142,8 +142,9 @@ function DuplicateSupplierCodeWarning({
             codes in this store
             {fileName ? ` (${fileName})` : ""}.{" "}
             {conflictCount.toLocaleString()} assignment
-            {conflictCount === 1 ? "" : "s"} were not imported. Clean rows still
-            applied. Fix on{" "}
+            {conflictCount === 1 ? "" : "s"} share a supplier code. The code
+            is applied to every listed product so one supplier price can update
+            them all. Review on{" "}
             <Link href="/products" className="font-medium underline">
               Products
             </Link>{" "}
@@ -184,10 +185,10 @@ function ConflictTable({
       {!compact ? (
         <>
           <h4 className="font-semibold text-amber-950">
-            Conflicts ({conflicts.length.toLocaleString()}) — not imported
+            Shared supplier codes ({conflicts.length.toLocaleString()})
           </h4>
           <p className="text-sm text-amber-900">
-            Fix these on the{" "}
+            These are imported for every listed product. Review them on the{" "}
             <Link href="/products" className="font-medium underline">
               Products
             </Link>{" "}
@@ -397,7 +398,7 @@ export function SupplierCodeImportForm({ stores }: { stores: Store[] }) {
         totalRows: assignments.length,
         matchedRows: 0,
         unmatchedRows: 0,
-        invalidRows: inFileConflicts.length,
+        invalidRows: 0,
         duplicateRows: inFileConflicts.length,
         errors: [],
         created: 0,
@@ -508,8 +509,8 @@ export function SupplierCodeImportForm({ stores }: { stores: Store[] }) {
         MM/SP/WAB; GloPOS uses <strong>ID</strong> + MM/SP/WAB. WAB codes keep
         Polish UTF-8 characters (ł, ę, ó, …). Blank cells mean not finalized yet
         (skipped). Markers like “Not in MM / SP / WAB” are stored as confirmed
-        unavailable. Real duplicate codes across different store products are
-        highlighted and skipped.
+        unavailable. Shared supplier codes across different store products are
+        highlighted and imported for each product.
       </p>
 
       {activeWarning ? (
@@ -625,9 +626,9 @@ export function SupplierCodeImportForm({ stores }: { stores: Store[] }) {
               {resultDuplicateCount > 0 ? (
                 <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950">
                   Warning: duplicate supplier codes against multiple store
-                  product codes were skipped (
-                  {resultDuplicateCount.toLocaleString()} rows). See the flag
-                  above for details.
+                  product codes were imported for every matching product (
+                  {resultDuplicateCount.toLocaleString()} shared assignments).
+                  See the flag above for details.
                 </p>
               ) : null}
               <ImportSummary result={result} />
@@ -640,7 +641,7 @@ export function SupplierCodeImportForm({ stores }: { stores: Store[] }) {
                   {result.markedUnavailable.toLocaleString()}
                 </li>
                 <li>
-                  Duplicate conflicts skipped:{" "}
+                  Shared supplier-code assignments:{" "}
                   {(result.duplicateRows ?? 0).toLocaleString()}
                 </li>
               </ul>

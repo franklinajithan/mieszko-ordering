@@ -8,7 +8,10 @@ import { assignOrderDepartment } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/input";
 import { cn } from "@/utils/cn";
-import type { ProductRow } from "@/types/product";
+import type {
+  ProductRow,
+  SupplierCodeDuplicateCounts,
+} from "@/types/product";
 import type { DepartmentOption } from "@/types/department";
 
 export const PRODUCT_GRID_COLS =
@@ -18,12 +21,17 @@ export function ProductListGrid({
   products,
   departments,
   duplicateNames,
+  duplicateSupplierCodeCountsByProductId,
   lineOffset,
   search,
 }: {
   products: ProductRow[];
   departments: DepartmentOption[];
   duplicateNames: Set<string>;
+  duplicateSupplierCodeCountsByProductId: Record<
+    number,
+    SupplierCodeDuplicateCounts
+  >;
   lineOffset: number;
   search?: string;
 }) {
@@ -64,6 +72,16 @@ export function ProductListGrid({
       <div className="divide-y divide-zinc-100">
         {products.map(({ product, storeProduct, store }, index) => {
           const isDuplicate = duplicateNames.has(product.name.trim().toLowerCase());
+          const supplierCodeDuplicates =
+            duplicateSupplierCodeCountsByProductId[product.id];
+          const duplicateSupplierCodeLabels = (["MM", "SP", "WAB"] as const)
+            .flatMap((key) => {
+              const duplicate = supplierCodeDuplicates?.[key];
+              if (!duplicate) return [];
+              return [
+                `${key} (${duplicate.count}): ${duplicate.storeProductCodes.join(", ")}`,
+              ];
+            });
           const lineNumber = lineOffset + index + 1;
           const retailLabel = formatRetailPrice(storeProduct.retailPrice);
 
@@ -94,6 +112,14 @@ export function ProductListGrid({
                 {isDuplicate ? (
                   <p className="mt-0.5 text-[11px] font-normal text-red-700/80">
                     Duplicate name
+                  </p>
+                ) : null}
+                {duplicateSupplierCodeLabels.length ? (
+                  <p
+                    className="mt-0.5 truncate text-[11px] font-normal text-amber-700"
+                    title={`Duplicate supplier code — ${duplicateSupplierCodeLabels.join(", ")}`}
+                  >
+                    Duplicate code — {duplicateSupplierCodeLabels.join(" · ")}
                   </p>
                 ) : null}
               </div>

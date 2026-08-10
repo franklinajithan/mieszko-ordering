@@ -116,12 +116,12 @@ export async function importSupplierPriceRows(input: {
         continue;
       }
 
-      const supplierProduct = await supplierPriceRepository.findSupplierProduct(
+      const supplierProducts = await supplierPriceRepository.findSupplierProducts(
         input.supplierId,
         supplierCode,
       );
 
-      if (!supplierProduct) {
+      if (!supplierProducts.length) {
         result.unmatchedRows += 1;
         result.errors.push({
           rowNumber,
@@ -131,17 +131,19 @@ export async function importSupplierPriceRows(input: {
         continue;
       }
 
-      validRows.push({
-        supplierId: input.supplierId,
-        supplierProductId: supplierProduct.id,
-        supplierCode,
-        netPrice: decimalToDb(price),
-        caseSize,
-        effectiveDate: input.effectiveDate,
-        fileName: input.fileName,
-        importedAt,
-      });
-      result.matchedRows += 1;
+      for (const supplierProduct of supplierProducts) {
+        validRows.push({
+          supplierId: input.supplierId,
+          supplierProductId: supplierProduct.id,
+          supplierCode,
+          netPrice: decimalToDb(price),
+          caseSize,
+          effectiveDate: input.effectiveDate,
+          fileName: input.fileName,
+          importedAt,
+        });
+      }
+      result.matchedRows += supplierProducts.length;
     }
 
     if (validRows.length) {

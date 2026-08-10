@@ -2,7 +2,10 @@ import { ProductsPageView } from "@/components/products/product-page";
 import { listDepartments } from "@/lib/api/departments";
 import { listProductCatalog } from "@/lib/api/products";
 import { listStores } from "@/lib/api/stores";
-import type { ProductRow } from "@/types/product";
+import type {
+  ProductRow,
+  SupplierCodeDuplicateCounts,
+} from "@/types/product";
 
 export const maxDuration = 300;
 
@@ -57,6 +60,10 @@ export default async function ProductsPage({
   let products: ProductRow[] = [];
   let total = 0;
   let duplicateNameKeys: string[] = [];
+  let duplicateSupplierCodeCountsByProductId: Record<
+    number,
+    SupplierCodeDuplicateCounts
+  > = {};
 
   if (validStoreId) {
     const catalog = await listProductCatalog({
@@ -80,6 +87,8 @@ export default async function ProductsPage({
     products = catalog.data.products;
     total = catalog.data.total;
     duplicateNameKeys = catalog.data.duplicateNameKeys;
+    duplicateSupplierCodeCountsByProductId =
+      catalog.data.duplicateSupplierCodeCountsByProductId;
   }
 
   const duplicateNames = new Set(duplicateNameKeys);
@@ -102,6 +111,9 @@ export default async function ProductsPage({
       products={products}
       total={total}
       duplicateNames={duplicateNames}
+      duplicateSupplierCodeCountsByProductId={
+        duplicateSupplierCodeCountsByProductId
+      }
       selectedStore={selectedStore}
       validStoreId={validStoreId}
       safePage={safePage}

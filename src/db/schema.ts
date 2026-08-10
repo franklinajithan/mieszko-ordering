@@ -237,11 +237,11 @@ export const supplierProducts = pgTable(
 
   (t) => [
 
-    unique("supplier_products_supplier_code_unique").on(
+    unique("supplier_products_product_supplier_unique").on(
+
+      t.productId,
 
       t.supplierId,
-
-      t.supplierCode,
 
     ),
 

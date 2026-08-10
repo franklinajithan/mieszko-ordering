@@ -35,6 +35,16 @@ export const GET = route(async (req) => {
     productRepository.count(filters),
     productRepository.getDuplicateProductNameKeys(filters),
   ]);
+  const duplicateSupplierCodeCountsByProductId =
+    await productRepository.getDuplicateSupplierCodeCounts(
+      filters,
+      products.map((row) => row.product.id),
+    );
 
-  return apiOk({ products, total, duplicateNameKeys });
+  return apiOk({
+    products,
+    total,
+    duplicateNameKeys,
+    duplicateSupplierCodeCountsByProductId,
+  });
 });

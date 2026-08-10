@@ -38,8 +38,8 @@ export const supplierPriceRepository = {
     return row ?? null;
   },
 
-  async findSupplierProduct(supplierId: number, supplierCode: string) {
-    const [row] = await db
+  async findSupplierProducts(supplierId: number, supplierCode: string) {
+    return db
       .select()
       .from(supplierProducts)
       .where(
@@ -48,7 +48,6 @@ export const supplierPriceRepository = {
           eq(supplierProducts.supplierCode, supplierCode),
         ),
       );
-    return row ?? null;
   },
 
   async deleteForSupplierAndImportedAt(supplierId: number, importedAt: Date) {

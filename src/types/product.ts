@@ -45,8 +45,25 @@ export type ProductCatalogFilters = {
   offset?: number;
 };
 
+export type SupplierKey = "MM" | "SP" | "WAB";
+
+/** Other store product codes sharing each supplier code. */
+export type SupplierCodeDuplicateCounts = Partial<
+  Record<
+    SupplierKey,
+    {
+      count: number;
+      storeProductCodes: string[];
+    }
+  >
+>;
+
 export type ProductCatalogResult = {
   products: ProductRow[];
   total: number;
   duplicateNameKeys: string[];
+  duplicateSupplierCodeCountsByProductId: Record<
+    number,
+    SupplierCodeDuplicateCounts
+  >;
 };

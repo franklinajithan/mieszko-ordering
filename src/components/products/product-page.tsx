@@ -8,7 +8,11 @@ import {
   ProductImportStatusBar,
 } from "@/components/products/product-import-context";
 import type { DepartmentOption } from "@/types/department";
-import type { ProductRow, ProductStoreRow } from "@/types/product";
+import type {
+  ProductRow,
+  ProductStoreRow,
+  SupplierCodeDuplicateCounts,
+} from "@/types/product";
 
 export type ProductsPageProps = {
   stores: ProductStoreRow[];
@@ -16,6 +20,10 @@ export type ProductsPageProps = {
   products: ProductRow[];
   total: number;
   duplicateNames: Set<string>;
+  duplicateSupplierCodeCountsByProductId: Record<
+    number,
+    SupplierCodeDuplicateCounts
+  >;
   selectedStore: ProductStoreRow | undefined;
   validStoreId: number | undefined;
   safePage: number;
@@ -35,6 +43,7 @@ export function ProductsPageView({
   products,
   total,
   duplicateNames,
+  duplicateSupplierCodeCountsByProductId,
   selectedStore,
   validStoreId,
   safePage,
@@ -92,6 +101,9 @@ export function ProductsPageView({
               products={products}
               total={total}
               duplicateNames={duplicateNames}
+              duplicateSupplierCodeCountsByProductId={
+                duplicateSupplierCodeCountsByProductId
+              }
               selectedStore={selectedStore}
               safePage={safePage}
               pageSize={pageSize}

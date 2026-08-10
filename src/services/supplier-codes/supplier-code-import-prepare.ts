@@ -62,7 +62,8 @@ export function expandSupplierCodeAssignments(
 
 /**
  * Same supplier + supplier code mapped to two+ different store product codes
- * in the upload → all those assignments conflict.
+ * in the upload is shown as a warning. The assignments remain valid: the
+ * same supplier price may be shared by each mapped product.
  * Unavailable markers never conflict with each other.
  */
 export function findInFileSupplierCodeConflicts(
@@ -80,7 +81,6 @@ export function findInFileSupplierCodeConflicts(
     bySupplierCode.set(key, list);
   }
 
-  const conflictKeys = new Set<string>();
   const conflicts: SupplierCodeConflict[] = [];
 
   for (const [key, group] of bySupplierCode) {
@@ -88,7 +88,6 @@ export function findInFileSupplierCodeConflicts(
       ...new Set(group.map((a) => a.storeProductCode)),
     ];
     if (uniqueStoreCodes.length < 2) continue;
-    conflictKeys.add(key);
     for (const assignment of group) {
       conflicts.push({
         storeProductCode: assignment.storeProductCode,
@@ -103,11 +102,5 @@ export function findInFileSupplierCodeConflicts(
     }
   }
 
-  const clean = assignments.filter((assignment) => {
-    if (assignment.kind !== "code" || !assignment.supplierCode) return true;
-    const key = `${assignment.supplierKey}|${supplierCodeCompareKey(assignment.supplierCode)}`;
-    return !conflictKeys.has(key);
-  });
-
-  return { clean, conflicts };
+  return { clean: assignments, conflicts };
 }

@@ -10,6 +10,9 @@ import {
   suppliers,
 } from "@/db/schema";
 import { barcodeLookupCandidates, formatSpreadsheetBarcode } from "@/utils/barcode";
+import { isUnavailableSupplierCodeStored } from "@/lib/supplier-code-unavailable";
+import { supplierCodeCompareKey } from "@/parsers/supplier-codes/supplier-code-file-parser";
+import type { SupplierCodeDuplicateCounts, SupplierKey } from "@/types/product";
 
 export const productRepository = {
   buildListConditions(filters?: {
@@ -125,6 +128,90 @@ export const productRepository = {
     const rows = await query.groupBy(sql`lower(trim(${products.name}))`).having(sql`count(*) > 1`);
 
     return rows.map((row) => row.nameKey);
+  },
+
+  async getDuplicateSupplierCodeCounts(
+    filters: {
+      storeId?: number;
+      department?: string;
+      isActive?: boolean;
+      search?: string;
+    },
+    pageProductIds: number[],
+  ): Promise<Record<number, SupplierCodeDuplicateCounts>> {
+    if (!pageProductIds.length || !filters.storeId) return {};
+
+    // Supplier-code duplication is a store-level concern. It deliberately
+    // ignores the current name/department/status filter so a duplicate stays
+    // visible when one of its products is filtered out of the current page.
+    const catalogProducts = await db
+      .selectDistinct({
+        productId: products.id,
+        storeProductCode: storeProducts.storeProductCode,
+      })
+      .from(storeProducts)
+      .innerJoin(products, eq(products.id, storeProducts.productId))
+      .where(eq(storeProducts.storeId, filters.storeId));
+    const catalogProductIds = catalogProducts.map((row) => row.productId);
+    const storeProductCodeByProductId = new Map(
+      catalogProducts.map((row) => [row.productId, row.storeProductCode]),
+    );
+    if (!catalogProductIds.length) return {};
+
+    const supplierKeys: SupplierKey[] = ["MM", "SP", "WAB"];
+    const mappings = await db
+      .select({
+        productId: supplierProducts.productId,
+        supplierKey: suppliers.code,
+        supplierCode: supplierProducts.supplierCode,
+      })
+      .from(supplierProducts)
+      .innerJoin(suppliers, eq(suppliers.id, supplierProducts.supplierId))
+      .where(
+        and(
+          inArray(supplierProducts.productId, catalogProductIds),
+          inArray(suppliers.code, supplierKeys),
+        ),
+      );
+
+    const productIdsByCode = new Map<string, Set<number>>();
+    for (const mapping of mappings) {
+      if (isUnavailableSupplierCodeStored(mapping.supplierCode)) continue;
+      const key = `${mapping.supplierKey}|${supplierCodeCompareKey(mapping.supplierCode)}`;
+      const productIds = productIdsByCode.get(key) ?? new Set<number>();
+      productIds.add(mapping.productId);
+      productIdsByCode.set(key, productIds);
+    }
+
+    const pageProductIdSet = new Set(pageProductIds);
+    const countsByProductId: Record<number, SupplierCodeDuplicateCounts> = {};
+    for (const mapping of mappings) {
+      if (
+        !pageProductIdSet.has(mapping.productId) ||
+        isUnavailableSupplierCodeStored(mapping.supplierCode) ||
+        !supplierKeys.includes(mapping.supplierKey as SupplierKey)
+      ) {
+        continue;
+      }
+      const supplierKey = mapping.supplierKey as SupplierKey;
+      const key = `${supplierKey}|${supplierCodeCompareKey(mapping.supplierCode)}`;
+      const otherStoreProductCodes = [...(productIdsByCode.get(key) ?? [])]
+        .filter((productId) => productId !== mapping.productId)
+        .map((productId) => storeProductCodeByProductId.get(productId))
+        .filter((storeProductCode): storeProductCode is string => Boolean(storeProductCode))
+        .sort((a, b) => a.localeCompare(b));
+      if (!otherStoreProductCodes.length) continue;
+
+      countsByProductId[mapping.productId] = {
+        ...countsByProductId[mapping.productId],
+        [supplierKey]: {
+          count: otherStoreProductCodes.length,
+          storeProductCodes: otherStoreProductCodes,
+        },
+      };
+    }
+
+    return countsByProductId;
   },
 
   async createProduct(data: typeof products.$inferInsert) {
