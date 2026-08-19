@@ -214,7 +214,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(
             id={`${inputId}-calendar`}
             role="dialog"
             aria-label="Choose date"
-            className="absolute left-0 top-[calc(100%+6px)] z-50 w-[min(100%,280px)] rounded-xl border border-zinc-200 bg-white p-3 shadow-lg ring-1 ring-black/5"
+            className="absolute left-0 top-[calc(100%+6px)] z-50 w-[280px] min-w-[280px] rounded-xl border border-zinc-200 bg-white p-3 shadow-lg ring-1 ring-black/5"
           >
             <div className="mb-3 flex items-center justify-between gap-2">
               <button

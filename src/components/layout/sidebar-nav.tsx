@@ -6,6 +6,7 @@ import {
   ArrowLeftRight,
   BookOpen,
   ClipboardList,
+  FileSpreadsheet,
   History,
   Home,
   Layers,
@@ -103,6 +104,12 @@ export const navGroups: NavGroup[] = [
   {
     title: "Ordering",
     items: [
+      {
+        href: "/order-sheet",
+        label: "Order Sheet",
+        icon: FileSpreadsheet,
+        match: (p) => p.startsWith("/order-sheet"),
+      },
       { href: "/orders/new", label: "New Order", icon: ClipboardList },
       {
         href: "/orders",

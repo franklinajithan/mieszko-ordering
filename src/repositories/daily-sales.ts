@@ -62,6 +62,28 @@ export const dailySalesRepository = {
       .orderBy(dailySales.salesDate);
   },
 
+  async getSalesByProductsInRange(
+    storeProductIds: number[],
+    startDate: string,
+    endDate: string,
+  ) {
+    if (!storeProductIds.length) return [];
+    return db
+      .select({
+        storeProductId: dailySales.storeProductId,
+        salesDate: dailySales.salesDate,
+        soldQty: dailySales.soldQty,
+      })
+      .from(dailySales)
+      .where(
+        and(
+          inArray(dailySales.storeProductId, storeProductIds),
+          gte(dailySales.salesDate, startDate),
+          lte(dailySales.salesDate, endDate),
+        ),
+      );
+  },
+
   async deleteForStoreAndDate(storeId: number, salesDate: string) {
     const productIds = await db
       .select({ id: storeProducts.id })
@@ -91,5 +113,32 @@ export const dailySalesRepository = {
       .where(eq(storeProducts.storeId, storeId))
       .groupBy(dailySales.salesDate)
       .orderBy(desc(dailySales.salesDate));
+  },
+
+  async listDateSummariesForStoresInRange(
+    storeIds: number[],
+    startDate: string,
+    endDate: string,
+  ) {
+    if (!storeIds.length) return [];
+    return db
+      .select({
+        storeId: storeProducts.storeId,
+        salesDate: dailySales.salesDate,
+        itemCount: sql<number>`count(*)::int`,
+        totalSoldQty: sql<string>`coalesce(sum(${dailySales.soldQty}), 0)::text`,
+        lastUpdated: sql<string>`max(${dailySales.updatedAt})::text`,
+      })
+      .from(dailySales)
+      .innerJoin(storeProducts, eq(storeProducts.id, dailySales.storeProductId))
+      .where(
+        and(
+          inArray(storeProducts.storeId, storeIds),
+          gte(dailySales.salesDate, startDate),
+          lte(dailySales.salesDate, endDate),
+        ),
+      )
+      .groupBy(storeProducts.storeId, dailySales.salesDate)
+      .orderBy(dailySales.salesDate, storeProducts.storeId);
   },
 };

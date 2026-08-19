@@ -32,11 +32,13 @@ export const bookStockRepository = {
   },
 
   async getLatestImportedAt(storeId: number): Promise<Date | null> {
+    const ids = await storeProductIds(storeId);
+    if (!ids.length) return null;
+
     const [row] = await db
       .select({ importedAt: bookStock.importedAt })
       .from(bookStock)
-      .innerJoin(storeProducts, eq(storeProducts.id, bookStock.storeProductId))
-      .where(eq(storeProducts.storeId, storeId))
+      .where(inArray(bookStock.storeProductId, ids))
       .orderBy(desc(bookStock.importedAt))
       .limit(1);
 
@@ -48,13 +50,15 @@ export const bookStockRepository = {
     storeId: number,
     bookStockDate: string,
   ): Promise<Date | null> {
+    const ids = await storeProductIds(storeId);
+    if (!ids.length) return null;
+
     const [row] = await db
       .select({ importedAt: bookStock.importedAt })
       .from(bookStock)
-      .innerJoin(storeProducts, eq(storeProducts.id, bookStock.storeProductId))
       .where(
         and(
-          eq(storeProducts.storeId, storeId),
+          inArray(bookStock.storeProductId, ids),
           eq(bookStock.bookStockDate, bookStockDate),
         ),
       )
@@ -65,6 +69,9 @@ export const bookStockRepository = {
   },
 
   async listForStoreAndImportedAt(storeId: number, importedAt: Date) {
+    const ids = await storeProductIds(storeId);
+    if (!ids.length) return [];
+
     return db
       .select({
         storeProductId: bookStock.storeProductId,
@@ -77,7 +84,7 @@ export const bookStockRepository = {
       .innerJoin(storeProducts, eq(storeProducts.id, bookStock.storeProductId))
       .where(
         and(
-          eq(storeProducts.storeId, storeId),
+          inArray(bookStock.storeProductId, ids),
           eq(bookStock.importedAt, importedAt),
         ),
       );
@@ -85,17 +92,26 @@ export const bookStockRepository = {
 
   /** Upload history: one row per import timestamp (newest first). */
   async listUploadSummariesForStore(storeId: number) {
-    return db
+    const ids = await storeProductIds(storeId);
+    if (!ids.length) return [];
+
+    const rows = await db
       .select({
         bookStockDate: bookStock.bookStockDate,
-        importedAt: sql<string>`to_char(${bookStock.importedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+        importedAt: bookStock.importedAt,
         itemCount: sql<number>`count(*)::int`,
         totalBookStockQty: sql<string>`coalesce(sum(${bookStock.bookStockQty}), 0)::text`,
       })
       .from(bookStock)
-      .innerJoin(storeProducts, eq(storeProducts.id, bookStock.storeProductId))
-      .where(eq(storeProducts.storeId, storeId))
+      .where(inArray(bookStock.storeProductId, ids))
       .groupBy(bookStock.bookStockDate, bookStock.importedAt)
       .orderBy(desc(bookStock.importedAt));
+
+    return rows.map((row) => ({
+      bookStockDate: row.bookStockDate,
+      importedAt: row.importedAt.toISOString(),
+      itemCount: row.itemCount,
+      totalBookStockQty: row.totalBookStockQty,
+    }));
   },
 };

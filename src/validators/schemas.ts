@@ -255,3 +255,107 @@ export const applyStoredBookStockSchema = z.object({
   importedAt: z.string().datetime().optional(),
   bookStockDate: z.string().date().optional(),
 });
+
+export const orderSheetGenerateSchema = z
+  .object({
+    orderId: idSchema.optional(),
+    storeIds: z.array(idSchema).min(1),
+    orderDate: z.string().date(),
+    deliveryDate: z.string().date(),
+    bookStockDate: z.string().date().optional(),
+    supplierIds: z.array(idSchema).min(1),
+    departmentIds: z.array(idSchema).min(1),
+    comparisonPeriods: z
+      .array(
+        z.object({
+          startDate: z.string().date(),
+          endDate: z.string().date(),
+        }),
+      )
+      .min(1),
+    includeWastage: z.boolean().default(true),
+    includeRtc: z.boolean().default(true),
+    shortfallStartDate: z.string().date(),
+    shortfallEndDate: z.string().date(),
+    soldQtyMethod: z.enum(["max", "average", "min"]).default("average"),
+    comment: z.string().max(500).optional(),
+    dayBySalesRequired: z.boolean().default(false),
+    dayBySalesStartDate: z.string().date().optional(),
+    dayBySalesEndDate: z.string().date().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.deliveryDate < data.orderDate) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Delivery date cannot be earlier than order date",
+        path: ["deliveryDate"],
+      });
+    }
+    if (data.shortfallEndDate < data.shortfallStartDate) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Shortfall end date cannot be before start date",
+        path: ["shortfallEndDate"],
+      });
+    }
+    for (const [index, period] of data.comparisonPeriods.entries()) {
+      if (period.endDate < period.startDate) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Period ${index + 1} has an invalid date range`,
+          path: ["comparisonPeriods", index],
+        });
+      }
+    }
+    if (data.dayBySalesRequired) {
+      if (!data.dayBySalesStartDate) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Day-by-sales start date is required",
+          path: ["dayBySalesStartDate"],
+        });
+      }
+      if (!data.dayBySalesEndDate) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Day-by-sales end date is required",
+          path: ["dayBySalesEndDate"],
+        });
+      }
+      if (
+        data.dayBySalesStartDate &&
+        data.dayBySalesEndDate &&
+        data.dayBySalesEndDate < data.dayBySalesStartDate
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Day-by-sales end date cannot be before start date",
+          path: ["dayBySalesEndDate"],
+        });
+      }
+      if (data.dayBySalesStartDate && data.dayBySalesEndDate) {
+        const start = new Date(`${data.dayBySalesStartDate}T00:00:00`);
+        const end = new Date(`${data.dayBySalesEndDate}T00:00:00`);
+        const days =
+          Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        if (days > 31) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Day-by-sales range cannot exceed 31 days",
+            path: ["dayBySalesEndDate"],
+          });
+        }
+      }
+    }
+  });
+
+export const orderSheetDraftSchema = z.object({
+  comment: z.string().max(500).optional(),
+  items: z.array(
+    z.object({
+      orderItemId: idSchema,
+      orderQty: z.string(),
+      selected: z.boolean(),
+    }),
+  ),
+});
