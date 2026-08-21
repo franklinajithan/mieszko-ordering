@@ -1,8 +1,7 @@
 import type { FilePreview, ImportResult, ParsedRow, SalesMappingType } from "@/types";
 import { decimalToDb } from "@/utils/decimal";
 import { dailySalesRepository, productRepository } from "@/repositories";
-import { tryParseRetailSalesReport } from "@/parsers/daily-sales/glopos-retail-parser";
-import { parseUploadedFile } from "@/parsers/file-parser";
+import { parseDailySalesFileBuffer } from "@/parsers/daily-sales/daily-sales-file-parser";
 import {
   assertStoreFileErpMatch,
   type ParseImportFileInput,
@@ -28,20 +27,11 @@ export type DailySalesParseResult = FilePreview & {
 export async function parseDailySalesImportFile(
   input: ParseImportFileInput,
 ): Promise<DailySalesParseResult> {
-  const retail = await tryParseRetailSalesReport(input.buffer, input.fileName);
-
-  const preview: DailySalesParseResult =
-    retail ?
-      {
-        headers: retail.headers,
-        rows: retail.rows.slice(0, 10),
-        productColumn: retail.itemCodeColumn,
-        quantityColumn: retail.salesQtyColumn,
-        manualSalesDate: retail.salesDate ?? undefined,
-        periodLabel: retail.periodLabel,
-        duplicateRows: retail.duplicateRows,
-      }
-    : await parseUploadedFile(input.buffer, input.fileName);
+  const parsed = await parseDailySalesFileBuffer(input.buffer, input.fileName);
+  const preview: DailySalesParseResult = {
+    ...parsed,
+    rows: parsed.rows.slice(0, 10),
+  };
 
   await assertStoreFileErpMatch({
     storeId: input.storeId,
@@ -137,16 +127,33 @@ export type DailySalesStoreSummary = {
   lastUpdated: string;
 };
 
+export type DailySalesStoreSummaryPage = {
+  rows: DailySalesStoreSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 export async function listDailySalesSummariesForStore(
   storeId: number,
-): Promise<DailySalesStoreSummary[]> {
-  const rows = await dailySalesRepository.listDateSummariesForStore(storeId);
-  return rows.map((row) => ({
-    salesDate: row.salesDate,
-    itemCount: row.itemCount,
-    totalSoldQty: String(row.totalSoldQty),
-    lastUpdated: String(row.lastUpdated),
-  }));
+  page: number,
+  pageSize: number,
+): Promise<DailySalesStoreSummaryPage> {
+  const { rows, total } = await dailySalesRepository.listDateSummariesForStore(
+    storeId,
+    { limit: pageSize, offset: (page - 1) * pageSize },
+  );
+  return {
+    rows: rows.map((row) => ({
+      salesDate: row.salesDate,
+      itemCount: row.itemCount,
+      totalSoldQty: String(row.totalSoldQty),
+      lastUpdated: String(row.lastUpdated),
+    })),
+    total,
+    page,
+    pageSize,
+  };
 }
 
 export async function deleteDailySalesForStoreDate(

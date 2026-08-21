@@ -79,6 +79,7 @@ export function DailySalesImportForm({ stores }: { stores: StoreOption[] }) {
     const selected = event.target.files?.[0] ?? null;
     setPreview(null);
     setResult(null);
+    setSalesDate("");
     setExcelSalesDate("");
     if (!selected) {
       setFile(null);
@@ -102,6 +103,8 @@ export function DailySalesImportForm({ stores }: { stores: StoreOption[] }) {
     setError(null);
     setResult(null);
     setPreview(null);
+    setSalesDate("");
+    setExcelSalesDate("");
     try {
       if (!storeId) {
         setError("Select a store before previewing the file.");
@@ -127,6 +130,7 @@ export function DailySalesImportForm({ stores }: { stores: StoreOption[] }) {
         setSalesDate(data.manualSalesDate);
       } else {
         setExcelSalesDate("");
+        setSalesDate("");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Preview failed";

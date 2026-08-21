@@ -100,8 +100,13 @@ export const dailySalesRepository = {
       );
   },
 
-  async listDateSummariesForStore(storeId: number) {
-    return db
+  async listDateSummariesForStore(
+    storeId: number,
+    { limit, offset }: { limit: number; offset: number },
+  ) {
+    const where = eq(storeProducts.storeId, storeId);
+    const [summaryRows, totalRows] = await Promise.all([
+      db
       .select({
         salesDate: dailySales.salesDate,
         itemCount: sql<number>`count(*)::int`,
@@ -110,9 +115,24 @@ export const dailySalesRepository = {
       })
       .from(dailySales)
       .innerJoin(storeProducts, eq(storeProducts.id, dailySales.storeProductId))
-      .where(eq(storeProducts.storeId, storeId))
+      .where(where)
       .groupBy(dailySales.salesDate)
-      .orderBy(desc(dailySales.salesDate));
+      .orderBy(desc(dailySales.salesDate))
+      .limit(limit)
+      .offset(offset),
+      db
+        .select({
+          total: sql<number>`count(distinct ${dailySales.salesDate})::int`,
+        })
+        .from(dailySales)
+        .innerJoin(storeProducts, eq(storeProducts.id, dailySales.storeProductId))
+        .where(where),
+    ]);
+
+    return {
+      rows: summaryRows,
+      total: totalRows[0]?.total ?? 0,
+    };
   },
 
   async listDateSummariesForStoresInRange(

@@ -30,11 +30,19 @@ const chunkSchema = z.object({
 });
 
 export const GET = route(async (req) => {
-  const storeId = idSchema.safeParse(
-    new URL(req.url).searchParams.get("storeId"),
-  );
+  const params = new URL(req.url).searchParams;
+  const storeId = idSchema.safeParse(params.get("storeId"));
   if (!storeId.success) return apiError("storeId is required");
-  return apiOk(await listDailySalesSummariesForStore(storeId.data));
+  const page = z.coerce.number().int().min(1).catch(1).parse(params.get("page"));
+  const pageSize = z
+    .coerce.number()
+    .int()
+    .refine((value) => [10, 25, 50].includes(value))
+    .catch(25)
+    .parse(params.get("pageSize"));
+  return apiOk(
+    await listDailySalesSummariesForStore(storeId.data, page, pageSize),
+  );
 });
 
 export const DELETE = route(async (req) => {

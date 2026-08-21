@@ -58,7 +58,10 @@ function findHeaderRow(sheet: ExcelJS.Worksheet, maxScan = 40): number | null {
       values[colNumber - 1] = normHeader(cellText(cell.value));
     });
     const text = values.filter(Boolean).join(" | ");
-    if (text.includes("barcode") && text.includes("qty")) {
+    if (
+      (text.includes("barcode") || text.includes("ean")) &&
+      text.includes("qty")
+    ) {
       return rowNumber;
     }
   }
@@ -110,7 +113,10 @@ export function isGloposRtcHistoryReport(headers: string[], fileName: string): b
   if (/rtc\s*sales\s*history/i.test(fileName)) return true;
   if (/price\s*override\s*&\s*rtc/i.test(fileName)) return true;
   const text = headers.map(normHeader).join(" | ");
-  return text.includes("barcode") && text.includes("qty");
+  return (
+    (text.includes("barcode") || text.includes("ean")) &&
+    text.includes("qty")
+  );
 }
 
 export async function tryParseGloposRtcHistoryReport(
@@ -157,12 +163,12 @@ export async function parseGloposRtcHistoryReport(
     headers[colNumber - 1] = cellText(cell.value);
   });
 
-  const barcodeIndex = findColumnIndex(headers, ["barcode"]);
+  const barcodeIndex = findColumnIndex(headers, ["barcode", "ean"]);
   const qtyIndex = findColumnIndex(headers, ["qty"]);
   const descriptionIndex = findColumnIndex(headers, ["sale description", "description"]);
 
   if (barcodeIndex < 0 || qtyIndex < 0) {
-    throw new Error("GloPOS RTC file is missing Barcode or Qty columns");
+    throw new Error("GloPOS RTC file is missing Barcode/EAN or Qty columns");
   }
 
   const aggregated = new Map<string, { qty: number; productName: string }>();

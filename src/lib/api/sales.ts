@@ -51,15 +51,27 @@ export function deleteDailySalesUpload(
 
 export function listDailySalesSummaries(
   storeId: number,
+  page: number,
+  pageSize: number,
 ): Promise<
   ActionResult<
-    Array<{
-      salesDate: string;
-      itemCount: number;
-      totalSoldQty: string;
-      lastUpdated: string;
-    }>
+    {
+      rows: Array<{
+        salesDate: string;
+        itemCount: number;
+        totalSoldQty: string;
+        lastUpdated: string;
+      }>;
+      total: number;
+      page: number;
+      pageSize: number;
+    }
   >
 > {
-  return apiRequest(`/imports/daily-sales?storeId=${storeId}`);
+  const params = new URLSearchParams({
+    storeId: String(storeId),
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  return apiRequest(`/imports/daily-sales?${params.toString()}`);
 }

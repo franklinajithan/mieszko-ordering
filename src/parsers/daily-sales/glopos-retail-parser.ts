@@ -55,6 +55,20 @@ function parseSalesDateFromRow(values: Array<string | undefined>): string | null
       const [, dd, mm, yyyy] = enquiryDate;
       return isoFromDmy(dd, mm, yyyy);
     }
+    const dateRange = value.match(
+      /date\s*range\s*:\s*(\d{1,2})[-/](\d{1,2})[-/](\d{4})\s+to\s+(\d{1,2})[-/](\d{1,2})[-/](\d{4})/i,
+    );
+    if (dateRange) {
+      const [, startDay, startMonth, startYear, endDay, endMonth, endYear] =
+        dateRange;
+      if (
+        startDay === endDay &&
+        startMonth === endMonth &&
+        startYear === endYear
+      ) {
+        return isoFromDmy(startDay, startMonth, startYear);
+      }
+    }
   }
   return null;
 }

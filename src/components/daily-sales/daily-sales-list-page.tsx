@@ -19,6 +19,9 @@ export function DailySalesListPage({
 }) {
   const [loadingRows, setLoadingRows] = useState(false);
   const [uploadRows, setUploadRows] = useState<DailySalesUploadRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [totalRows, setTotalRows] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<DailySalesUploadRow | null>(
     null,
@@ -26,14 +29,19 @@ export function DailySalesListPage({
   const [error, setError] = useState<string | null>(null);
 
   const loadUploadRows = useCallback(
-    async (forStoreId: string) => {
+    async (forStoreId: string, requestedPage = page) => {
       if (!forStoreId) {
         setUploadRows([]);
+        setTotalRows(0);
         return;
       }
       setLoadingRows(true);
       setError(null);
-      const response = await listDailySalesSummaries(Number(forStoreId));
+      const response = await listDailySalesSummaries(
+        Number(forStoreId),
+        requestedPage,
+        pageSize,
+      );
       setLoadingRows(false);
       if (!response.success) {
         setError(response.error);
@@ -41,7 +49,7 @@ export function DailySalesListPage({
       }
       const store = stores.find((s) => String(s.id) === forStoreId);
       setUploadRows(
-        response.data.map((row) => ({
+        response.data.rows.map((row) => ({
           id: `${forStoreId}|${row.salesDate}`,
           storeId: forStoreId,
           storeName: store?.name ?? "",
@@ -51,13 +59,14 @@ export function DailySalesListPage({
           uploadedAt: new Date(row.lastUpdated),
         })),
       );
+      setTotalRows(response.data.total);
     },
-    [stores],
+    [page, pageSize, stores],
   );
 
   useEffect(() => {
-    void loadUploadRows(storeId);
-  }, [storeId, refreshKey, loadUploadRows]);
+    void Promise.resolve().then(() => loadUploadRows(storeId));
+  }, [storeId, page, refreshKey, loadUploadRows]);
 
   async function confirmDelete() {
     const row = pendingDelete;
@@ -74,8 +83,15 @@ export function DailySalesListPage({
       setError(response.error);
       return;
     }
-    await loadUploadRows(row.storeId);
+    const lastPage = Math.max(1, Math.ceil((totalRows - 1) / pageSize));
+    const nextPage = Math.min(page, lastPage);
+    if (nextPage !== page) setPage(nextPage);
+    else await loadUploadRows(row.storeId, nextPage);
   }
+
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const from = totalRows === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalRows);
 
   return (
     <section className="space-y-3 rounded-xl border border-zinc-200/80 bg-white p-4 shadow-sm">
@@ -132,6 +148,54 @@ export function DailySalesListPage({
           No daily sales saved for this store yet. Import a file to add data.
         </p>
       )}
+      {totalRows > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <p className="text-zinc-600">
+            Showing {from.toLocaleString()}–{to.toLocaleString()} of{" "}
+            {totalRows.toLocaleString()} sales dates
+          </p>
+          <div className="flex items-center gap-2">
+            <label className="text-zinc-600">
+              Per page{" "}
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className="rounded-md border border-zinc-300 bg-white px-2 py-1"
+              >
+                {[10, 25, 50].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loadingRows || page <= 1}
+              onClick={() => setPage((current) => current - 1)}
+            >
+              Previous
+            </Button>
+            <span className="text-zinc-600">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loadingRows || page >= totalPages}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
       <ConfirmAlertDialog

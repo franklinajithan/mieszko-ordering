@@ -40,9 +40,41 @@ function decodeText(buffer: ArrayBuffer | Buffer): string {
   return new TextDecoder().decode(buffer as ArrayBuffer);
 }
 
+function parseMspItemSalesDateFromFilename(fileName: string): string | undefined {
+  const match = fileName.match(
+    /item[_\s-]*sales[_\s-]*enquiry[_\s-]*(\d{1,2})[-.](\d{1,2})[-.](\d{4})/i,
+  );
+  if (!match) return undefined;
+
+  const [, day, month, year] = match;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function parseMspItemSalesDateFromRows(rows: unknown[][]): string | undefined {
+  for (const row of rows) {
+    for (const value of row) {
+      const match = cellText(value).match(
+        /date\s*range\s*:\s*(\d{1,2})[-/](\d{1,2})[-/](\d{4})\s+to\s+(\d{1,2})[-/](\d{1,2})[-/](\d{4})/i,
+      );
+      if (!match) continue;
+
+      const [, startDay, startMonth, startYear, endDay, endMonth, endYear] = match;
+      if (
+        startDay !== endDay ||
+        startMonth !== endMonth ||
+        startYear !== endYear
+      ) {
+        return undefined;
+      }
+      return `${startYear}-${startMonth.padStart(2, "0")}-${startDay.padStart(2, "0")}`;
+    }
+  }
+  return undefined;
+}
+
 function parseFlatSpreadsheet(
   buffer: ArrayBuffer | Buffer,
-): { headers: string[]; rows: ParsedRow[] } {
+): { headers: string[]; rows: ParsedRow[]; manualSalesDate?: string } {
   const workbook = XLSX.read(buffer, {
     type: "buffer",
     cellDates: true,
@@ -76,12 +108,17 @@ function parseFlatSpreadsheet(
     if (hasValue) rows.push(parsed);
   }
 
-  return { headers: headers.filter(Boolean), rows };
+  return {
+    headers: headers.filter(Boolean),
+    rows,
+    manualSalesDate: parseMspItemSalesDateFromRows(grid),
+  };
 }
 
 function parseFlatCsv(buffer: ArrayBuffer | Buffer): {
   headers: string[];
   rows: ParsedRow[];
+  manualSalesDate?: string;
 } {
   const result = parse<Record<string, string>>(decodeText(buffer), {
     header: true,
@@ -136,5 +173,7 @@ export async function parseDailySalesFileBuffer(
     ...flat,
     productColumn: detected.productColumn ?? undefined,
     quantityColumn: detected.quantityColumn ?? undefined,
+    manualSalesDate:
+      flat.manualSalesDate ?? parseMspItemSalesDateFromFilename(fileName),
   };
 }
