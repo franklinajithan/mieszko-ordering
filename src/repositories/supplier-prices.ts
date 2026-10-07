@@ -1,7 +1,8 @@
 import "server-only";
-import { and, count, desc, eq, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { supplierPrices, supplierProducts, suppliers } from "@/db/schema";
+import { BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE } from "@/lib/import-config";
 
 export type SupplierPriceUploadSummary = {
   supplierId: number;
@@ -36,6 +37,84 @@ export const supplierPriceRepository = {
       .orderBy(desc(supplierPrices.importedAt), desc(supplierPrices.createdAt))
       .limit(1);
     return row ?? null;
+  },
+
+  async listActiveMappings(productIds: number[], supplierIds: number[]) {
+    const uniqueProductIds = [...new Set(productIds)];
+    const uniqueSupplierIds = [...new Set(supplierIds)];
+    if (!uniqueProductIds.length || !uniqueSupplierIds.length) return [];
+
+    const rows: Array<typeof supplierProducts.$inferSelect> = [];
+    for (
+      let index = 0;
+      index < uniqueProductIds.length;
+      index += BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE
+    ) {
+      const batch = uniqueProductIds.slice(
+        index,
+        index + BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE,
+      );
+      if (!batch.length) continue;
+      rows.push(
+        ...(await db
+          .select()
+          .from(supplierProducts)
+          .where(
+            and(
+              inArray(supplierProducts.productId, batch),
+              inArray(supplierProducts.supplierId, uniqueSupplierIds),
+              eq(supplierProducts.isActive, true),
+            ),
+          )),
+      );
+    }
+    return rows;
+  },
+
+  async getLatestPricesForSupplierProducts(
+    supplierProductIds: number[],
+    asOfDate: string,
+  ) {
+    const uniqueIds = [...new Set(supplierProductIds.filter((id) => id > 0))];
+    const prices = new Map<number, { netPrice: string; caseSize: string | null }>();
+    if (!uniqueIds.length) return prices;
+
+    for (
+      let index = 0;
+      index < uniqueIds.length;
+      index += BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE
+    ) {
+      const batch = uniqueIds.slice(index, index + BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE);
+      if (!batch.length) continue;
+      const rows = await db
+        .selectDistinctOn([supplierPrices.supplierProductId], {
+          supplierProductId: supplierPrices.supplierProductId,
+          netPrice: supplierPrices.netPrice,
+          caseSize: supplierPrices.caseSize,
+        })
+        .from(supplierPrices)
+        .where(
+          and(
+            inArray(supplierPrices.supplierProductId, batch),
+            lte(supplierPrices.effectiveDate, asOfDate),
+          ),
+        )
+        .orderBy(
+          supplierPrices.supplierProductId,
+          desc(supplierPrices.importedAt),
+          desc(supplierPrices.createdAt),
+        );
+
+      for (const row of rows) {
+        if (row.supplierProductId == null) continue;
+        prices.set(row.supplierProductId, {
+          netPrice: row.netPrice,
+          caseSize: row.caseSize,
+        });
+      }
+    }
+
+    return prices;
   },
 
   async findSupplierProducts(supplierId: number, supplierCode: string) {

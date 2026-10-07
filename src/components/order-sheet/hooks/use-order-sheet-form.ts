@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Supplier } from "@/types/supplier";
 import type { Store } from "@/types/store";
@@ -8,10 +8,11 @@ import type { ComparisonPeriod, OrderSheetFormState } from "@/types/orderSheet";
 import {
   createComparisonPeriod,
   createInitialOrderSheetForm,
+  createShortfallPeriod,
   DEFAULT_ORDER_SHEET_SUPPLIER_CODES,
   getDayBySalesDates,
 } from "@/utils/order-sheet-form";
-import { diffDaysInclusive } from "@/utils/orderSheetCalculations";
+import { totalUniquePeriodDays } from "@/utils/orderSheetCalculations";
 
 export function useOrderSheetForm(stores: Store[], suppliers: Supplier[]) {
   const [form, setForm] = useState<OrderSheetFormState>(
@@ -23,30 +24,37 @@ export function useOrderSheetForm(stores: Store[], suppliers: Supplier[]) {
     [suppliers],
   );
   const dayBySalesDates = useMemo(() => getDayBySalesDates(form), [form]);
-  const shortfallDays = diffDaysInclusive(
-    form.shortfallStartDate,
-    form.shortfallEndDate,
-  );
+  const shortfallDays = totalUniquePeriodDays(form.shortfallPeriods);
+
+  const didInitStores = useRef(false);
+  const didInitSuppliers = useRef(false);
 
   useEffect(() => {
-    if (form.storeIds.length || !stores.length) return;
-    setForm((current) => ({
-      ...current,
-      storeIds: stores.map((store) => store.id),
-    }));
-  }, [stores, form.storeIds.length]);
+    if (didInitStores.current || !stores.length) return;
+    didInitStores.current = true;
+    setForm((current) => {
+      if (current.storeIds.length) return current;
+      return {
+        ...current,
+        storeIds: stores.map((store) => store.id),
+      };
+    });
+  }, [stores]);
 
   useEffect(() => {
-    if (form.supplierIds.length) return;
+    if (didInitSuppliers.current || !activeSuppliers.length) return;
+    didInitSuppliers.current = true;
     const defaults = activeSuppliers
       .filter((supplier) =>
         DEFAULT_ORDER_SHEET_SUPPLIER_CODES.includes(supplier.code),
       )
       .map((supplier) => supplier.id);
-    if (defaults.length) {
-      setForm((current) => ({ ...current, supplierIds: defaults }));
-    }
-  }, [activeSuppliers, form.supplierIds.length]);
+    if (!defaults.length) return;
+    setForm((current) => {
+      if (current.supplierIds.length) return current;
+      return { ...current, supplierIds: defaults };
+    });
+  }, [activeSuppliers]);
 
   function updatePeriod(id: string, patch: Partial<ComparisonPeriod>) {
     setForm((current) => ({
@@ -76,7 +84,35 @@ export function useOrderSheetForm(stores: Store[], suppliers: Supplier[]) {
     }));
   }
 
+  function updateShortfallPeriod(id: string, patch: Partial<ComparisonPeriod>) {
+    setForm((current) => ({
+      ...current,
+      shortfallPeriods: current.shortfallPeriods.map((period) =>
+        period.id === id ? { ...period, ...patch } : period,
+      ),
+    }));
+  }
+
+  function addShortfallPeriod() {
+    setForm((current) => ({
+      ...current,
+      shortfallPeriods: [
+        ...current.shortfallPeriods,
+        createShortfallPeriod(current.shortfallPeriods),
+      ],
+    }));
+  }
+
+  function removeShortfallPeriod(id: string) {
+    setForm((current) => ({
+      ...current,
+      shortfallPeriods: current.shortfallPeriods.filter((period) => period.id !== id),
+    }));
+  }
+
   function resetForm() {
+    didInitStores.current = false;
+    didInitSuppliers.current = false;
     setForm(createInitialOrderSheetForm());
   }
 
@@ -90,5 +126,8 @@ export function useOrderSheetForm(stores: Store[], suppliers: Supplier[]) {
     updatePeriod,
     addPeriod,
     removePeriod,
+    updateShortfallPeriod,
+    addShortfallPeriod,
+    removeShortfallPeriod,
   };
 }

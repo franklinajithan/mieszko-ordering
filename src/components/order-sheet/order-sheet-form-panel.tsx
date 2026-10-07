@@ -27,6 +27,9 @@ type Props = {
   onUpdatePeriod: (id: string, patch: Partial<ComparisonPeriod>) => void;
   onAddPeriod: () => void;
   onRemovePeriod: (id: string) => void;
+  onUpdateShortfallPeriod: (id: string, patch: Partial<ComparisonPeriod>) => void;
+  onAddShortfallPeriod: () => void;
+  onRemoveShortfallPeriod: (id: string) => void;
 };
 
 export function OrderSheetFormPanel({
@@ -40,6 +43,9 @@ export function OrderSheetFormPanel({
   onUpdatePeriod,
   onAddPeriod,
   onRemovePeriod,
+  onUpdateShortfallPeriod,
+  onAddShortfallPeriod,
+  onRemoveShortfallPeriod,
 }: Props) {
   const set = (patch: Partial<OrderSheetFormState>) =>
     onChange((current) => ({ ...current, ...patch }));
@@ -53,6 +59,7 @@ export function OrderSheetFormPanel({
               label="Stores"
               placeholder="Select stores"
               required
+              allowSelectAll
               options={stores.map((store) => ({
                 id: store.id,
                 label: store.code,
@@ -86,6 +93,7 @@ export function OrderSheetFormPanel({
               label="Suppliers"
               placeholder="Select suppliers"
               required
+              allowSelectAll
               options={suppliers.map((supplier) => ({
                 id: supplier.id,
                 label: supplier.code,
@@ -99,6 +107,7 @@ export function OrderSheetFormPanel({
               label="Departments"
               placeholder="Select departments"
               required
+              allowSelectAll
               options={departments.map((department) => ({
                 id: department.id,
                 label: department.name,
@@ -172,20 +181,61 @@ export function OrderSheetFormPanel({
             </div>
           </div>
           <div>
-            <Label>Shortfall period</Label>
-            <div className="mt-2 grid gap-4 sm:grid-cols-2">
-              <DateField
-                name="shortfallStartDate"
-                value={form.shortfallStartDate}
-                onChange={(event) => set({ shortfallStartDate: event.target.value })}
-              />
-              <DateField
-                name="shortfallEndDate"
-                value={form.shortfallEndDate}
-                onChange={(event) => set({ shortfallEndDate: event.target.value })}
-              />
+            <Label>Shortfall periods</Label>
+            <div className="mt-2 space-y-3">
+              {form.shortfallPeriods.map((period, index) => (
+                <div
+                  key={period.id}
+                  className="grid gap-4 rounded-lg border border-zinc-100 bg-zinc-50/50 p-4 sm:grid-cols-[auto_1fr_1fr_auto] sm:items-end"
+                >
+                  <p className="pb-2 text-sm font-medium text-zinc-800 sm:pb-0">
+                    Period {index + 1}
+                  </p>
+                  <DateInput
+                    label="Start Date"
+                    name={`shortfall-${period.id}-start`}
+                    value={period.startDate}
+                    onChange={(startDate) =>
+                      onUpdateShortfallPeriod(period.id, { startDate })
+                    }
+                  />
+                  <DateInput
+                    label="End Date"
+                    name={`shortfall-${period.id}-end`}
+                    value={period.endDate}
+                    error={errors[`shortfall-${index}`]}
+                    onChange={(endDate) =>
+                      onUpdateShortfallPeriod(period.id, { endDate })
+                    }
+                  />
+                  <div className="flex justify-end sm:justify-start">
+                    {form.shortfallPeriods.length > 1 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => onRemoveShortfallPeriod(period.id)}
+                      >
+                        Remove
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
             </div>
-            <p className="mt-2 text-sm font-medium text-blue-700">{shortfallDays} days</p>
+            {errors.shortfallPeriods ? (
+              <p className="mt-2 text-xs text-red-600">{errors.shortfallPeriods}</p>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-3"
+              onClick={onAddShortfallPeriod}
+            >
+              + Add Period
+            </Button>
+            <p className="mt-2 text-sm font-medium text-blue-700">
+              {shortfallDays} days
+            </p>
           </div>
         </div>
       </OrderSheetSection>

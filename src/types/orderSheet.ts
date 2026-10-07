@@ -1,9 +1,12 @@
 export type SoldQtyMethod = "max" | "average" | "min";
 
-export type ComparisonPeriod = {
-  id: string;
+export type DateRange = {
   startDate: string;
   endDate: string;
+};
+
+export type ComparisonPeriod = DateRange & {
+  id: string;
 };
 
 export type OrderSheetFormState = {
@@ -15,8 +18,7 @@ export type OrderSheetFormState = {
   comparisonPeriods: ComparisonPeriod[];
   includeWastage: boolean;
   includeRtc: boolean;
-  shortfallStartDate: string;
-  shortfallEndDate: string;
+  shortfallPeriods: ComparisonPeriod[];
   soldQtyMethod: SoldQtyMethod;
   comment: string;
   dayBySalesRequired: boolean;
@@ -41,6 +43,12 @@ export type BookStockStatusRow = {
   importedAt: string | null;
   itemCount: number;
   totalBookStockQty: string | null;
+  notPostedFileCount?: number;
+  notPostedItemCount?: number;
+  notPostedQty?: string;
+  futureFileCount?: number;
+  futureItemCount?: number;
+  futureQty?: string;
   message: string;
 };
 
@@ -57,6 +65,24 @@ export type SalesDataStatusRow = {
   available: boolean;
 };
 
+export type OrderItemSupplierQuote = {
+  supplierId: number;
+  supplierKey: string;
+  supplierName: string;
+  supplierProductCode: string | null;
+  netPrice: string | null;
+  caseSize: string | null;
+  isCheapest: boolean;
+  priceValidationStatus: string;
+  failureReason: string | null;
+};
+
+export type OrderSheetSupplierColumn = {
+  supplierId: number;
+  code: string;
+  name: string;
+};
+
 export type OrderSheetItem = {
   orderItemId: number;
   storeProductId: number;
@@ -67,6 +93,7 @@ export type OrderSheetItem = {
   productName: string;
   supplierCode: string | null;
   supplierName: string | null;
+  supplierQuotes: OrderItemSupplierQuote[];
   departmentName: string | null;
   currentStock: string;
   periodSales: string[];
@@ -95,17 +122,18 @@ export type OrderSheetResult = {
   bookStockStatus: BookStockStatusRow[];
   periodLabels: string[];
   dailySalesLabels: string[];
+  supplierColumns: OrderSheetSupplierColumn[];
 };
 
 export type OrderSheetMetadata = {
   storeIds: number[];
+  supplierIds?: number[];
   orderDate: string;
   soldQtyMethod: SoldQtyMethod;
   includeWastage: boolean;
   includeRtc: boolean;
-  shortfallStartDate: string;
-  shortfallEndDate: string;
-  comparisonPeriods: Array<{ startDate: string; endDate: string }>;
+  shortfallPeriods: DateRange[];
+  comparisonPeriods: DateRange[];
   dayBySalesRequired?: boolean;
   dayBySalesStartDate?: string;
   dayBySalesEndDate?: string;
@@ -119,11 +147,10 @@ export type OrderSheetGenerateInput = {
   bookStockDate?: string;
   supplierIds: number[];
   departmentIds: number[];
-  comparisonPeriods: Array<{ startDate: string; endDate: string }>;
+  comparisonPeriods: DateRange[];
   includeWastage: boolean;
   includeRtc: boolean;
-  shortfallStartDate: string;
-  shortfallEndDate: string;
+  shortfallPeriods: DateRange[];
   soldQtyMethod: SoldQtyMethod;
   comment?: string;
   dayBySalesRequired?: boolean;

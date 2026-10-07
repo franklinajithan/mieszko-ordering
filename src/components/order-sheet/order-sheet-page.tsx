@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
 import { OrderSheetActionBar } from "@/components/order-sheet/order-sheet-action-bar";
 import { OrderSheetFormPanel } from "@/components/order-sheet/order-sheet-form-panel";
@@ -12,6 +11,7 @@ import { useOrderSheetWorkflow } from "@/components/order-sheet/hooks/use-order-
 import type { DepartmentOption } from "@/types/department";
 import type { Supplier } from "@/types/supplier";
 import type { Store } from "@/types/store";
+import { AppShell } from "@/components/layout/app-shell";
 
 export function OrderSheetPage({
   stores,
@@ -22,7 +22,6 @@ export function OrderSheetPage({
   suppliers: Supplier[];
   departments: DepartmentOption[];
 }) {
-  const router = useRouter();
   const formState = useOrderSheetForm(stores, suppliers);
   const status = useOrderSheetStatus(formState.form);
   const workflow = useOrderSheetWorkflow({
@@ -34,65 +33,70 @@ export function OrderSheetPage({
   });
 
   return (
-    <div className="space-y-5 pb-24">
-      <OrderSheetFormPanel
-        stores={stores}
-        suppliers={formState.activeSuppliers}
-        departments={departments}
-        form={formState.form}
-        errors={workflow.fieldErrors}
-        shortfallDays={formState.shortfallDays}
-        onChange={formState.setForm}
-        onUpdatePeriod={formState.updatePeriod}
-        onAddPeriod={formState.addPeriod}
-        onRemovePeriod={formState.removePeriod}
-      />
-
-      <OrderSheetStatusPanels
-        bookStockRows={status.bookStockRows}
-        stockLoading={status.stockLoading}
-        supplierStatus={status.supplierStatus}
-        supplierStatusLoading={status.supplierStatusLoading}
-      />
-
-      {workflow.result ? (
-        <OrderSheetResultsPanel
-          result={workflow.result}
-          items={workflow.items}
-          includeWastage={formState.form.includeWastage}
-          includeRtc={formState.form.includeRtc}
-          showStoreColumn={formState.form.storeIds.length > 1}
-          onToggleSelected={workflow.toggleSelected}
-          onToggleAll={workflow.toggleAll}
-          onOrderQtyChange={workflow.changeOrderQty}
+    <AppShell title="Order Sheet">
+      <div className="space-y-5 pb-40">
+        <OrderSheetFormPanel
+          stores={stores}
+          suppliers={formState.activeSuppliers}
+          departments={departments}
+          form={formState.form}
+          errors={workflow.fieldErrors}
+          shortfallDays={formState.shortfallDays}
+          onChange={formState.setForm}
+          onUpdatePeriod={formState.updatePeriod}
+          onAddPeriod={formState.addPeriod}
+          onRemovePeriod={formState.removePeriod}
+          onUpdateShortfallPeriod={formState.updateShortfallPeriod}
+          onAddShortfallPeriod={formState.addShortfallPeriod}
+          onRemoveShortfallPeriod={formState.removeShortfallPeriod}
         />
-      ) : null}
 
-      {workflow.error ? (
-        <p className="text-sm text-red-600">{workflow.error}</p>
-      ) : null}
+        <OrderSheetStatusPanels
+          bookStockRows={status.bookStockRows}
+          stockLoading={status.stockLoading}
+          supplierStatus={status.supplierStatus}
+          supplierStatusLoading={status.supplierStatusLoading}
+          onNotPostedChanged={status.reloadBookStock}
+          suppliers={suppliers}
+        />
 
-      <OrderSheetActionBar
-        orderId={workflow.orderId}
-        generating={workflow.generating}
-        saving={workflow.saving}
-        onClear={() => workflow.setConfirmClear(true)}
-        onSave={() => void workflow.onSaveDraft()}
-        onExport={() => void workflow.onExport()}
-        onGenerate={() => void workflow.onGenerate()}
-        onFinalise={() =>
-          workflow.orderId && router.push(`/orders/${workflow.orderId}`)
-        }
-      />
+        {workflow.result ? (
+          <OrderSheetResultsPanel
+            result={workflow.result}
+            items={workflow.items}
+            includeWastage={formState.form.includeWastage}
+            includeRtc={formState.form.includeRtc}
+            showStoreColumn={formState.form.storeIds.length > 1}
+            onToggleSelected={workflow.toggleSelected}
+            onToggleAll={workflow.toggleAll}
+            onOrderQtyChange={workflow.changeOrderQty}
+          />
+        ) : null}
 
-      <ConfirmAlertDialog
-        open={workflow.confirmClear}
-        onOpenChange={workflow.setConfirmClear}
-        title="Clear order sheet?"
-        description="This will reset the form and remove generated results."
-        confirmLabel="Clear All"
-        onConfirm={workflow.onClearAll}
-      />
-    </div>
+        {workflow.error ? (
+          <p className="text-sm text-red-600">{workflow.error}</p>
+        ) : null}
+
+        <OrderSheetActionBar
+          orderId={workflow.orderId}
+          generating={workflow.generating}
+          generateProgress={workflow.generateProgress}
+          saving={workflow.saving}
+          onClear={() => workflow.setConfirmClear(true)}
+          onSave={() => void workflow.onSaveDraft()}
+          onExport={() => void workflow.onExport()}
+          onGenerate={() => void workflow.onGenerate()}
+        />
+
+        <ConfirmAlertDialog
+          open={workflow.confirmClear}
+          onOpenChange={workflow.setConfirmClear}
+          title="Clear order sheet?"
+          description="This will reset the form and remove generated results."
+          confirmLabel="Clear All"
+          onConfirm={workflow.onClearAll}
+        />
+      </div>
+    </AppShell>
   );
 }

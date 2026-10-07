@@ -1,4 +1,4 @@
-import { boolean, date, index, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp, unique, uuid, varchar, } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, varchar, } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 
@@ -453,187 +453,94 @@ export const bookStock = pgTable(
   ],
 );
 
+/**
+ * Not-posted extras staged for the next generate.
+ * Upload them at order-creation time; generate consumes the files and then
+ * deletes them so the next order cannot reuse saved not-posted data.
+ * A new book-stock upload also clears any leftover staging files.
+ */
+export const notPostedDeliveries = pgTable(
+  "not_posted_deliveries",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    fileName: varchar("file_name", { length: 500 }).notNull(),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("not_posted_deliveries_store_product_idx").on(t.storeProductId),
+    index("not_posted_deliveries_imported_at_idx").on(t.importedAt),
+  ],
+);
+
+/**
+ * Future extras uploaded for generate (OCS, order, or invoice).
+ * Not tied to a book-stock timestamp: every saved file for the store is
+ * summed onto current stock. Upload again on the next generate if still due in.
+ * Order/invoice rows match supplier Index / INDEKS via supplier_id.
+ */
+export const futureDeliveries = pgTable(
+  "future_deliveries",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    source: varchar("source", { length: 20 }).notNull().default("ocs"),
+    supplierId: integer("supplier_id").references(() => suppliers.id),
+    fileName: varchar("file_name", { length: 500 }).notNull(),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("future_deliveries_store_product_idx").on(t.storeProductId),
+    index("future_deliveries_imported_at_idx").on(t.importedAt),
+    index("future_deliveries_source_idx").on(t.source),
+    index("future_deliveries_supplier_idx").on(t.supplierId),
+  ],
+);
+
 
 
 export const orders = pgTable("orders", {
-
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  storeId: integer("store_id")
-
-    .notNull()
-
-    .references(() => stores.id),
-
+  storeIds: jsonb("store_ids").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
+  supplierIds: jsonb("supplier_ids").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
+  departmentIds: jsonb("department_ids").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
+  orderDate: date("order_date").notNull(),
+  deliveryDate: date("delivery_date").notNull(),
   bookStockDate: date("book_stock_date").notNull(),
-
-  clientDeliveryDate: date("client_delivery_date").notNull(),
-
-  departmentFilters: text("department_filters")
-
-    .array()
-
+  includeWastage: boolean("include_wastage").notNull().default(false),
+  includeRtc: boolean("include_rtc").notNull().default(false),
+  includeDayByDaySales: boolean("include_day_by_day_sales").notNull().default(false),
+  dayBySalesStartDate: date("day_by_sales_start_date"),
+  dayBySalesEndDate: date("day_by_sales_end_date"),
+  soldQtyMethod: varchar("sold_qty_method", { length: 20 }).notNull().default("max"),
+  comparisonPeriods: jsonb("comparison_periods")
+    .$type<Array<{ startDate: string; endDate: string }>>()
     .notNull()
-
-    .default(sql`'{}'::text[]`),
-
-  notes: text("notes"),
-
+    .default(sql`'[]'::jsonb`),
+  shortfallPeriods: jsonb("shortfall_period")
+    .$type<Array<{ startDate: string; endDate: string }>>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  comment: text("comment"),
   status: varchar("status", { length: 50 }).notNull().default("draft"),
-
-  createdAt: timestamp("created_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
-export const orderSalesPeriods = pgTable(
-
-  "order_sales_periods",
-
-  {
-
-    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-    orderId: integer("order_id")
-
-      .notNull()
-
-      .references(() => orders.id, { onDelete: "cascade" }),
-
-    periodKey: varchar("period_key", { length: 50 }).notNull(),
-
-    startDate: date("start_date").notNull(),
-
-    endDate: date("end_date").notNull(),
-
-  },
-
-  (t) => [unique("order_sales_periods_order_key_unique").on(t.orderId, t.periodKey)],
-
-);
-
-
-
-export const orderPriceSuppliers = pgTable(
-
-  "order_price_suppliers",
-
-  {
-
-    orderId: integer("order_id")
-
-      .notNull()
-
-      .references(() => orders.id, { onDelete: "cascade" }),
-
-    supplierId: integer("supplier_id")
-
-      .notNull()
-
-      .references(() => suppliers.id),
-
-  },
-
-  (t) => [primaryKey({ columns: [t.orderId, t.supplierId] })],
-
-);
-
-
-
-export const orderUploads = pgTable("order_uploads", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  orderId: integer("order_id")
-
-    .notNull()
-
-    .references(() => orders.id, { onDelete: "cascade" }),
-
-  uploadType: varchar("upload_type", { length: 50 }).notNull(),
-
-  fileName: varchar("file_name", { length: 500 }).notNull(),
-
-  mappingType: varchar("mapping_type", { length: 50 }).notNull(),
-
-  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
-
-  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
-
-  supplierId: integer("supplier_id").references(() => suppliers.id),
-
-  /** Legacy column; apply-from-catalog no longer uses import headers. */
-  bookStockImportId: integer("book_stock_import_id"),
-
-  deliveryDate: date("delivery_date"),
-
-  createdAt: timestamp("created_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
-export const orderStockEvents = pgTable("order_stock_events", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  orderId: integer("order_id")
-
-    .notNull()
-
-    .references(() => orders.id, { onDelete: "cascade" }),
-
-  uploadId: integer("upload_id").references(() => orderUploads.id),
-
-  eventType: varchar("event_type", { length: 50 }).notNull(),
-
-  eventDate: date("event_date").notNull(),
-
-  sortOrder: integer("sort_order").notNull().default(0),
-
-  createdAt: timestamp("created_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
-export const orderStockEventItems = pgTable("order_stock_event_items", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  eventId: integer("event_id")
-
-    .notNull()
-
-    .references(() => orderStockEvents.id, { onDelete: "cascade" }),
-
-  storeProductId: integer("store_product_id")
-
-    .notNull()
-
-    .references(() => storeProducts.id),
-
-  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 
@@ -653,41 +560,28 @@ export const orderItems = pgTable(
       .references(() => orders.id, { onDelete: "cascade" }),
 
     storeProductId: integer("store_product_id")
-
       .notNull()
-
       .references(() => storeProducts.id),
-
-    period1Sales: numeric("period_1_sales", { precision: 18, scale: 4 })
-
+    periodSales: jsonb("period_sales")
+      .$type<Array<{ periodKey: string; soldQty: string }>>()
       .notNull()
-
-      .default("0"),
-
-    period2Sales: numeric("period_2_sales", { precision: 18, scale: 4 })
-
+      .default(sql`'[]'::jsonb`),
+    supplierQuotes: jsonb("supplier_quotes")
+      .$type<
+        Array<{
+          supplierId: number;
+          supplierKey: string;
+          supplierName: string;
+          supplierProductCode: string | null;
+          netPrice: string | null;
+          caseSize: string | null;
+          isCheapest: boolean;
+          priceValidationStatus: string;
+          failureReason: string | null;
+        }>
+      >()
       .notNull()
-
-      .default("0"),
-
-    period3Sales: numeric("period_3_sales", { precision: 18, scale: 4 })
-
-      .notNull()
-
-      .default("0"),
-
-    previousYearSales: numeric("previous_year_sales", {
-
-      precision: 18,
-
-      scale: 4,
-
-    })
-
-      .notNull()
-
-      .default("0"),
-
+      .default(sql`'[]'::jsonb`),
     highestSoldQty: numeric("highest_sold_qty", { precision: 18, scale: 4 })
 
       .notNull()
@@ -828,6 +722,8 @@ export const orderItemSupplierPrices = pgTable(
 
     netPrice: numeric("net_price", { precision: 18, scale: 4 }),
 
+    caseSize: varchar("case_size", { length: 100 }),
+
     priceValidationStatus: varchar("price_validation_status", {
 
       length: 50,
@@ -859,8 +755,6 @@ export const orderItemSupplierPrices = pgTable(
 export const storesRelations = relations(stores, ({ many }) => ({
 
   storeProducts: many(storeProducts),
-
-  orders: many(orders),
 
 }));
 
@@ -935,26 +829,8 @@ export const departmentMappingsRelations = relations(
 
 
 
-export const ordersRelations = relations(orders, ({ one, many }) => ({
-
-  store: one(stores, {
-
-    fields: [orders.storeId],
-
-    references: [stores.id],
-
-  }),
-
-  salesPeriods: many(orderSalesPeriods),
-
-  priceSuppliers: many(orderPriceSuppliers),
-
-  uploads: many(orderUploads),
-
-  stockEvents: many(orderStockEvents),
-
+export const ordersRelations = relations(orders, ({ many }) => ({
   items: many(orderItems),
-
 }));
 
 

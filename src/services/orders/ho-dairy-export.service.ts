@@ -3,6 +3,7 @@ import {
   dailySalesRepository,
   orderRepository,
 } from "@/repositories";
+import { soldQtyForPeriod } from "@/utils/period-sales";
 
 function formatDailyColumn(dateIso: string): string {
   const [, month, day] = dateIso.split("-");
@@ -92,23 +93,8 @@ export async function exportHoDairyOrderToExcel(orderId: number): Promise<Buffer
   sheet.views = [{ state: "frozen", ySplit: 1 }];
 
   for (const { item, storeProduct, product, orderDepartmentName } of items) {
-    const periodValues = await Promise.all(
-      periodColumns.map(async (column) => {
-        if (column.key === "period_1") return Number(item.period1Sales);
-        if (column.key === "period_2") return Number(item.period2Sales);
-        if (column.key === "period_3") return Number(item.period3Sales);
-        if (column.key === "previous_year") return Number(item.previousYearSales);
-        if (dailySalesRepo) {
-          return Number(
-            await dailySalesRepo.sumSalesInPeriod(
-              storeProduct.id,
-              column.startDate,
-              column.endDate,
-            ),
-          );
-        }
-        return 0;
-      }),
+    const periodValues = periodColumns.map((column) =>
+      Number(soldQtyForPeriod(item.periodSales, column.key)),
     );
 
     const dailyValues = await Promise.all(
@@ -217,12 +203,7 @@ export async function fillHoDairyTemplate(
             label.replace(/\s+/g, "") === header.replace(/\s+/g, ""),
           )?.[1];
         if (period) {
-          if (period.periodKey === "period_1") value = Number(item.period1Sales);
-          else if (period.periodKey === "period_2") value = Number(item.period2Sales);
-          else if (period.periodKey === "period_3") value = Number(item.period3Sales);
-          else if (period.periodKey === "previous_year") {
-            value = Number(item.previousYearSales);
-          }
+          value = Number(soldQtyForPeriod(item.periodSales, period.periodKey));
         } else if (/^\d{2}\.\d{2}$/.test(header) && dailySalesRepo) {
           const [day, month] = header.split(".");
           const year = order.bookStockDate.slice(0, 4);

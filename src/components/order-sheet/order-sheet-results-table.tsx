@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
-import type { OrderSheetItem } from "@/types/orderSheet";
+import type { OrderItemSupplierQuote, OrderSheetItem, OrderSheetSupplierColumn } from "@/types/orderSheet";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
 import { parseQty } from "@/utils/orderSheetCalculations";
 
@@ -10,6 +10,7 @@ export function OrderSheetResultsTable({
   items,
   periodLabels,
   dailySalesLabels = [],
+  supplierColumns = [],
   includeWastage,
   includeRtc,
   showStoreColumn = false,
@@ -20,6 +21,7 @@ export function OrderSheetResultsTable({
   items: OrderSheetItem[];
   periodLabels: string[];
   dailySalesLabels?: string[];
+  supplierColumns?: OrderSheetSupplierColumn[];
   includeWastage: boolean;
   includeRtc: boolean;
   showStoreColumn?: boolean;
@@ -42,7 +44,10 @@ export function OrderSheetResultsTable({
       return (
         item.itemCode.toLowerCase().includes(q) ||
         (item.barcode ?? "").toLowerCase().includes(q) ||
-        item.productName.toLowerCase().includes(q)
+        item.productName.toLowerCase().includes(q) ||
+        item.supplierQuotes.some((quote) =>
+          (quote.supplierProductCode ?? "").toLowerCase().includes(q),
+        )
       );
     });
   }, [items, search, onlySuggested, onlySelected]);
@@ -95,7 +100,11 @@ export function OrderSheetResultsTable({
               {showStoreColumn ? <th className="px-3 py-2">Store</th> : null}
               <th className="px-3 py-2">Barcode</th>
               <th className="px-3 py-2">Product</th>
-              <th className="px-3 py-2">Supplier</th>
+              {supplierColumns.map((supplier) => (
+                <th key={supplier.supplierId} className="px-3 py-2">
+                  {supplier.code}
+                </th>
+              ))}
               <th className="px-3 py-2">Department</th>
               <th className="px-3 py-2 text-right">Current Stock</th>
               {periodLabels.map((label) => (
@@ -119,7 +128,7 @@ export function OrderSheetResultsTable({
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={12 + periodLabels.length + dailySalesLabels.length + (showStoreColumn ? 1 : 0)} className="px-3 py-8 text-center text-zinc-500">
+                <td colSpan={12 + supplierColumns.length + periodLabels.length + dailySalesLabels.length + (showStoreColumn ? 1 : 0)} className="px-3 py-8 text-center text-zinc-500">
                   No products match the current filters.
                 </td>
               </tr>
@@ -143,7 +152,19 @@ export function OrderSheetResultsTable({
                   ) : null}
                   <td className="px-3 py-2 text-zinc-600">{item.barcode ?? "—"}</td>
                   <td className="px-3 py-2">{item.productName}</td>
-                  <td className="px-3 py-2">{item.supplierCode ?? "—"}</td>
+                  {supplierColumns.map((supplier) => {
+                    const quote = item.supplierQuotes.find(
+                      (entry) => entry.supplierId === supplier.supplierId,
+                    );
+                    return (
+                      <td
+                        key={`${item.orderItemId}-${supplier.supplierId}`}
+                        className={`px-3 py-2 ${quote?.isCheapest ? "bg-emerald-50/80" : ""}`}
+                      >
+                        <SupplierQuoteCell quote={quote} />
+                      </td>
+                    );
+                  })}
                   <td className="px-3 py-2">{item.departmentName ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{item.currentStock}</td>
                   {item.periodSales.map((sale, index) => (
@@ -189,6 +210,22 @@ export function OrderSheetResultsTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function SupplierQuoteCell({ quote }: { quote?: OrderItemSupplierQuote }) {
+  if (!quote?.supplierProductCode && !quote?.netPrice && !quote?.caseSize) {
+    return <span className="text-zinc-400">—</span>;
+  }
+  return (
+    <div className="space-y-0.5">
+      <p className="font-medium text-zinc-900">{quote.supplierProductCode ?? "—"}</p>
+      {quote.netPrice || quote.caseSize ? (
+        <p className="text-xs text-zinc-500">
+          {[quote.netPrice, quote.caseSize].filter(Boolean).join(" · ")}
+        </p>
+      ) : null}
     </div>
   );
 }

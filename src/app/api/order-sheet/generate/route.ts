@@ -2,6 +2,8 @@ import { generateOrderSheet } from "@/services/order-sheet.service";
 import { orderSheetGenerateSchema } from "@/validators/schemas";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 
+export const maxDuration = 300;
+
 export const POST = route(async (req) => {
   const parsed = await parseJson(req, orderSheetGenerateSchema);
   if (!parsed.ok) return parsed.response;

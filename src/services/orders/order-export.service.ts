@@ -1,14 +1,33 @@
 import ExcelJS from "exceljs";
-import { orderRepository, storeRepository } from "@/repositories";
+import { orderRepository, storeRepository, supplierRepository } from "@/repositories";
 import { exportHoDairyOrderToExcel } from "@/services/orders/ho-dairy-export.service";
+import { primaryStoreId, settingsFromOrder } from "@/services/order-sheet.service";
+import { periodSalesList } from "@/utils/period-sales";
+
+function quoteForSupplier(
+  quotes: Array<{
+    supplierId: number;
+    supplierProductCode?: string | null;
+    netPrice?: string | null;
+    caseSize?: string | null;
+    isCheapest?: boolean;
+  }> | null | undefined,
+  supplierId: number,
+) {
+  return quotes?.find((quote) => quote.supplierId === supplierId) ?? null;
+}
 
 export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
   const order = await orderRepository.getById(orderId);
   if (!order) throw new Error("Order not found");
 
+  const metadata = settingsFromOrder(order);
   const items = await orderRepository.getOrderItemsWithDetails(orderId);
-  const supplierPrices = await orderRepository.getItemSupplierPrices(orderId);
-  const selectedSuppliers = await orderRepository.getSelectedSuppliers(orderId);
+  const selectedSuppliers = metadata.supplierIds?.length
+    ? (await supplierRepository.getByIds(metadata.supplierIds)).map((supplier) => ({
+        supplier,
+      }))
+    : await orderRepository.getSelectedSuppliers(orderId);
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Order");
@@ -16,21 +35,19 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
   sheet.addRow(["Mieszko Dairy Order Export"]);
   sheet.addRow(["Order ID", orderId]);
   sheet.addRow(["Book stock date", order.bookStockDate]);
-  sheet.addRow(["Client delivery date", order.clientDeliveryDate]);
+  sheet.addRow(["Delivery date", order.deliveryDate]);
   sheet.addRow([
     "Selected suppliers",
     selectedSuppliers.map((s) => s.supplier.code).join(", "),
   ]);
   sheet.addRow([]);
 
+  const periodCount = metadata.comparisonPeriods.length;
   const headers = [
     "Store product code",
     "Product name",
     "Department",
-    "Period 1 sales",
-    "Period 2 sales",
-    "Period 3 sales",
-    "Previous year sales",
+    ...Array.from({ length: periodCount }, (_, index) => `Period ${index + 1} sales`),
     "Highest sold",
     "Book stock",
     "Received not posted",
@@ -40,7 +57,11 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
     "Projected final stock",
     "Suggested qty",
     "Final qty",
-    ...selectedSuppliers.map((s) => `${s.supplier.code} net price`),
+    ...selectedSuppliers.flatMap((s) => [
+      `${s.supplier.code} code`,
+      `${s.supplier.code} net price`,
+      `${s.supplier.code} case size`,
+    ]),
     "Cheapest supplier",
     "Cheapest net price",
     "Estimated line cost",
@@ -53,27 +74,24 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
   sheet.views = [{ state: "frozen", ySplit: headerRow.number }];
 
   for (const { item, storeProduct, product, orderDepartmentName } of items) {
-    const rowPrices = selectedSuppliers.map(({ supplier }) => {
-      const snapshot = supplierPrices.find(
-        (p) =>
-          p.price.orderItemId === item.id &&
-          p.supplier.id === supplier.id,
-      );
-      return snapshot?.price.netPrice ?? "";
+    const rowQuotes = selectedSuppliers.flatMap(({ supplier }) => {
+      const quote = quoteForSupplier(item.supplierQuotes, supplier.id);
+      return [
+        quote?.supplierProductCode ?? "",
+        quote?.netPrice ? Number(quote.netPrice) : "",
+        quote?.caseSize ?? "",
+      ];
     });
 
-    const cheapestSupplier = supplierPrices.find(
-      (p) => p.price.orderItemId === item.id && p.price.isCheapest,
+    const cheapestSupplier = selectedSuppliers.find(
+      ({ supplier }) => supplier.id === item.cheapestSupplierId,
     );
 
     sheet.addRow([
       storeProduct.storeProductCode,
       product.name,
       orderDepartmentName ?? product.department,
-      Number(item.period1Sales),
-      Number(item.period2Sales),
-      Number(item.period3Sales),
-      Number(item.previousYearSales),
+      ...periodSalesList(item.periodSales, periodCount).map(Number),
       Number(item.highestSoldQty),
       Number(item.bookStockQty),
       Number(item.receivedNotPostedQty),
@@ -83,7 +101,7 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
       Number(item.projectedFinalStockQty),
       Number(item.suggestedOrderQty),
       Number(item.finalOrderQty),
-      ...rowPrices.map((p) => (p ? Number(p) : "")),
+      ...rowQuotes,
       cheapestSupplier?.supplier.code ?? "",
       item.cheapestNetPrice ? Number(item.cheapestNetPrice) : "",
       item.estimatedLineCost ? Number(item.estimatedLineCost) : "",
@@ -111,7 +129,7 @@ export async function exportOrderDownload(orderId: number): Promise<{
 }> {
   const order = await orderRepository.getById(orderId);
   if (!order) throw new Error("Order not found");
-  const store = await storeRepository.getById(order.storeId);
+  const store = await storeRepository.getById(primaryStoreId(order));
 
   const buffer =
     store?.erpType === "glopos"

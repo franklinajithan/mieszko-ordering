@@ -45,11 +45,7 @@ export type StockEventType =
   | "received_not_posted"
   | "future_delivery";
 
-export type PeriodKey =
-  | "period_1"
-  | "period_2"
-  | "period_3"
-  | "previous_year";
+export type PeriodKey = `period_${number}` | "previous_year";
 
 export type PriceStatus =
   | "pending"

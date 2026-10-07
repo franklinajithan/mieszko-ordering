@@ -91,6 +91,37 @@ export function dailySalesForProductInRange(
   return dates.map((date) => byDate?.get(date) ?? "0");
 }
 
+export function boundingIsoRange(
+  ranges: Array<{ startDate: string; endDate: string }>,
+): { startDate: string; endDate: string } | null {
+  const valid = ranges.filter(
+    (range) => range.startDate && range.endDate && range.endDate >= range.startDate,
+  );
+  if (!valid.length) return null;
+  let startDate = valid[0]!.startDate;
+  let endDate = valid[0]!.endDate;
+  for (const range of valid) {
+    if (range.startDate < startDate) startDate = range.startDate;
+    if (range.endDate > endDate) endDate = range.endDate;
+  }
+  return { startDate, endDate };
+}
+
+export function sumQtyInDateRange(
+  byDate: Map<string, string> | undefined,
+  startDate: string,
+  endDate: string,
+): Decimal {
+  let total = new Decimal(0);
+  if (!byDate) return total;
+  for (const [date, qty] of byDate) {
+    if (date >= startDate && date <= endDate) {
+      total = total.plus(toDecimal(qty));
+    }
+  }
+  return total;
+}
+
 export function averageComparisonPeriodDays(
   periods: Array<{ startDate: string; endDate: string }>,
 ): number {
@@ -100,6 +131,18 @@ export function averageComparisonPeriodDays(
     0,
   );
   return total / periods.length;
+}
+
+export function totalUniquePeriodDays(
+  periods: Array<{ startDate: string; endDate: string }>,
+): number {
+  const dates = new Set<string>();
+  for (const period of periods) {
+    for (const date of listDatesInclusive(period.startDate, period.endDate)) {
+      dates.add(date);
+    }
+  }
+  return dates.size;
 }
 
 export function aggregatePeriodSales(

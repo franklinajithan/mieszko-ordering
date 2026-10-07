@@ -3,17 +3,22 @@ import type { PriceStatus, PriceValidationStatus } from "@/types";
 
 export type SupplierPriceInput = {
   supplierId: number;
+  supplierKey: string;
   supplierCode: string;
   supplierName: string;
   priceTiePriority: number;
   hasMapping: boolean;
   netPrice: string | null;
+  caseSize: string | null;
 };
 
 export type SupplierPriceSnapshot = {
   supplierId: number;
+  supplierKey: string;
+  supplierName: string;
   supplierCode: string | null;
   netPrice: string | null;
+  caseSize: string | null;
   priceValidationStatus: PriceValidationStatus;
   isCheapest: boolean;
   failureReason: string | null;
@@ -44,8 +49,11 @@ export function compareSupplierPrices(
     if (!supplier.hasMapping) {
       return {
         supplierId: supplier.supplierId,
+        supplierKey: supplier.supplierKey,
+        supplierName: supplier.supplierName,
         supplierCode: null,
         netPrice: null,
+        caseSize: null,
         priceValidationStatus: "missing_code",
         isCheapest: false,
         failureReason: `${supplier.supplierName}: missing supplier product code mapping`,
@@ -60,8 +68,11 @@ export function compareSupplierPrices(
           : `${supplier.supplierName}: invalid net price (${supplier.netPrice ?? "blank"})`;
       return {
         supplierId: supplier.supplierId,
+        supplierKey: supplier.supplierKey,
+        supplierName: supplier.supplierName,
         supplierCode: supplier.supplierCode,
         netPrice: supplier.netPrice,
+        caseSize: supplier.caseSize,
         priceValidationStatus: priceStatus,
         isCheapest: false,
         failureReason: reason,
@@ -70,8 +81,11 @@ export function compareSupplierPrices(
 
     return {
       supplierId: supplier.supplierId,
+      supplierKey: supplier.supplierKey,
+      supplierName: supplier.supplierName,
       supplierCode: supplier.supplierCode,
       netPrice: supplier.netPrice,
+      caseSize: supplier.caseSize,
       priceValidationStatus: "valid",
       isCheapest: false,
       failureReason: null,
@@ -137,4 +151,30 @@ export function recalculateLineCost(
 ): Decimal | null {
   if (!cheapestNetPrice) return null;
   return finalOrderQty.times(cheapestNetPrice);
+}
+
+export function toOrderItemSupplierQuotes(
+  snapshots: SupplierPriceSnapshot[],
+): Array<{
+  supplierId: number;
+  supplierKey: string;
+  supplierName: string;
+  supplierProductCode: string | null;
+  netPrice: string | null;
+  caseSize: string | null;
+  isCheapest: boolean;
+  priceValidationStatus: string;
+  failureReason: string | null;
+}> {
+  return snapshots.map((snapshot) => ({
+    supplierId: snapshot.supplierId,
+    supplierKey: snapshot.supplierKey,
+    supplierName: snapshot.supplierName,
+    supplierProductCode: snapshot.supplierCode,
+    netPrice: snapshot.netPrice,
+    caseSize: snapshot.caseSize,
+    isCheapest: snapshot.isCheapest,
+    priceValidationStatus: snapshot.priceValidationStatus,
+    failureReason: snapshot.failureReason,
+  }));
 }

@@ -5,9 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   ArrowLeftRight,
   BookOpen,
-  ClipboardList,
   FileSpreadsheet,
-  History,
   Home,
   Layers,
   LayoutDashboard,
@@ -109,13 +107,6 @@ export const navGroups: NavGroup[] = [
         label: "Order Sheet",
         icon: FileSpreadsheet,
         match: (p) => p.startsWith("/order-sheet"),
-      },
-      { href: "/orders/new", label: "New Order", icon: ClipboardList },
-      {
-        href: "/orders",
-        label: "Order History",
-        icon: History,
-        match: (p) => p.startsWith("/orders") && p !== "/orders/new",
       },
     ],
   },

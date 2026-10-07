@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getOrderSheetBookStockStatus,
   getOrderSheetSupplierStatus,
@@ -21,9 +21,12 @@ export function useOrderSheetStatus(form: OrderSheetFormState) {
   );
   const [supplierStatusLoading, setSupplierStatusLoading] = useState(false);
 
-  useEffect(() => {
+  const storeIdsKey = form.storeIds.join(",");
+
+  const reloadBookStock = useCallback(() => {
     if (!form.storeIds.length) {
       setBookStockRows([]);
+      setStockLoading(false);
       return;
     }
     setStockLoading(true);
@@ -32,7 +35,11 @@ export function useOrderSheetStatus(form: OrderSheetFormState) {
         setBookStockRows(response.success ? response.data : []);
       })
       .finally(() => setStockLoading(false));
-  }, [form.storeIds]);
+  }, [storeIdsKey]);
+
+  useEffect(() => {
+    reloadBookStock();
+  }, [reloadBookStock]);
 
   useEffect(() => {
     if (!form.supplierIds.length) {
@@ -53,5 +60,6 @@ export function useOrderSheetStatus(form: OrderSheetFormState) {
     stockLoading,
     supplierStatus,
     supplierStatusLoading,
+    reloadBookStock,
   };
 }

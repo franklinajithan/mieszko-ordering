@@ -12,14 +12,9 @@ import { compareSupplierPrices } from "@/services/supplier-prices/supplier-price
 const d = (n: number) => new Decimal(n);
 
 describe("calculateHighestSoldQty", () => {
-  it("returns max of four periods", () => {
+  it("returns max of all periods", () => {
     expect(
-      calculateHighestSoldQty({
-        period1: d(10),
-        period2: d(25),
-        period3: d(15),
-        previousYear: d(20),
-      }).toNumber(),
+      calculateHighestSoldQty([d(10), d(25), d(15), d(20)]).toNumber(),
     ).toBe(25);
   });
 });
@@ -94,27 +89,33 @@ describe("simulateStockTimeline", () => {
 describe("compareSupplierPrices", () => {
   const mm = {
     supplierId: 1,
+    supplierKey: "MM",
     supplierCode: "MM001",
     supplierName: "MM",
     priceTiePriority: 1,
     hasMapping: true,
     netPrice: "10.00",
+    caseSize: "6",
   };
   const sp = {
     supplierId: 2,
+    supplierKey: "SP",
     supplierCode: "SP001",
     supplierName: "SP",
     priceTiePriority: 2,
     hasMapping: true,
     netPrice: "9.50",
+    caseSize: "12",
   };
   const wabMissing = {
     supplierId: 3,
+    supplierKey: "WAB",
     supplierCode: "",
     supplierName: "WAB",
     priceTiePriority: 3,
     hasMapping: false,
     netPrice: null,
+    caseSize: null,
   };
 
   it("excludes WAB when not selected", () => {
@@ -197,12 +198,7 @@ describe("aggregateStockQuantities", () => {
 
 describe("daily sales upsert semantics", () => {
   it("uses sold_qty only for ordering baseline", () => {
-    const highest = calculateHighestSoldQty({
-      period1: d(12),
-      period2: d(0),
-      period3: d(0),
-      previousYear: d(0),
-    });
+    const highest = calculateHighestSoldQty([d(12), d(0), d(0), d(0)]);
     expect(highest.toNumber()).toBe(12);
   });
 });

@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { dailySales, storeProducts } from "@/db/schema";
+import { BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE } from "@/lib/import-config";
 
 export const dailySalesRepository = {
   async upsertSale(data: typeof dailySales.$inferInsert) {
@@ -67,21 +68,38 @@ export const dailySalesRepository = {
     startDate: string,
     endDate: string,
   ) {
-    if (!storeProductIds.length) return [];
-    return db
-      .select({
-        storeProductId: dailySales.storeProductId,
-        salesDate: dailySales.salesDate,
-        soldQty: dailySales.soldQty,
-      })
-      .from(dailySales)
-      .where(
-        and(
-          inArray(dailySales.storeProductId, storeProductIds),
-          gte(dailySales.salesDate, startDate),
-          lte(dailySales.salesDate, endDate),
-        ),
+    const uniqueIds = [...new Set(storeProductIds)];
+    if (!uniqueIds.length) return [];
+    const rows: Array<{
+      storeProductId: number;
+      salesDate: string;
+      soldQty: string;
+    }> = [];
+    for (
+      let index = 0;
+      index < uniqueIds.length;
+      index += BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE
+    ) {
+      const batch = uniqueIds.slice(index, index + BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE);
+      if (!batch.length) continue;
+      rows.push(
+        ...(await db
+          .select({
+            storeProductId: dailySales.storeProductId,
+            salesDate: dailySales.salesDate,
+            soldQty: dailySales.soldQty,
+          })
+          .from(dailySales)
+          .where(
+            and(
+              inArray(dailySales.storeProductId, batch),
+              gte(dailySales.salesDate, startDate),
+              lte(dailySales.salesDate, endDate),
+            ),
+          )),
       );
+    }
+    return rows;
   },
 
   async deleteForStoreAndDate(storeId: number, salesDate: string) {

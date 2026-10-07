@@ -17,6 +17,8 @@ export * from "@/lib/api/sales";
 export * from "@/lib/api/rtc";
 export * from "@/lib/api/wastage";
 export * from "@/lib/api/book-stock";
+export * from "@/lib/api/not-posted";
+export * from "@/lib/api/future-deliveries";
 export * from "@/lib/api/promo";
 export * from "@/lib/api/supplier-prices";
 export * from "@/lib/api/supplier-codes";

@@ -5,28 +5,23 @@ import {
   orderItemSupplierPrices,
   orderItems,
   orders,
-  orderPriceSuppliers,
-  orderSalesPeriods,
-  orderStockEventItems,
-  orderStockEvents,
-  orderUploads,
   departments,
   products,
   storeProducts,
   suppliers,
-  stores,
 } from "@/db/schema";
+
+function chunkRows<T>(rows: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) {
+    batches.push(rows.slice(index, index + size));
+  }
+  return batches;
+}
 
 export const orderRepository = {
   async list() {
-    return db
-      .select({
-        order: orders,
-        store: stores,
-      })
-      .from(orders)
-      .innerJoin(stores, eq(stores.id, orders.storeId))
-      .orderBy(desc(orders.createdAt));
+    return db.select().from(orders).orderBy(desc(orders.createdAt));
   },
 
   async getById(orderId: number) {
@@ -48,60 +43,36 @@ export const orderRepository = {
     return row;
   },
 
-  async replacePeriods(
-    orderId: number,
-    periods: Array<typeof orderSalesPeriods.$inferInsert>,
-  ) {
-    await db
-      .delete(orderSalesPeriods)
-      .where(eq(orderSalesPeriods.orderId, orderId));
-    if (periods.length) {
-      await db.insert(orderSalesPeriods).values(periods);
-    }
-  },
-
-  async replacePriceSuppliers(orderId: number, supplierIds: number[]) {
-    await db
-      .delete(orderPriceSuppliers)
-      .where(eq(orderPriceSuppliers.orderId, orderId));
-    if (supplierIds.length) {
-      await db.insert(orderPriceSuppliers).values(
-        supplierIds.map((supplierId) => ({ orderId, supplierId })),
-      );
-    }
-  },
-
   async getPeriods(orderId: number) {
-    return db
-      .select()
-      .from(orderSalesPeriods)
-      .where(eq(orderSalesPeriods.orderId, orderId));
+    const order = await this.getById(orderId);
+    return (order?.comparisonPeriods ?? []).map((period, index) => ({
+      periodKey: `period_${index + 1}`,
+      startDate: period.startDate,
+      endDate: period.endDate,
+    }));
   },
 
   async getSelectedSuppliers(orderId: number) {
-    return db
-      .select({ supplier: suppliers })
-      .from(orderPriceSuppliers)
-      .innerJoin(suppliers, eq(suppliers.id, orderPriceSuppliers.supplierId))
-      .where(eq(orderPriceSuppliers.orderId, orderId))
+    const order = await this.getById(orderId);
+    const supplierIds = order?.supplierIds ?? [];
+    if (!supplierIds.length) return [];
+    const rows = await db
+      .select()
+      .from(suppliers)
+      .where(inArray(suppliers.id, supplierIds))
       .orderBy(suppliers.priceTiePriority);
+    return rows.map((supplier) => ({ supplier }));
   },
 
-  async createUpload(data: typeof orderUploads.$inferInsert) {
-    const [row] = await db.insert(orderUploads).values(data).returning();
-    return row;
-  },
-
-  async createStockEvent(data: typeof orderStockEvents.$inferInsert) {
-    const [row] = await db.insert(orderStockEvents).values(data).returning();
-    return row;
-  },
-
-  async createStockEventItems(
-    rows: Array<typeof orderStockEventItems.$inferInsert>,
+  async replacePeriods(
+    orderId: number,
+    periods: Array<{ startDate: string; endDate: string }>,
   ) {
-    if (!rows.length) return [];
-    return db.insert(orderStockEventItems).values(rows).returning();
+    return this.update(orderId, { comparisonPeriods: periods });
+  },
+
+  async replacePriceSuppliers(orderId: number, supplierIds: number[]) {
+    return this.update(orderId, { supplierIds });
   },
 
   async getStoreProductsForOrder(storeId: number, departmentIds: number[]) {
@@ -120,46 +91,30 @@ export const orderRepository = {
       .orderBy(products.name);
   },
 
-  async getStockEvents(orderId: number) {
-    return db
-      .select({
-        event: orderStockEvents,
-        item: orderStockEventItems,
-      })
-      .from(orderStockEvents)
-      .leftJoin(
-        orderStockEventItems,
-        eq(orderStockEventItems.eventId, orderStockEvents.id),
-      )
-      .where(eq(orderStockEvents.orderId, orderId))
-      .orderBy(orderStockEvents.eventDate, orderStockEvents.sortOrder);
-  },
-
-  async clearBookStockEvents(orderId: number) {
-    await db
-      .delete(orderStockEvents)
-      .where(
-        and(
-          eq(orderStockEvents.orderId, orderId),
-          eq(orderStockEvents.eventType, "book_stock"),
-        ),
-      );
-  },
-
   async clearCalculatedItems(orderId: number) {
     await db.delete(orderItems).where(eq(orderItems.orderId, orderId));
   },
 
   async insertOrderItems(rows: Array<typeof orderItems.$inferInsert>) {
     if (!rows.length) return [];
-    return db.insert(orderItems).values(rows).returning();
+    const inserted: Array<typeof orderItems.$inferSelect> = [];
+    for (const batch of chunkRows(rows, 250)) {
+      inserted.push(...(await db.insert(orderItems).values(batch).returning()));
+    }
+    return inserted;
   },
 
   async insertItemSupplierPrices(
     rows: Array<typeof orderItemSupplierPrices.$inferInsert>,
   ) {
     if (!rows.length) return [];
-    return db.insert(orderItemSupplierPrices).values(rows).returning();
+    const inserted: Array<typeof orderItemSupplierPrices.$inferSelect> = [];
+    for (const batch of chunkRows(rows, 250)) {
+      inserted.push(
+        ...(await db.insert(orderItemSupplierPrices).values(batch).returning()),
+      );
+    }
+    return inserted;
   },
 
   async getOrderItemsWithDetails(orderId: number) {

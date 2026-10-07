@@ -1,6 +1,7 @@
 import "server-only";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE } from "@/lib/import-config";
 import { bookStock, storeProducts } from "@/db/schema";
 
 async function storeProductIds(storeId: number) {
@@ -43,6 +44,22 @@ export const bookStockRepository = {
       .limit(1);
 
     return row?.importedAt ?? null;
+  },
+
+  async hasImportedAt(storeId: number, importedAt: Date): Promise<boolean> {
+    const ids = await storeProductIds(storeId);
+    if (!ids.length) return false;
+    const [row] = await db
+      .select({ importedAt: bookStock.importedAt })
+      .from(bookStock)
+      .where(
+        and(
+          eq(bookStock.importedAt, importedAt),
+          inArray(bookStock.storeProductId, ids),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
   },
 
   /** Latest upload timestamp for a store on a given business date. */
@@ -88,6 +105,35 @@ export const bookStockRepository = {
           eq(bookStock.importedAt, importedAt),
         ),
       );
+  },
+
+  async latestQtyByStoreProductIds(storeProductIds: number[]) {
+    const qtyByProduct = new Map<number, string>();
+    const uniqueIds = [...new Set(storeProductIds)];
+
+    for (
+      let index = 0;
+      index < uniqueIds.length;
+      index += BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE
+    ) {
+      const batch = uniqueIds.slice(index, index + BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE);
+      if (!batch.length) continue;
+
+      const rows = await db
+        .selectDistinctOn([bookStock.storeProductId], {
+          storeProductId: bookStock.storeProductId,
+          bookStockQty: bookStock.bookStockQty,
+        })
+        .from(bookStock)
+        .where(inArray(bookStock.storeProductId, batch))
+        .orderBy(bookStock.storeProductId, desc(bookStock.importedAt));
+
+      for (const row of rows) {
+        qtyByProduct.set(row.storeProductId, row.bookStockQty);
+      }
+    }
+
+    return qtyByProduct;
   },
 
   /** Upload history: one row per import timestamp (newest first). */

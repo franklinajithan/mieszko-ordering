@@ -47,6 +47,7 @@ export function OrderSheetResultsPanel({
         items={items}
         periodLabels={result.periodLabels}
         dailySalesLabels={result.dailySalesLabels}
+        supplierColumns={result.supplierColumns}
         includeWastage={includeWastage}
         includeRtc={includeRtc}
         showStoreColumn={showStoreColumn}

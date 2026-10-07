@@ -5,6 +5,7 @@ import {
   productRepository,
   storeRepository,
 } from "@/repositories";
+import { clearNotPostedForStore } from "@/services/not-posted/not-posted-import.service";
 import { parseBookStockFileBuffer } from "@/parsers/book-stock/book-stock-file-parser";
 import { normalizeProductCode } from "@/parsers/products/product-file-parser";
 import { pivotBookStockByReference } from "@/services/book-stock/book-stock-pivot.service";
@@ -187,6 +188,19 @@ async function insertValidRows(
   }
 }
 
+async function discardStagedNotPostedIfNewUpload(
+  storeId: number,
+  importedAt: Date,
+) {
+  const alreadyStarted = await bookStockRepository.hasImportedAt(
+    storeId,
+    importedAt,
+  );
+  if (!alreadyStarted) {
+    await clearNotPostedForStore(storeId);
+  }
+}
+
 /** Save an entire prepared book-stock upload (used by FormData / whole-file import). */
 export async function importBookStockBulk(input: {
   storeId: number;
@@ -229,6 +243,7 @@ export async function importBookStockBulk(input: {
     productByCode,
   });
 
+  await discardStagedNotPostedIfNewUpload(input.storeId, importedAt);
   await insertValidRows(validRows, importedAt);
 
   return {
@@ -283,6 +298,7 @@ export async function importBookStockChunk(input: {
     productByCode,
   });
 
+  await discardStagedNotPostedIfNewUpload(input.storeId, importedAt);
   await insertValidRows(validRows, importedAt);
 
   return {

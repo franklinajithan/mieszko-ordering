@@ -1,8 +1,7 @@
 import Link from "next/link";
 import {
   BookOpen,
-  ClipboardList,
-  History,
+  FileSpreadsheet,
   Package,
   Store,
   TrendingUp,
@@ -31,16 +30,10 @@ export function HomePageView() {
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
-                href="/orders/new"
+                href="/order-sheet"
                 className="inline-flex items-center rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
               >
-                Start new order
-              </Link>
-              <Link
-                href="/orders"
-                className="inline-flex items-center rounded-lg border border-white/30 bg-white/10 px-4 py-2.5 text-sm font-medium text-white backdrop-blur transition hover:bg-white/20"
-              >
-                Order history
+                Start order sheet
               </Link>
             </div>
           </div>
@@ -80,18 +73,11 @@ export function HomePageView() {
               accent="teal"
             />
             <NavCard
-              href="/orders/new"
-              title="New Order"
-              description="Prepare an order with stock uploads, forecasting, and price comparison."
-              icon={ClipboardList}
+              href="/order-sheet"
+              title="Order Sheet"
+              description="Generate an order, edit quantities, save a draft, and export to Excel."
+              icon={FileSpreadsheet}
               accent="emerald"
-            />
-            <NavCard
-              href="/orders"
-              title="Order History"
-              description="Review past orders and export completed results."
-              icon={History}
-              accent="amber"
             />
             <NavCard
               href="/stores"

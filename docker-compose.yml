@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: mieszko
       POSTGRES_DB: mieszko_ordering
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - mieszko_pg_data:/var/lib/postgresql/data
     healthcheck:

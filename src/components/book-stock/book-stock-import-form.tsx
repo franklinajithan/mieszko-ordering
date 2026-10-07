@@ -28,6 +28,9 @@ import {
   resolveStoreErpType,
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
+import { FutureDeliveriesForm } from "@/components/book-stock/future-deliveries-form";
+import { NotPostedDeliveryForm } from "@/components/book-stock/not-posted-delivery-form";
+import type { Supplier } from "@/types/supplier";
 import type {
   BookStockImportProgress,
   BookStockPreviewState,
@@ -88,7 +91,13 @@ function chunkRows<T>(rows: T[], size: number): T[][] {
 
 type Store = { id: number; name: string; code: string; erpType: string };
 
-export function BookStockImportForm({ stores }: { stores: Store[] }) {
+export function BookStockImportForm({
+  stores,
+  suppliers,
+}: {
+  stores: Store[];
+  suppliers: Supplier[];
+}) {
   const [preview, setPreview] = useState<BookStockPreviewState | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -572,6 +581,17 @@ export function BookStockImportForm({ stores }: { stores: Store[] }) {
           )}
         </section>
       ) : null}
+
+      <NotPostedDeliveryForm
+        storeId={storeId ? Number(storeId) : null}
+        storeName={selectedStore?.name}
+      />
+
+      <FutureDeliveriesForm
+        storeId={storeId ? Number(storeId) : null}
+        storeName={selectedStore?.name}
+        suppliers={suppliers}
+      />
 
       <ConfirmAlertDialog
         open={pendingDelete !== null}

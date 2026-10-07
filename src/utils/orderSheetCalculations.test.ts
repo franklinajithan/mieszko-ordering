@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Decimal } from "@/utils/decimal";
 import {
   aggregatePeriodSales,
+  boundingIsoRange,
   buildDailySalesByProductMap,
   calculateOrderSheetSuggestedQty,
   listDatesInclusive,
   scaleSoldQtyForShortfall,
+  sumQtyInDateRange,
+  totalUniquePeriodDays,
 } from "@/utils/orderSheetCalculations";
 
 describe("orderSheetCalculations", () => {
@@ -38,6 +41,15 @@ describe("orderSheetCalculations", () => {
     expect(qty.toNumber()).toBe(0);
   });
 
+  it("counts unique days across overlapping shortfall periods", () => {
+    expect(
+      totalUniquePeriodDays([
+        { startDate: "2026-09-10", endDate: "2026-09-15" },
+        { startDate: "2026-09-14", endDate: "2026-09-16" },
+      ]),
+    ).toBe(7);
+  });
+
   it("lists each date in an inclusive range", () => {
     expect(listDatesInclusive("2026-08-19", "2026-08-21")).toEqual([
       "2026-08-19",
@@ -53,5 +65,25 @@ describe("orderSheetCalculations", () => {
     ]);
     expect(map.get(1)?.get("2026-08-19")).toBe("5");
     expect(map.get(1)?.get("2026-08-20")).toBe("3");
+  });
+
+  it("sums quantities inside an inclusive date range", () => {
+    const byDate = new Map([
+      ["2026-08-18", "2"],
+      ["2026-08-19", "5"],
+      ["2026-08-20", "3"],
+      ["2026-08-21", "9"],
+    ]);
+    expect(sumQtyInDateRange(byDate, "2026-08-19", "2026-08-20").toNumber()).toBe(8);
+    expect(sumQtyInDateRange(undefined, "2026-08-19", "2026-08-20").toNumber()).toBe(0);
+  });
+
+  it("returns the bounding date range across periods", () => {
+    expect(
+      boundingIsoRange([
+        { startDate: "2026-08-10", endDate: "2026-08-12" },
+        { startDate: "2026-08-01", endDate: "2026-08-03" },
+      ]),
+    ).toEqual({ startDate: "2026-08-01", endDate: "2026-08-12" });
   });
 });

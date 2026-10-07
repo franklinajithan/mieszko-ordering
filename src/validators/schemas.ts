@@ -84,26 +84,25 @@ export const supplierProductSchema = z.object({
   unavailable: z.boolean().optional().default(false),
 });
 
+const periodKeySchema = z
+  .string()
+  .regex(/^(period_[1-9]\d*|previous_year)$/);
+
 export const salesPeriodSchema = z.object({
-  periodKey: z.enum([
-    "period_1",
-    "period_2",
-    "period_3",
-    "previous_year",
-  ]),
+  periodKey: periodKeySchema,
   startDate: z.string().date(),
   endDate: z.string().date(),
 });
 
 const salesPeriodInputSchema = z.object({
-  periodKey: z.enum([
-    "period_1",
-    "period_2",
-    "period_3",
-    "previous_year",
-  ]),
+  periodKey: periodKeySchema,
   startDate: z.string(),
   endDate: z.string(),
+});
+
+const dateRangeSchema = z.object({
+  startDate: z.string().date(),
+  endDate: z.string().date(),
 });
 
 export const updateOrderPeriodsSchema = z
@@ -166,11 +165,21 @@ export const updateOrderPeriodsSchema = z
   }));
 
 export const createOrderSchema = z.object({
-  storeId: idSchema,
+  orderDate: z.string().date(),
+  deliveryDate: z.string().date(),
   bookStockDate: z.string().date(),
-  clientDeliveryDate: z.string().date(),
-  departmentFilters: z.array(z.coerce.number().int().positive()).default([]),
-  notes: z.string().optional(),
+  storeIds: z.array(idSchema).min(1),
+  supplierIds: z.array(idSchema).default([]),
+  departmentIds: z.array(idSchema).default([]),
+  includeWastage: z.boolean().default(false),
+  includeRtc: z.boolean().default(false),
+  includeDayByDaySales: z.boolean().default(false),
+  dayBySalesStartDate: z.string().date().optional(),
+  dayBySalesEndDate: z.string().date().optional(),
+  soldQtyMethod: z.enum(["max", "average", "min"]).default("max"),
+  comparisonPeriods: z.array(dateRangeSchema).default([]),
+  shortfallPeriods: z.array(dateRangeSchema).default([]),
+  comment: z.string().optional(),
 });
 
 export const updateOrderSuppliersSchema = z.object({
@@ -265,18 +274,10 @@ export const orderSheetGenerateSchema = z
     bookStockDate: z.string().date().optional(),
     supplierIds: z.array(idSchema).min(1),
     departmentIds: z.array(idSchema).min(1),
-    comparisonPeriods: z
-      .array(
-        z.object({
-          startDate: z.string().date(),
-          endDate: z.string().date(),
-        }),
-      )
-      .min(1),
+    comparisonPeriods: z.array(dateRangeSchema).min(1),
     includeWastage: z.boolean().default(true),
     includeRtc: z.boolean().default(true),
-    shortfallStartDate: z.string().date(),
-    shortfallEndDate: z.string().date(),
+    shortfallPeriods: z.array(dateRangeSchema).min(1),
     soldQtyMethod: z.enum(["max", "average", "min"]).default("average"),
     comment: z.string().max(500).optional(),
     dayBySalesRequired: z.boolean().default(false),
@@ -291,12 +292,14 @@ export const orderSheetGenerateSchema = z
         path: ["deliveryDate"],
       });
     }
-    if (data.shortfallEndDate < data.shortfallStartDate) {
-      ctx.addIssue({
-        code: "custom",
-        message: "Shortfall end date cannot be before start date",
-        path: ["shortfallEndDate"],
-      });
+    for (const [index, period] of data.shortfallPeriods.entries()) {
+      if (period.endDate < period.startDate) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Shortfall period ${index + 1} has an invalid date range`,
+          path: ["shortfallPeriods", index],
+        });
+      }
     }
     for (const [index, period] of data.comparisonPeriods.entries()) {
       if (period.endDate < period.startDate) {

@@ -6,7 +6,7 @@ import { apiError, apiOk, numericParam, parseJson, route } from "@/lib/api/http"
 const bodySchema = z.object({
   periods: z.array(
     z.object({
-      periodKey: z.enum(["period_1", "period_2", "period_3", "previous_year"]),
+      periodKey: z.string().regex(/^(period_[1-9]\d*|previous_year)$/),
       startDate: z.string(),
       endDate: z.string(),
     }),
@@ -29,11 +29,9 @@ export const PUT = route(
 
     await orderRepository.replacePeriods(
       parsed.data.orderId,
-      parsed.data.periods.map((p) => ({
-        orderId: parsed.data.orderId,
-        periodKey: p.periodKey,
-        startDate: p.startDate,
-        endDate: p.endDate,
+      parsed.data.periods.map((period) => ({
+        startDate: period.startDate,
+        endDate: period.endDate,
       })),
     );
     return apiOk(null);

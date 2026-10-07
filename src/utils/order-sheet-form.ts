@@ -1,4 +1,7 @@
-import type { ComparisonPeriod, OrderSheetFormState } from "@/types/orderSheet";
+import type {
+  ComparisonPeriod,
+  OrderSheetFormState,
+} from "@/types/orderSheet";
 import {
   listDatesInclusive,
   MAX_DAY_BY_SALES_DAYS,
@@ -32,6 +35,16 @@ export function defaultComparisonPeriods(): ComparisonPeriod[] {
   return periods;
 }
 
+export function defaultShortfallPeriods(): ComparisonPeriod[] {
+  return [
+    {
+      id: "shortfall-period-1",
+      startDate: todayIso(),
+      endDate: addDaysIso(todayIso(), 6),
+    },
+  ];
+}
+
 export function createInitialOrderSheetForm(): OrderSheetFormState {
   return {
     storeIds: [],
@@ -42,8 +55,7 @@ export function createInitialOrderSheetForm(): OrderSheetFormState {
     comparisonPeriods: defaultComparisonPeriods(),
     includeWastage: true,
     includeRtc: true,
-    shortfallStartDate: todayIso(),
-    shortfallEndDate: addDaysIso(todayIso(), 6),
+    shortfallPeriods: defaultShortfallPeriods(),
     soldQtyMethod: "average",
     comment: "",
     dayBySalesRequired: false,
@@ -53,14 +65,28 @@ export function createInitialOrderSheetForm(): OrderSheetFormState {
 }
 
 export function createComparisonPeriod(existing: ComparisonPeriod[]): ComparisonPeriod {
+  return createDatedPeriod(existing, "comparison-period", addDaysIso(todayIso(), -7), addDaysIso(todayIso(), -1));
+}
+
+export function createShortfallPeriod(existing: ComparisonPeriod[]): ComparisonPeriod {
+  return createDatedPeriod(existing, "shortfall-period", todayIso(), addDaysIso(todayIso(), 6));
+}
+
+function createDatedPeriod(
+  existing: ComparisonPeriod[],
+  prefix: string,
+  startDate: string,
+  endDate: string,
+): ComparisonPeriod {
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const max = existing.reduce((acc, period) => {
-    const match = period.id.match(/^comparison-period-(\d+)$/);
+    const match = period.id.match(new RegExp(`^${escaped}-(\\d+)$`));
     return match ? Math.max(acc, Number(match[1])) : acc;
   }, 0);
   return {
-    id: `comparison-period-${max + 1}`,
-    startDate: addDaysIso(todayIso(), -7),
-    endDate: addDaysIso(todayIso(), -1),
+    id: `${prefix}-${max + 1}`,
+    startDate,
+    endDate,
   };
 }
 
@@ -94,8 +120,13 @@ export function validateOrderSheetForm(
       errors[`period-${index}`] = "End date cannot be before start date";
     }
   }
-  if (form.shortfallEndDate < form.shortfallStartDate) {
-    errors.shortfallEndDate = "End date cannot be before start date";
+  if (!form.shortfallPeriods.length) {
+    errors.shortfallPeriods = "Add at least one shortfall period";
+  }
+  for (const [index, period] of form.shortfallPeriods.entries()) {
+    if (period.endDate < period.startDate) {
+      errors[`shortfall-${index}`] = "End date cannot be before start date";
+    }
   }
   if (form.dayBySalesRequired) {
     if (!form.dayBySalesStartDate) {

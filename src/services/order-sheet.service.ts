@@ -1,13 +1,13 @@
-import {
-  getLatestBookStockSummary,
-  applyBookStockForStores,
-} from "@/services/book-stock/apply-book-stock-to-order.service";
+import { getLatestBookStockSummary } from "@/services/book-stock/apply-book-stock-to-order.service";
+import { getNotPostedStoreSummary, clearNotPostedForStores } from "@/services/not-posted/not-posted-import.service";
+import { getFutureStoreSummary } from "@/services/future-deliveries/future-delivery-import.service";
 import { calculateOrderSheet } from "@/services/order-sheet-calculation.service";
 import {
   dailySalesRepository,
   orderRepository,
   storeRepository,
   supplierPriceRepository,
+  supplierRepository,
 } from "@/repositories";
 import { db } from "@/db";
 import { suppliers } from "@/db/schema";
@@ -15,51 +15,111 @@ import { inArray } from "drizzle-orm";
 import {
   buildDailySalesByProductMap,
   dailySalesForProductInRange,
-  diffDaysInclusive,
   formatDaySalesLabel,
   listDatesInclusive,
   normalizeIsoDate,
   parseQty,
+  totalUniquePeriodDays,
 } from "@/utils/orderSheetCalculations";
-import type {
-  BookStockStatusRow,
-  OrderSheetGenerateInput,
-  OrderSheetItem,
-  OrderSheetMetadata,
-  OrderSheetResult,
-  OrderSheetSummary,
-  SalesDataStatusRow,
-  SupplierDataStatusRow,
+import {
+  type BookStockStatusRow,
+  type OrderItemSupplierQuote,
+  type OrderSheetGenerateInput,
+  type OrderSheetItem,
+  type OrderSheetMetadata,
+  type OrderSheetResult,
+  type OrderSheetSummary,
+  type SalesDataStatusRow,
+  type SoldQtyMethod,
+  type SupplierDataStatusRow,
 } from "@/types/orderSheet";
+import type { orders } from "@/db/schema";
+import { decimalToDb, parseDbDecimal } from "@/utils/decimal";
+import { periodKeyForIndex, periodSalesList } from "@/utils/period-sales";
 
-function encodeOrderSheetNotes(metadata: OrderSheetMetadata, comment?: string): string {
-  return JSON.stringify({
-    orderSheet: metadata,
-    comment: comment?.trim() || "",
-  });
-}
+type OrderRow = typeof orders.$inferSelect;
 
-function decodeOrderSheetNotes(notes: string | null): {
-  metadata: OrderSheetMetadata | null;
-  comment: string;
-} {
-  if (!notes?.trim()) return { metadata: null, comment: "" };
-  try {
-    const parsed = JSON.parse(notes) as {
-      orderSheet?: OrderSheetMetadata;
-      comment?: string;
-    };
-    return {
-      metadata: parsed.orderSheet ?? null,
-      comment: parsed.comment ?? "",
-    };
-  } catch {
-    return { metadata: null, comment: notes };
+function normalizeShortfallPeriods(
+  value: unknown,
+  fallbackStart: string,
+  fallbackEnd: string,
+): Array<{ startDate: string; endDate: string }> {
+  if (Array.isArray(value) && value.length) {
+    return value.filter(
+      (period): period is { startDate: string; endDate: string } =>
+        Boolean(
+          period &&
+            typeof period === "object" &&
+            typeof period.startDate === "string" &&
+            typeof period.endDate === "string",
+        ),
+    );
   }
+  if (
+    value &&
+    typeof value === "object" &&
+    "startDate" in value &&
+    "endDate" in value &&
+    typeof value.startDate === "string" &&
+    typeof value.endDate === "string"
+  ) {
+    return [{ startDate: value.startDate, endDate: value.endDate }];
+  }
+  return [{ startDate: fallbackStart, endDate: fallbackEnd }];
 }
 
-function periodKeyForIndex(index: number): string {
-  return `period_${index + 1}`;
+export function primaryStoreId(order: { storeIds: number[] }): number {
+  const storeId = order.storeIds[0];
+  if (!storeId) throw new Error("Order has no store");
+  return storeId;
+}
+
+export function settingsFromOrder(order: OrderRow): OrderSheetMetadata {
+  return {
+    storeIds: order.storeIds,
+    supplierIds: order.supplierIds,
+    orderDate: order.orderDate,
+    soldQtyMethod: (order.soldQtyMethod as SoldQtyMethod) || "max",
+    includeWastage: order.includeWastage,
+    includeRtc: order.includeRtc,
+    shortfallPeriods: normalizeShortfallPeriods(
+      order.shortfallPeriods,
+      order.orderDate,
+      order.deliveryDate,
+    ),
+    comparisonPeriods: order.comparisonPeriods,
+    dayBySalesRequired: order.includeDayByDaySales,
+    dayBySalesStartDate: order.dayBySalesStartDate ?? undefined,
+    dayBySalesEndDate: order.dayBySalesEndDate ?? undefined,
+  };
+}
+
+function orderHeaderFromGenerate(
+  input: OrderSheetGenerateInput,
+  bookStockDate: string,
+) {
+  return {
+    storeIds: input.storeIds,
+    supplierIds: input.supplierIds,
+    departmentIds: input.departmentIds,
+    orderDate: input.orderDate,
+    deliveryDate: input.deliveryDate,
+    bookStockDate,
+    includeWastage: input.includeWastage,
+    includeRtc: input.includeRtc,
+    includeDayByDaySales: input.dayBySalesRequired ?? false,
+    dayBySalesStartDate: input.dayBySalesRequired
+      ? (input.dayBySalesStartDate ?? null)
+      : null,
+    dayBySalesEndDate: input.dayBySalesRequired
+      ? (input.dayBySalesEndDate ?? null)
+      : null,
+    soldQtyMethod: input.soldQtyMethod,
+    comparisonPeriods: input.comparisonPeriods,
+    shortfallPeriods: input.shortfallPeriods,
+    comment: input.comment?.trim() || null,
+    status: "draft" as const,
+  };
 }
 
 function supplierStatusFromAge(importedAt: string | null): SupplierDataStatusRow["status"] {
@@ -117,6 +177,18 @@ export async function resolveBookStockStatus(
   store?: { code: string; name: string },
 ): Promise<BookStockStatusRow> {
   const latest = await getLatestBookStockSummary(storeId);
+  let notPosted = { fileCount: 0, itemCount: 0, totalQty: "0" };
+  let future = { fileCount: 0, itemCount: 0, totalQty: "0" };
+  try {
+    notPosted = await getNotPostedStoreSummary(storeId);
+  } catch {
+    notPosted = { fileCount: 0, itemCount: 0, totalQty: "0" };
+  }
+  try {
+    future = await getFutureStoreSummary(storeId);
+  } catch {
+    future = { fileCount: 0, itemCount: 0, totalQty: "0" };
+  }
   if (!latest) {
     return {
       storeId,
@@ -127,6 +199,12 @@ export async function resolveBookStockStatus(
       importedAt: null,
       itemCount: 0,
       totalBookStockQty: null,
+      notPostedFileCount: notPosted.fileCount,
+      notPostedItemCount: notPosted.itemCount,
+      notPostedQty: notPosted.totalQty,
+      futureFileCount: future.fileCount,
+      futureItemCount: future.itemCount,
+      futureQty: future.totalQty,
       message: "No saved book stock",
     };
   }
@@ -139,7 +217,13 @@ export async function resolveBookStockStatus(
     importedAt: latest.importedAt,
     itemCount: latest.itemCount,
     totalBookStockQty: latest.totalBookStockQty,
-      message: "Latest upload",
+    notPostedFileCount: notPosted.fileCount,
+    notPostedItemCount: notPosted.itemCount,
+    notPostedQty: notPosted.totalQty,
+    futureFileCount: future.fileCount,
+    futureItemCount: future.itemCount,
+    futureQty: future.totalQty,
+    message: "Latest upload",
   };
 }
 
@@ -206,56 +290,80 @@ export async function resolveSalesDataStatus(input: {
   return rows;
 }
 
-function extractPeriodSales(item: {
-  period1Sales: string;
-  period2Sales: string;
-  period3Sales: string;
-  previousYearSales: string;
+function extractPeriodSales(
+  item: { periodSales: Array<{ periodKey: string; soldQty: string }> },
+  periodCount: number,
+): string[] {
+  return periodSalesList(item.periodSales, periodCount);
+}
+
+function extractSupplierQuotes(item: {
+  supplierQuotes?: OrderItemSupplierQuote[] | null;
   calculationBreakdown: unknown;
-}, periodCount: number): string[] {
+}): OrderItemSupplierQuote[] {
+  if (Array.isArray(item.supplierQuotes) && item.supplierQuotes.length) {
+    return item.supplierQuotes;
+  }
   const breakdown =
     item.calculationBreakdown &&
     typeof item.calculationBreakdown === "object" &&
     item.calculationBreakdown !== null &&
     "orderSheet" in item.calculationBreakdown
       ? (item.calculationBreakdown as {
-          orderSheet?: { extraPeriodSales?: Array<{ periodKey: string; soldQty: string }> };
+          orderSheet?: {
+            supplierPrices?: Array<{
+              supplierId: number;
+              supplierKey?: string;
+              supplierName?: string;
+              supplierCode?: string | null;
+              supplierProductCode?: string | null;
+              netPrice?: string | null;
+              caseSize?: string | null;
+              isCheapest?: boolean;
+              priceValidationStatus?: string;
+              failureReason?: string | null;
+            }>;
+          };
         }).orderSheet
       : undefined;
-
-  const extra = new Map(
-    (breakdown?.extraPeriodSales ?? []).map((row) => [row.periodKey, row.soldQty]),
-  );
-
-  const base = [
-    item.period1Sales,
-    item.period2Sales,
-    item.period3Sales,
-  ];
-
-  const sales: string[] = [];
-  for (let index = 0; index < periodCount; index += 1) {
-    const key = periodKeyForIndex(index);
-    if (index < 3) {
-      sales.push(base[index] ?? "0");
-    } else {
-      sales.push(extra.get(key) ?? "0");
-    }
-  }
-  return sales;
+  const snapshots = breakdown?.supplierPrices;
+  if (!Array.isArray(snapshots)) return [];
+  return snapshots.map((snapshot) => ({
+    supplierId: snapshot.supplierId,
+    supplierKey: snapshot.supplierKey ?? "",
+    supplierName: snapshot.supplierName ?? "",
+    supplierProductCode: snapshot.supplierProductCode ?? snapshot.supplierCode ?? null,
+    netPrice: snapshot.netPrice ?? null,
+    caseSize: snapshot.caseSize ?? null,
+    isCheapest: Boolean(snapshot.isCheapest),
+    priceValidationStatus: snapshot.priceValidationStatus ?? "valid",
+    failureReason: snapshot.failureReason ?? null,
+  }));
 }
 
 export async function buildOrderSheetResult(orderId: number): Promise<OrderSheetResult> {
   const order = await orderRepository.getById(orderId);
   if (!order) throw new Error("Order not found");
 
-  const { metadata } = decodeOrderSheetNotes(order.notes);
-  const storeIds = metadata?.storeIds?.length ? metadata.storeIds : [order.storeId];
+  const metadata = settingsFromOrder(order);
+  const storeIds = metadata.storeIds;
 
   const [periods, items, selectedSuppliers, bookStockStatus, storeRows] = await Promise.all([
-    orderRepository.getPeriods(orderId),
+    metadata?.comparisonPeriods?.length
+      ? Promise.resolve(
+          metadata.comparisonPeriods.map((period, index) => ({
+            periodKey: periodKeyForIndex(index),
+            startDate: period.startDate,
+            endDate: period.endDate,
+          })),
+        )
+      : orderRepository.getPeriods(orderId),
     orderRepository.getOrderItemsWithDetails(orderId),
-    orderRepository.getSelectedSuppliers(orderId),
+    metadata?.supplierIds?.length
+      ? supplierRepository
+          .getByIds(metadata.supplierIds)
+          .then((rows) => rows.map((supplier) => ({ supplier })))
+      : orderRepository.getSelectedSuppliers(orderId),
     resolveBookStockStatuses(storeIds),
     Promise.all(storeIds.map((id) => storeRepository.getById(id))),
   ]);
@@ -315,6 +423,8 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
           }).orderSheet
         : undefined;
 
+    const quotes = extractSupplierQuotes(row.item);
+    const cheapestQuote = quotes.find((quote) => quote.isCheapest) ?? null;
     const cheapestSupplier = row.item.cheapestSupplierId
       ? supplierById.get(row.item.cheapestSupplierId)
       : null;
@@ -329,10 +439,15 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
       itemCode: row.storeProduct.storeProductCode,
       barcode: breakdown?.barcode ?? null,
       productName: row.product.name,
-      supplierCode: cheapestSupplier?.code ?? null,
-      supplierName: cheapestSupplier?.name ?? null,
+      supplierCode: cheapestQuote?.supplierProductCode ?? cheapestSupplier?.code ?? null,
+      supplierName: cheapestSupplier?.name ?? cheapestQuote?.supplierName ?? null,
+      supplierQuotes: quotes,
       departmentName: row.orderDepartmentName,
-      currentStock: row.item.bookStockQty,
+      currentStock: decimalToDb(
+        parseDbDecimal(row.item.bookStockQty)
+          .plus(parseDbDecimal(row.item.receivedNotPostedQty))
+          .plus(parseDbDecimal(row.item.futureDeliveryTotalQty)),
+      ),
       periodSales: extractPeriodSales(row.item, periodCount),
       dailySales: dailySalesDates.length
         ? dailySalesForProductInRange(
@@ -359,10 +474,8 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
     .reduce((sum, item) => sum.plus(parseQty(item.suggestedOrderQty)), parseQty(0))
     .toFixed(2);
 
-  const { metadata: resultMetadata } = decodeOrderSheetNotes(order.notes);
-  const shortfallDays = resultMetadata
-    ? diffDaysInclusive(resultMetadata.shortfallStartDate, resultMetadata.shortfallEndDate)
-    : diffDaysInclusive(order.bookStockDate, order.clientDeliveryDate);
+  const resultMetadata = settingsFromOrder(order);
+  const shortfallDays = totalUniquePeriodDays(resultMetadata.shortfallPeriods);
 
   const summary: OrderSheetSummary = {
     productCount: mappedItems.length,
@@ -379,6 +492,11 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
     bookStockStatus,
     periodLabels,
     dailySalesLabels,
+    supplierColumns: selectedSuppliers.map(({ supplier }) => ({
+      supplierId: supplier.id,
+      code: supplier.code,
+      name: supplier.name,
+    })),
   };
 }
 
@@ -395,8 +513,13 @@ export async function generateOrderSheet(
     }
   }
 
-  if (input.shortfallEndDate < input.shortfallStartDate) {
-    throw new Error("Shortfall end date cannot be before start date");
+  if (!input.shortfallPeriods.length) {
+    throw new Error("Add at least one shortfall period");
+  }
+  for (const period of input.shortfallPeriods) {
+    if (period.endDate < period.startDate) {
+      throw new Error("Shortfall end date cannot be before start date");
+    }
   }
 
   if (input.dayBySalesRequired) {
@@ -428,73 +551,37 @@ export async function generateOrderSheet(
     );
   }
 
-  const primaryStoreId = storeIds[0]!;
-  const primaryStore = stores[0]!;
   const primaryBookStock = bookStockStatuses[0]!;
 
   const metadata: OrderSheetMetadata = {
     storeIds,
+    supplierIds: input.supplierIds,
     orderDate: input.orderDate,
     soldQtyMethod: input.soldQtyMethod,
     includeWastage: input.includeWastage,
     includeRtc: input.includeRtc,
-    shortfallStartDate: input.shortfallStartDate,
-    shortfallEndDate: input.shortfallEndDate,
+    shortfallPeriods: input.shortfallPeriods,
     comparisonPeriods: input.comparisonPeriods,
     dayBySalesRequired: input.dayBySalesRequired ?? false,
     dayBySalesStartDate: input.dayBySalesRequired ? input.dayBySalesStartDate : undefined,
     dayBySalesEndDate: input.dayBySalesRequired ? input.dayBySalesEndDate : undefined,
   };
 
+  const header = orderHeaderFromGenerate(
+    input,
+    input.bookStockDate || primaryBookStock.bookStockDate!,
+  );
+
   let orderId = input.orderId;
   if (orderId) {
-    await orderRepository.update(orderId, {
-      storeId: primaryStoreId,
-      bookStockDate: input.bookStockDate || primaryBookStock.bookStockDate!,
-      clientDeliveryDate: input.deliveryDate,
-      departmentFilters: input.departmentIds.map(String),
-      notes: encodeOrderSheetNotes(metadata, input.comment),
-      status: "draft",
-    });
+    await orderRepository.update(orderId, header);
   } else {
-    const created = await orderRepository.create({
-      storeId: primaryStoreId,
-      bookStockDate: input.bookStockDate || primaryBookStock.bookStockDate!,
-      clientDeliveryDate: input.deliveryDate,
-      departmentFilters: input.departmentIds.map(String),
-      notes: encodeOrderSheetNotes(metadata, input.comment),
-      status: "draft",
-    });
+    const created = await orderRepository.create(header);
     orderId = created.id;
   }
 
-  await orderRepository.replacePeriods(
-    orderId,
-    input.comparisonPeriods.map((period, index) => ({
-      orderId,
-      periodKey: periodKeyForIndex(index),
-      startDate: period.startDate,
-      endDate: period.endDate,
-    })),
-  );
-
-  await orderRepository.replacePriceSuppliers(orderId, input.supplierIds);
-
-  try {
-    await applyBookStockForStores({
-      orderId,
-      storeIds,
-      bookStockDate: input.bookStockDate || primaryBookStock.bookStockDate!,
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to apply book stock";
-    throw new Error(
-      `Could not apply book stock for ${primaryStore.name}. ${message}`,
-    );
-  }
-
   await calculateOrderSheet(orderId, metadata);
+  await clearNotPostedForStores(storeIds);
 
   return buildOrderSheetResult(orderId);
 }
@@ -507,18 +594,10 @@ export async function saveOrderSheetDraft(input: {
   const order = await orderRepository.getById(input.orderId);
   if (!order) throw new Error("Order not found");
 
-  const { metadata } = decodeOrderSheetNotes(order.notes);
-  if (metadata) {
-    await orderRepository.update(input.orderId, {
-      notes: encodeOrderSheetNotes(metadata, input.comment),
-      status: "draft",
-    });
-  } else if (input.comment !== undefined) {
-    await orderRepository.update(input.orderId, {
-      notes: input.comment,
-      status: "draft",
-    });
-  }
+  await orderRepository.update(input.orderId, {
+    comment: input.comment?.trim() || null,
+    status: "draft",
+  });
 
   for (const item of input.items) {
     const qty = item.selected ? item.orderQty : "0";
@@ -526,4 +605,3 @@ export async function saveOrderSheetDraft(input: {
   }
 }
 
-export { decodeOrderSheetNotes };

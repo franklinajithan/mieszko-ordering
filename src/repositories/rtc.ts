@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { rtcSales, storeProducts } from "@/db/schema";
+import { BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE } from "@/lib/import-config";
 
 export const rtcSalesRepository = {
   async upsert(data: typeof rtcSales.$inferInsert) {
@@ -52,6 +53,45 @@ export const rtcSalesRepository = {
         ),
       );
     return row?.total ?? "0";
+  },
+
+  async getByProductsInRange(
+    storeProductIds: number[],
+    startDate: string,
+    endDate: string,
+  ) {
+    const uniqueIds = [...new Set(storeProductIds)];
+    if (!uniqueIds.length) return [];
+    const rows: Array<{
+      storeProductId: number;
+      rtcDate: string;
+      rtcQty: string;
+    }> = [];
+    for (
+      let index = 0;
+      index < uniqueIds.length;
+      index += BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE
+    ) {
+      const batch = uniqueIds.slice(index, index + BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE);
+      if (!batch.length) continue;
+      rows.push(
+        ...(await db
+          .select({
+            storeProductId: rtcSales.storeProductId,
+            rtcDate: rtcSales.rtcDate,
+            rtcQty: rtcSales.rtcQty,
+          })
+          .from(rtcSales)
+          .where(
+            and(
+              inArray(rtcSales.storeProductId, batch),
+              gte(rtcSales.rtcDate, startDate),
+              lte(rtcSales.rtcDate, endDate),
+            ),
+          )),
+      );
+    }
+    return rows;
   },
 
   async deleteForStoreAndDate(storeId: number, rtcDate: string) {

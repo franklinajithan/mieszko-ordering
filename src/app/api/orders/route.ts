@@ -10,10 +10,11 @@ export const GET = route(async () => {
 export const POST = route(async (req) => {
   const parsed = await parseJson(req, createOrderSchema);
   if (!parsed.ok) return parsed.response;
-  const { departmentFilters, ...rest } = parsed.data;
   const order = await orderRepository.create({
-    ...rest,
-    departmentFilters: departmentFilters.map(String),
+    ...parsed.data,
+    dayBySalesStartDate: parsed.data.dayBySalesStartDate ?? null,
+    dayBySalesEndDate: parsed.data.dayBySalesEndDate ?? null,
+    comment: parsed.data.comment ?? null,
     status: "draft",
   });
   return apiOk({ id: order.id }, 201);

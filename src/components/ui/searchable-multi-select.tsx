@@ -20,6 +20,7 @@ export function SearchableMultiSelect({
   required,
   error,
   compact = false,
+  allowSelectAll = false,
 }: {
   label: string;
   placeholder: string;
@@ -29,6 +30,7 @@ export function SearchableMultiSelect({
   required?: boolean;
   error?: string | null;
   compact?: boolean;
+  allowSelectAll?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -71,6 +73,10 @@ export function SearchableMultiSelect({
     onChange(selected.filter((value) => value !== id));
   }
 
+  const allIds = options.map((option) => option.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.includes(id));
+  const noneSelected = selected.length === 0;
+
   return (
     <div ref={containerRef} className={compact ? "space-y-1" : "space-y-2"}>
       <Label className={compact ? "text-xs" : undefined}>
@@ -104,6 +110,26 @@ export function SearchableMultiSelect({
                 placeholder="Search..."
                 className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
               />
+              {allowSelectAll ? (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    disabled={allSelected || options.length === 0}
+                    onClick={() => onChange(allIds)}
+                    className="text-xs font-medium text-blue-700 hover:text-blue-800 disabled:cursor-not-allowed disabled:text-zinc-400"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    disabled={noneSelected}
+                    onClick={() => onChange([])}
+                    className="text-xs font-medium text-blue-700 hover:text-blue-800 disabled:cursor-not-allowed disabled:text-zinc-400"
+                  >
+                    Unselect all
+                  </button>
+                </div>
+              ) : null}
             </div>
             <ul className="max-h-52 overflow-y-auto py-1">
               {filtered.map((option) => {

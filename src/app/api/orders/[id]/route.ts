@@ -1,4 +1,5 @@
 import { orderRepository, storeRepository } from "@/repositories";
+import { primaryStoreId } from "@/services/order-sheet.service";
 import { apiError, apiOk, numericParam, route } from "@/lib/api/http";
 
 export const GET = route(
@@ -10,7 +11,7 @@ export const GET = route(
     if (!order) return apiError("Order not found", 404);
 
     const [store, items, supplierPrices, selectedSuppliers] = await Promise.all([
-      storeRepository.getById(order.storeId),
+      storeRepository.getById(primaryStoreId(order)),
       orderRepository.getOrderItemsWithDetails(orderId),
       orderRepository.getItemSupplierPrices(orderId),
       orderRepository.getSelectedSuppliers(orderId),

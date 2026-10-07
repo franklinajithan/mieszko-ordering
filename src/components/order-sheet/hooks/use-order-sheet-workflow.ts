@@ -36,6 +36,10 @@ export function useOrderSheetWorkflow({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [generateProgress, setGenerateProgress] = useState<{
+    percent: number;
+    done: boolean;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [result, setResult] = useState<OrderSheetResult | null>(null);
@@ -53,6 +57,15 @@ export function useOrderSheetWorkflow({
     if (!validateForm() || !form.storeIds.length) return;
 
     setGenerating(true);
+    setGenerateProgress({ percent: 12, done: false });
+    const startedAt = Date.now();
+    const tick = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const next = Math.min(99, 8 + Math.round((1 - Math.exp(-elapsed / 20000)) * 91));
+      setGenerateProgress((current) =>
+        current && !current.done ? { percent: next, done: false } : current,
+      );
+    }, 400);
     try {
       const primaryBookStock = bookStockRows.find((row) => row.available);
       const response = await generateOrderSheet({
@@ -69,8 +82,10 @@ export function useOrderSheetWorkflow({
         })),
         includeWastage: form.includeWastage,
         includeRtc: form.includeRtc,
-        shortfallStartDate: form.shortfallStartDate,
-        shortfallEndDate: form.shortfallEndDate,
+        shortfallPeriods: form.shortfallPeriods.map((period) => ({
+          startDate: period.startDate,
+          endDate: period.endDate,
+        })),
         soldQtyMethod: form.soldQtyMethod,
         comment: form.comment,
         dayBySalesRequired: form.dayBySalesRequired,
@@ -83,21 +98,26 @@ export function useOrderSheetWorkflow({
       });
 
       if (!response.success) {
+        setGenerateProgress(null);
         setError(response.error);
         return;
       }
 
+      setGenerateProgress({ percent: 100, done: true });
       setResult(response.data);
       setItems(response.data.items);
       setOrderId(response.data.orderId);
       if (response.data.bookStockStatus.length) {
         setBookStockRows(response.data.bookStockStatus);
       }
+      window.setTimeout(() => setGenerateProgress(null), 800);
     } catch (cause) {
+      setGenerateProgress(null);
       setError(
         cause instanceof Error ? cause.message : "Failed to generate order sheet",
       );
     } finally {
+      window.clearInterval(tick);
       setGenerating(false);
     }
   }
@@ -175,6 +195,7 @@ export function useOrderSheetWorkflow({
     fieldErrors,
     error,
     generating,
+    generateProgress,
     saving,
     confirmClear,
     setConfirmClear,

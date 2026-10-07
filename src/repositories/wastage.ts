@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { storeProducts, wastage } from "@/db/schema";
+import { BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE } from "@/lib/import-config";
 
 export const wastageRepository = {
   async upsert(data: typeof wastage.$inferInsert) {
@@ -52,6 +53,45 @@ export const wastageRepository = {
         ),
       );
     return row?.total ?? "0";
+  },
+
+  async getByProductsInRange(
+    storeProductIds: number[],
+    startDate: string,
+    endDate: string,
+  ) {
+    const uniqueIds = [...new Set(storeProductIds)];
+    if (!uniqueIds.length) return [];
+    const rows: Array<{
+      storeProductId: number;
+      wastageDate: string;
+      wastageQty: string;
+    }> = [];
+    for (
+      let index = 0;
+      index < uniqueIds.length;
+      index += BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE
+    ) {
+      const batch = uniqueIds.slice(index, index + BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE);
+      if (!batch.length) continue;
+      rows.push(
+        ...(await db
+          .select({
+            storeProductId: wastage.storeProductId,
+            wastageDate: wastage.wastageDate,
+            wastageQty: wastage.wastageQty,
+          })
+          .from(wastage)
+          .where(
+            and(
+              inArray(wastage.storeProductId, batch),
+              gte(wastage.wastageDate, startDate),
+              lte(wastage.wastageDate, endDate),
+            ),
+          )),
+      );
+    }
+    return rows;
   },
 
   async deleteForStoreAndDate(storeId: number, wastageDate: string) {

@@ -579,6 +579,64 @@ export const productRepository = {
     return row ?? null;
   },
 
+  async findStoreProductsBySupplierCodes(
+    storeId: number,
+    supplierId: number,
+    codes: string[],
+  ) {
+    if (!codes.length) return [];
+    const exact = await db
+      .select({
+        storeProductId: storeProducts.id,
+        storeProductCode: storeProducts.storeProductCode,
+        supplierCode: supplierProducts.supplierCode,
+      })
+      .from(supplierProducts)
+      .innerJoin(
+        storeProducts,
+        eq(storeProducts.productId, supplierProducts.productId),
+      )
+      .where(
+        and(
+          eq(supplierProducts.supplierId, supplierId),
+          eq(storeProducts.storeId, storeId),
+          inArray(supplierProducts.supplierCode, codes),
+        ),
+      );
+
+    const missing = codes.filter(
+      (code) =>
+        !exact.some(
+          (row) => row.supplierCode.toLowerCase() === code.toLowerCase(),
+        ),
+    );
+    if (!missing.length) return exact;
+
+    const loose = await db
+      .select({
+        storeProductId: storeProducts.id,
+        storeProductCode: storeProducts.storeProductCode,
+        supplierCode: supplierProducts.supplierCode,
+      })
+      .from(supplierProducts)
+      .innerJoin(
+        storeProducts,
+        eq(storeProducts.productId, supplierProducts.productId),
+      )
+      .where(
+        and(
+          eq(supplierProducts.supplierId, supplierId),
+          eq(storeProducts.storeId, storeId),
+          inArray(
+            sql`lower(${supplierProducts.supplierCode})`,
+            missing.map((code) => code.toLowerCase()),
+          ),
+        ),
+      );
+
+    return [...exact, ...loose];
+  },
+
   async findSupplierProductsByCodes(supplierId: number, codes: string[]) {
     if (!codes.length) return [];
     return db
