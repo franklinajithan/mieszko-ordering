@@ -407,7 +407,7 @@ export async function calculateOrderSheet(
     const priceComparison = compareSupplierPrices(supplierInputs, suggestedOrderQty);
 
     const breakdown = {
-      ...simulation.stages,
+      stages: simulation.stages,
       orderSheet: {
         soldQtyMethod: options.soldQtyMethod,
         includeWastage: options.includeWastage,
@@ -485,8 +485,8 @@ async function runSimulationWithForecast(input: {
   periodRanges: Array<{ startDate: Date; endDate: Date }>;
   forecastService: WeekdayHistoricalForecastService;
 }) {
-  const bookDate = new Date(input.bookStockDate);
-  const deliveryDate = new Date(input.clientDeliveryDate);
+  const bookDate = new Date(`${input.bookStockDate}T00:00:00Z`);
+  const deliveryDate = new Date(`${input.clientDeliveryDate}T00:00:00Z`);
   const forecastCache = new Map<string, Decimal>();
 
   const futureEvents = [...input.aggregated.futureDeliveryEvents]
