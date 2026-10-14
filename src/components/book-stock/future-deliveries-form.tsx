@@ -477,6 +477,7 @@ export function FutureDeliveriesForm({
                   <th className="px-3 py-2">File</th>
                   <th className="px-3 py-2">Source</th>
                   <th className="px-3 py-2">Uploaded at</th>
+                  <th className="px-3 py-2">Expected arrival</th>
                   <th className="px-3 py-2 text-right">Products</th>
                   <th className="px-3 py-2 text-right">Del total qty</th>
                   <th className="px-3 py-2 text-right">Actions</th>
@@ -490,6 +491,7 @@ export function FutureDeliveriesForm({
                     <td className="px-3 py-2 text-zinc-600">
                       {new Date(entry.importedAt).toLocaleString()}
                     </td>
+                    <td className="px-3 py-2 text-zinc-700">{entry.expectedDeliveryDate ?? "Date missing"}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {entry.itemCount.toLocaleString()}
                     </td>

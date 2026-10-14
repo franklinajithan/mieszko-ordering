@@ -91,6 +91,47 @@ export const orderRepository = {
       .orderBy(products.name);
   },
 
+  async replaceCalculatedItems(
+    orderId: number,
+    rows: Array<typeof orderItems.$inferInsert>,
+  ) {
+    return db.transaction(async (tx) => {
+      // Serialise competing recalculations of the same order.
+      const [locked] = await tx
+        .select({ id: orders.id })
+        .from(orders)
+        .where(eq(orders.id, orderId))
+        .for("update");
+      if (!locked) throw new Error("Order not found");
+
+      await tx.delete(orderItems).where(eq(orderItems.orderId, orderId));
+      const inserted: Array<typeof orderItems.$inferSelect> = [];
+      for (const batch of chunkRows(rows, 250)) {
+        inserted.push(...(await tx.insert(orderItems).values(batch).returning()));
+      }
+
+      const snapshots = inserted.flatMap((row) =>
+        (row.supplierQuotes ?? []).map((quote) => ({
+          orderItemId: row.id,
+          supplierId: quote.supplierId,
+          supplierCode: quote.supplierProductCode,
+          netPrice: quote.netPrice,
+          caseSize: quote.caseSize,
+          priceValidationStatus: quote.priceValidationStatus,
+          isCheapest: quote.isCheapest,
+          failureReason: quote.failureReason,
+        })),
+      );
+      for (const batch of chunkRows(snapshots, 250)) {
+        await tx.insert(orderItemSupplierPrices).values(batch);
+      }
+      await tx.update(orders)
+        .set({ status: "calculated", updatedAt: new Date() })
+        .where(eq(orders.id, orderId));
+      return inserted;
+    });
+  },
+
   async clearCalculatedItems(orderId: number) {
     await db.delete(orderItems).where(eq(orderItems.orderId, orderId));
   },

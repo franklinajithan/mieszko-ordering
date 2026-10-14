@@ -102,6 +102,7 @@ export const futureDeliveryRepository = {
       .select({
         fileName: futureDeliveries.fileName,
         source: futureDeliveries.source,
+        expectedDeliveryDate: futureDeliveries.expectedDeliveryDate,
         importedAt: futureDeliveries.importedAt,
         itemCount: sql<number>`count(*)::int`,
         totalQty: sql<string>`coalesce(sum(${futureDeliveries.quantity}), 0)::text`,
@@ -111,6 +112,7 @@ export const futureDeliveryRepository = {
       .groupBy(
         futureDeliveries.fileName,
         futureDeliveries.source,
+        futureDeliveries.expectedDeliveryDate,
         futureDeliveries.importedAt,
       )
       .orderBy(desc(futureDeliveries.importedAt));
@@ -118,6 +120,7 @@ export const futureDeliveryRepository = {
     return rows.map((row) => ({
       fileName: row.fileName,
       source: row.source,
+      expectedDeliveryDate: row.expectedDeliveryDate,
       importedAt: row.importedAt.toISOString(),
       itemCount: row.itemCount,
       totalQty: row.totalQty,
