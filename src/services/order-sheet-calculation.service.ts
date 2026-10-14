@@ -253,6 +253,22 @@ export async function calculateOrderSheet(
       `Cannot calculate safely: ${undatedFutureCount} future-delivery lines lack expected arrival dates. Set their delivery dates before generating.`,
     );
   }
+  // Validate every incoming line before replacing any existing calculated items.
+  // A dated upload outside the forecast horizon is allowed and ignored later.
+  const invalidFutureRows = futureByProduct.filter((row) =>
+    !parseDbDecimal(row.quantity).isFinite() ||
+    parseDbDecimal(row.quantity).isNegative() ||
+    (row.expectedDeliveryDate !== null &&
+      !/^\\d{4}-\\d{2}-\\d{2}$/.test(row.expectedDeliveryDate))
+  );
+  if (invalidFutureRows.length) {
+    throw new Error(
+      `Cannot calculate safely: ${invalidFutureRows.length} future-delivery lines have invalid dates or quantities.`,
+    );
+  }
+  if (order.deliveryDate <= order.bookStockDate) {
+    throw new Error("Delivery date must be after the book-stock snapshot date.");
+  }
   const futureLinesByProduct = new Map<number, typeof futureByProduct>();
   for (const row of futureByProduct) {
     const lines = futureLinesByProduct.get(row.storeProductId) ?? [];
