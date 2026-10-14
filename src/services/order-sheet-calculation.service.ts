@@ -340,14 +340,18 @@ export async function calculateOrderSheet(
       forecastService,
     });
 
+    // RTC and wastage are historical metrics, not additional demand.
+    // Current stock comes from a stock snapshot and already reflects movements
+    // posted before that snapshot. Adding these again double-counts losses.
+    // RTC sales are also typically included in daily sales totals.
     const suggestedOrderQty = roundOrderQty(
       calculateOrderSheetSuggestedQty({
         requiredQuantityForShortfall: requiredForShortfall,
         currentStock,
         wastageQty,
         rtcQty,
-        includeWastage: options.includeWastage,
-        includeRtc: options.includeRtc,
+        includeWastage: false,
+        includeRtc: false,
       }),
     );
 
