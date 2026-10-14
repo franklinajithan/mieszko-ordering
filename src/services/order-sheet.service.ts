@@ -111,6 +111,8 @@ function orderHeaderFromGenerate(
     orderDate: input.orderDate,
     deliveryDate: input.deliveryDate,
     bookStockDate,
+    includeBookStock: input.includeBookStock,
+    includeFutureDeliveries: input.includeFutureDeliveries,
     includeWastage: input.includeWastage,
     includeRtc: input.includeRtc,
     includeDayByDaySales: input.dayBySalesRequired ?? false,
@@ -250,10 +252,12 @@ export async function resolveOrderSheetGenerationBlockers(input: {
   storeIds: number[];
   deliveryDate?: string;
   bookStockDate?: string;
+  includeBookStock?: boolean;
+  includeFutureDeliveries?: boolean;
 }): Promise<string[]> {
   const { storeIds, deliveryDate, bookStockDate } = input;
   const blockers: string[] = [];
-  const bookStock = await resolveBookStockStatuses(storeIds);
+  const bookStock = input.includeBookStock !== false ? await resolveBookStockStatuses(storeIds) : [];
   for (const row of bookStock) {
     if (!row.available || !row.bookStockDate) {
       blockers.push(`Missing book stock: ${row.storeName}`);
@@ -291,7 +295,7 @@ export async function resolveOrderSheetGenerationBlockers(input: {
   }
 
   const stores = await Promise.all(storeIds.map((id) => storeRepository.getById(id)));
-  const undated = await countUndatedFutureDeliveryLines(storeIds);
+  const undated = input.includeFutureDeliveries ? await countUndatedFutureDeliveryLines(storeIds) : [];
   for (const entry of undated) {
     if (entry.undatedLineCount <= 0) continue;
     const store = stores.find((row) => row?.id === entry.storeId);
@@ -642,7 +646,7 @@ export async function generateOrderSheet(
     throw new Error("One or more stores not found");
   }
 
-  const bookStockStatuses = await resolveBookStockStatuses(storeIds);
+  const bookStockStatuses = input.includeBookStock ? await resolveBookStockStatuses(storeIds) : [];
   const unavailable = bookStockStatuses.filter(
     (status) => !status.available || !status.bookStockDate,
   );
@@ -654,11 +658,11 @@ export async function generateOrderSheet(
   }
 
   const snapshotDates = [...new Set(bookStockStatuses.map((status) => status.bookStockDate))];
-  if (snapshotDates.length !== 1) {
+  if (input.includeBookStock && snapshotDates.length !== 1) {
     throw new Error("Selected stores have different book-stock dates. Generate each store separately until per-store stock dates are supported.");
   }
   const primaryBookStock = bookStockStatuses[0]!;
-  if (input.bookStockDate && input.bookStockDate !== primaryBookStock.bookStockDate) {
+  if (input.includeBookStock && input.bookStockDate && input.bookStockDate !== primaryBookStock?.bookStockDate) {
     throw new Error("Book-stock date changed. Refresh stock status before generating.");
   }
 
@@ -678,7 +682,7 @@ export async function generateOrderSheet(
 
   const header = orderHeaderFromGenerate(
     input,
-    input.bookStockDate || primaryBookStock.bookStockDate!,
+    input.includeBookStock ? primaryBookStock!.bookStockDate! : input.orderDate,
   );
 
   let orderId = input.orderId;
