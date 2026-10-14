@@ -261,11 +261,17 @@ export async function resolveOrderSheetGenerationBlockers(input: {
   }
 
   const snapshotDates = [
-    ...new Set(bookStock.map((row) => row.bookStockDate).filter(Boolean)),
+    ...new Set(
+      bookStock
+        .filter((row) => row.available && row.bookStockDate)
+        .map((row) => row.bookStockDate),
+    ),
   ] as string[];
   if (snapshotDates.length > 1) {
     blockers.push(
-      "Selected stores have different book-stock dates. Generate each store separately until per-store stock dates are supported.",
+      "Selected stores have different book-stock snapshot dates (" +
+        snapshotDates.join(", ") +
+        "). Import matching snapshots or generate separate orders by snapshot date.",
     );
   }
   const primaryBookStockDate = snapshotDates[0];
