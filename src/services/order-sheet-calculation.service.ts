@@ -208,7 +208,7 @@ export async function calculateOrderSheet(
   ] = await Promise.all([
     bookStockRepository.latestQtyByStoreProductIds(storeProductIds),
     notPostedDeliveryRepository.sumQtyByStoreProductIds(storeProductIds),
-    futureDeliveryRepository.sumQtyByStoreProductIds(storeProductIds),
+    futureDeliveryRepository.listScheduledByStoreProductIds(storeProductIds),
     salesBounds
       ? dailySalesRepository.getSalesByProductsInRange(
           storeProductIds,
@@ -240,6 +240,37 @@ export async function calculateOrderSheet(
       ),
     ),
   ]);
+
+  const undatedFutureCount = futureByProduct.filter(
+    (row) => !row.expectedDeliveryDate && !parseDbDecimal(row.quantity).isZero(),
+  ).length;
+  if (undatedFutureCount > 0) {
+    throw new Error(
+      `Cannot calculate safely: ${undatedFutureCount} future-delivery lines lack expected arrival dates. Set their delivery dates before generating.`,
+    );
+  }
+  // Validate every incoming line before replacing any existing calculated items.
+  // A dated upload outside the forecast horizon is allowed and ignored later.
+  const invalidFutureRows = futureByProduct.filter((row) =>
+    !parseDbDecimal(row.quantity).isFinite() ||
+    parseDbDecimal(row.quantity).isNegative() ||
+    (row.expectedDeliveryDate !== null &&
+      !/^\\d{4}-\\d{2}-\\d{2}$/.test(row.expectedDeliveryDate))
+  );
+  if (invalidFutureRows.length) {
+    throw new Error(
+      `Cannot calculate safely: ${invalidFutureRows.length} future-delivery lines have invalid dates or quantities.`,
+    );
+  }
+  if (order.deliveryDate <= order.bookStockDate) {
+    throw new Error("Delivery date must be after the book-stock snapshot date.");
+  }
+  const futureLinesByProduct = new Map<number, typeof futureByProduct>();
+  for (const row of futureByProduct) {
+    const lines = futureLinesByProduct.get(row.storeProductId) ?? [];
+    lines.push(row);
+    futureLinesByProduct.set(row.storeProductId, lines);
+  }
 
   const latestPrices = await supplierPriceRepository.getLatestPricesForSupplierProducts(
     mappings.map((mapping) => mapping.id),
@@ -314,13 +345,21 @@ export async function calculateOrderSheet(
       ? averagePeriodQty(rtcByProductAndDate.get(storeProduct.id), comparisonRanges)
       : new Decimal(0);
 
-    const futureQty = parseDbDecimal(futureByProduct.get(storeProduct.id) ?? "0");
+    const futureEvents: StockEvent[] = (futureLinesByProduct.get(storeProduct.id) ?? [])
+      .filter((row) => row.expectedDeliveryDate && row.expectedDeliveryDate > order.bookStockDate && row.expectedDeliveryDate <= order.deliveryDate)
+      .map((row, index) => ({
+        eventType: "future_delivery" as const,
+        eventDate: new Date(row.expectedDeliveryDate + "T00:00:00Z"),
+        quantity: parseDbDecimal(row.quantity),
+        sortOrder: index,
+      }));
+    const futureQty = futureEvents.reduce((sum, event) => sum.plus(event.quantity), new Decimal(0));
     const aggregated = {
       bookStockQty: parseDbDecimal(bookStockByProduct.get(storeProduct.id) ?? "0"),
       receivedNotPostedQty: parseDbDecimal(
         notPostedByProduct.get(storeProduct.id) ?? "0",
       ),
-      futureDeliveryEvents: [] as StockEvent[],
+      futureDeliveryEvents: futureEvents,
     };
     const currentStock = aggregated.bookStockQty
       .plus(aggregated.receivedNotPostedQty)
@@ -380,7 +419,7 @@ export async function calculateOrderSheet(
     const priceComparison = compareSupplierPrices(supplierInputs, suggestedOrderQty);
 
     const breakdown = {
-      ...simulation.stages,
+      stages: simulation.stages,
       orderSheet: {
         soldQtyMethod: options.soldQtyMethod,
         includeWastage: options.includeWastage,
@@ -458,8 +497,8 @@ async function runSimulationWithForecast(input: {
   periodRanges: Array<{ startDate: Date; endDate: Date }>;
   forecastService: WeekdayHistoricalForecastService;
 }) {
-  const bookDate = new Date(input.bookStockDate);
-  const deliveryDate = new Date(input.clientDeliveryDate);
+  const bookDate = new Date(`${input.bookStockDate}T00:00:00Z`);
+  const deliveryDate = new Date(`${input.clientDeliveryDate}T00:00:00Z`);
   const forecastCache = new Map<string, Decimal>();
 
   const futureEvents = [...input.aggregated.futureDeliveryEvents]

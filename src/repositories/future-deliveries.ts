@@ -31,6 +31,21 @@ export const futureDeliveryRepository = {
       );
   },
 
+  async listScheduledByStoreProductIds(storeProductIds: number[]) {
+    const result: Array<{ storeProductId: number; quantity: string; expectedDeliveryDate: string | null }> = [];
+    const uniqueIds = [...new Set(storeProductIds)];
+    for (let index = 0; index < uniqueIds.length; index += BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE) {
+      const batch = uniqueIds.slice(index, index + BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE);
+      const rows = await db.select({
+        storeProductId: futureDeliveries.storeProductId,
+        quantity: futureDeliveries.quantity,
+        expectedDeliveryDate: futureDeliveries.expectedDeliveryDate,
+      }).from(futureDeliveries).where(inArray(futureDeliveries.storeProductId, batch));
+      result.push(...rows);
+    }
+    return result;
+  },
+
   async sumQtyByStoreProductIds(storeProductIds: number[]) {
     const qtyByProduct = new Map<number, string>();
     const uniqueIds = [...new Set(storeProductIds)];
