@@ -74,6 +74,8 @@ export function useOrderSheetWorkflow({
         storeIds: form.storeIds,
         supplierIds: form.supplierIds,
         deliveryDate: form.deliveryDate,
+        includeBookStock: form.includeBookStock,
+        includeFutureDeliveries: form.includeFutureDeliveries,
         bookStockDate: bookStockRows[0]?.bookStockDate ?? undefined,
         comparisonPeriods: form.comparisonPeriods.map(({ startDate, endDate }) => ({ startDate, endDate })),
       });
@@ -102,6 +104,8 @@ export function useOrderSheetWorkflow({
           startDate: period.startDate,
           endDate: period.endDate,
         })),
+        includeBookStock: form.includeBookStock,
+        includeFutureDeliveries: form.includeFutureDeliveries,
         includeWastage: form.includeWastage,
         includeRtc: form.includeRtc,
         shortfallPeriods: form.shortfallPeriods.map((period) => ({
