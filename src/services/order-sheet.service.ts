@@ -86,6 +86,8 @@ export function settingsFromOrder(order: OrderRow): OrderSheetMetadata {
     supplierIds: order.supplierIds,
     orderDate: order.orderDate,
     soldQtyMethod: (order.soldQtyMethod as SoldQtyMethod) || "max",
+    includeBookStock: true,
+    includeFutureDeliveries: false,
     includeWastage: order.includeWastage,
     includeRtc: order.includeRtc,
     shortfallPeriods: normalizeShortfallPeriods(
