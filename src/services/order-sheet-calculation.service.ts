@@ -470,22 +470,7 @@ export async function calculateOrderSheet(
     });
   }
 
-  await orderRepository.clearCalculatedItems(orderId);
-  const inserted = await orderRepository.insertOrderItems(pendingItems);
-  const snapshotRows = inserted.flatMap((row) =>
-    (row.supplierQuotes ?? []).map((quote) => ({
-      orderItemId: row.id,
-      supplierId: quote.supplierId,
-      supplierCode: quote.supplierProductCode,
-      netPrice: quote.netPrice,
-      caseSize: quote.caseSize,
-      priceValidationStatus: quote.priceValidationStatus,
-      isCheapest: quote.isCheapest,
-      failureReason: quote.failureReason,
-    })),
-  );
-  await orderRepository.insertItemSupplierPrices(snapshotRows);
-  await orderRepository.update(orderId, { status: "calculated" });
+  await orderRepository.replaceCalculatedItems(orderId, pendingItems);
 }
 
 async function runSimulationWithForecast(input: {
