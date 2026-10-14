@@ -24,10 +24,12 @@ export function importFutureFiles(
   files: File[],
   source = "ocs",
   supplierId?: number,
+  expectedDeliveryDate?: string,
 ): Promise<ActionResult<FutureImportResponse>> {
   const formData = new FormData();
   formData.set("storeId", String(storeId));
   formData.set("source", source);
+  if (expectedDeliveryDate) formData.set("expectedDeliveryDate", expectedDeliveryDate);
   if (supplierId) formData.set("supplierId", String(supplierId));
   for (const file of files) {
     formData.append("files", file);
