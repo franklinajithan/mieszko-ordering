@@ -64,6 +64,8 @@ export function route<Args extends unknown[]>(
     try {
       return await handler(req, ...args);
     } catch (error) {
+      // Keep full database diagnostics on the server, never in API responses.
+      console.error(`[API ${req.method} ${new URL(req.url).pathname}]`, error);
       if (isUniqueViolation(error)) {
         return apiError("A record with this value already exists", 409);
       }
