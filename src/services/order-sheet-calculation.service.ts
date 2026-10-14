@@ -245,6 +245,18 @@ export async function calculateOrderSheet(
     ),
   ]);
 
+  // Future-delivery uploads do not yet store an expected delivery date.
+  // Never subtract undated incoming stock from an order requirement.
+  // Fail before clearCalculatedItems so an existing order is not emptied.
+  const undatedFutureCount = [...futureByProduct.values()].filter(
+    (qty) => !parseDbDecimal(qty).isZero(),
+  ).length;
+  if (undatedFutureCount > 0) {
+    throw new Error(
+      `Cannot calculate safely: ${undatedFutureCount} products have future deliveries without an expected arrival date. Add delivery dates to future-delivery records before generating this order.`,
+    );
+  }
+
   const latestPrices = await supplierPriceRepository.getLatestPricesForSupplierProducts(
     mappings.map((mapping) => mapping.id),
     order.bookStockDate,
