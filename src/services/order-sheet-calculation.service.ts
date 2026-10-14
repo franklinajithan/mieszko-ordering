@@ -259,7 +259,7 @@ export async function calculateOrderSheet(
     !parseDbDecimal(row.quantity).isFinite() ||
     parseDbDecimal(row.quantity).isNegative() ||
     (row.expectedDeliveryDate !== null &&
-      !/^\\d{4}-\\d{2}-\\d{2}$/.test(row.expectedDeliveryDate))
+      !/^\d{4}-\d{2}-\d{2}$/.test(row.expectedDeliveryDate))
   );
   if (invalidFutureRows.length) {
     throw new Error(
