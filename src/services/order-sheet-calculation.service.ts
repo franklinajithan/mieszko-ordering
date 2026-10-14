@@ -212,7 +212,7 @@ export async function calculateOrderSheet(
   ] = await Promise.all([
     bookStockRepository.latestQtyByStoreProductIds(storeProductIds),
     notPostedDeliveryRepository.sumQtyByStoreProductIds(storeProductIds),
-    futureDeliveryRepository.sumQtyByStoreProductIds(storeProductIds),
+    futureDeliveryRepository.listScheduledByStoreProductIds(storeProductIds),
     salesBounds
       ? dailySalesRepository.getSalesByProductsInRange(
           storeProductIds,
@@ -245,16 +245,19 @@ export async function calculateOrderSheet(
     ),
   ]);
 
-  // Future-delivery uploads do not yet store an expected delivery date.
-  // Never subtract undated incoming stock from an order requirement.
-  // Fail before clearCalculatedItems so an existing order is not emptied.
-  const undatedFutureCount = [...futureByProduct.values()].filter(
-    (qty) => !parseDbDecimal(qty).isZero(),
+  const undatedFutureCount = futureByProduct.filter(
+    (row) => !row.expectedDeliveryDate && !parseDbDecimal(row.quantity).isZero(),
   ).length;
   if (undatedFutureCount > 0) {
     throw new Error(
-      `Cannot calculate safely: ${undatedFutureCount} products have future deliveries without an expected arrival date. Add delivery dates to future-delivery records before generating this order.`,
+      `Cannot calculate safely: ${undatedFutureCount} future-delivery lines lack expected arrival dates. Set their delivery dates before generating.`,
     );
+  }
+  const futureLinesByProduct = new Map<number, typeof futureByProduct>();
+  for (const row of futureByProduct) {
+    const lines = futureLinesByProduct.get(row.storeProductId) ?? [];
+    lines.push(row);
+    futureLinesByProduct.set(row.storeProductId, lines);
   }
 
   const latestPrices = await supplierPriceRepository.getLatestPricesForSupplierProducts(
@@ -330,13 +333,21 @@ export async function calculateOrderSheet(
       ? averagePeriodQty(rtcByProductAndDate.get(storeProduct.id), comparisonRanges)
       : new Decimal(0);
 
-    const futureQty = parseDbDecimal(futureByProduct.get(storeProduct.id) ?? "0");
+    const futureEvents: StockEvent[] = (futureLinesByProduct.get(storeProduct.id) ?? [])
+      .filter((row) => row.expectedDeliveryDate && row.expectedDeliveryDate > order.bookStockDate && row.expectedDeliveryDate <= order.deliveryDate)
+      .map((row, index) => ({
+        eventType: "future_delivery" as const,
+        eventDate: new Date(row.expectedDeliveryDate + "T00:00:00Z"),
+        quantity: parseDbDecimal(row.quantity),
+        sortOrder: index,
+      }));
+    const futureQty = futureEvents.reduce((sum, event) => sum.plus(event.quantity), new Decimal(0));
     const aggregated = {
       bookStockQty: parseDbDecimal(bookStockByProduct.get(storeProduct.id) ?? "0"),
       receivedNotPostedQty: parseDbDecimal(
         notPostedByProduct.get(storeProduct.id) ?? "0",
       ),
-      futureDeliveryEvents: [] as StockEvent[],
+      futureDeliveryEvents: futureEvents,
     };
     const currentStock = aggregated.bookStockQty
       .plus(aggregated.receivedNotPostedQty)
