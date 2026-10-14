@@ -3,12 +3,15 @@ import { apiOk, parseJson, route } from "@/lib/api/http";
 import {
   getSupplierDataStatus,
   resolveBookStockStatuses,
+  resolveOrderSheetGenerationBlockers,
   resolveSalesDataStatus,
 } from "@/services/order-sheet.service";
 
 const inputSchema = z.object({
   storeIds: z.array(z.number().int().positive()).min(1),
   supplierIds: z.array(z.number().int().positive()).min(1),
+  deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  bookStockDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   comparisonPeriods: z.array(z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -19,18 +22,18 @@ const inputSchema = z.object({
 export const POST = route(async (req) => {
   const parsed = await parseJson(req, inputSchema);
   if (!parsed.ok) return parsed.response;
-  const { storeIds, supplierIds, comparisonPeriods } = parsed.data;
-  const [bookStock, suppliers, salesPeriods] = await Promise.all([
+  const { storeIds, supplierIds, comparisonPeriods, deliveryDate, bookStockDate } =
+    parsed.data;
+  const [bookStock, suppliers, salesPeriods, generationBlockers] = await Promise.all([
     resolveBookStockStatuses(storeIds),
     getSupplierDataStatus(supplierIds),
     Promise.all(comparisonPeriods.map(async (period) => ({
       period,
       rows: await resolveSalesDataStatus({ storeIds, ...period }),
     }))),
+    resolveOrderSheetGenerationBlockers({ storeIds, deliveryDate, bookStockDate }),
   ]);
-  const blockers = bookStock
-    .filter((row) => !row.available || !row.bookStockDate)
-    .map((row) => `Missing book stock: ${row.storeName}`);
+  const blockers = generationBlockers;
   const warnings = [
     ...suppliers.filter((row) => row.status !== "current").map(
       (row) => `Supplier price data ${row.status}: ${row.supplierName}`,

@@ -73,6 +73,8 @@ export function useOrderSheetWorkflow({
       const preflight = await preflightOrderSheet({
         storeIds: form.storeIds,
         supplierIds: form.supplierIds,
+        deliveryDate: form.deliveryDate,
+        bookStockDate: bookStockRows[0]?.bookStockDate ?? undefined,
         comparisonPeriods: form.comparisonPeriods.map(({ startDate, endDate }) => ({ startDate, endDate })),
       });
       if (!preflight.success) {

@@ -1,6 +1,9 @@
 import { getLatestBookStockSummary } from "@/services/book-stock/apply-book-stock-to-order.service";
 import { getNotPostedStoreSummary } from "@/services/not-posted/not-posted-import.service";
-import { getFutureStoreSummary } from "@/services/future-deliveries/future-delivery-import.service";
+import {
+  countUndatedFutureDeliveryLines,
+  getFutureStoreSummary,
+} from "@/services/future-deliveries/future-delivery-import.service";
 import { calculateOrderSheet } from "@/services/order-sheet-calculation.service";
 import {
   dailySalesRepository,
@@ -240,6 +243,58 @@ export async function resolveBookStockStatuses(
       resolveBookStockStatus(storeId, stores[index] ?? undefined),
     ),
   );
+}
+
+/** Blockers that match generateOrderSheet / calculateOrderSheet validation. */
+export async function resolveOrderSheetGenerationBlockers(input: {
+  storeIds: number[];
+  deliveryDate?: string;
+  bookStockDate?: string;
+}): Promise<string[]> {
+  const { storeIds, deliveryDate, bookStockDate } = input;
+  const blockers: string[] = [];
+  const bookStock = await resolveBookStockStatuses(storeIds);
+  for (const row of bookStock) {
+    if (!row.available || !row.bookStockDate) {
+      blockers.push(`Missing book stock: ${row.storeName}`);
+    }
+  }
+
+  const snapshotDates = [
+    ...new Set(bookStock.map((row) => row.bookStockDate).filter(Boolean)),
+  ] as string[];
+  if (snapshotDates.length > 1) {
+    blockers.push(
+      "Selected stores have different book-stock dates. Generate each store separately until per-store stock dates are supported.",
+    );
+  }
+  const primaryBookStockDate = snapshotDates[0];
+  if (
+    bookStockDate &&
+    primaryBookStockDate &&
+    bookStockDate !== primaryBookStockDate
+  ) {
+    blockers.push(
+      "Book-stock date changed. Refresh stock status before generating.",
+    );
+  }
+  if (deliveryDate && primaryBookStockDate && deliveryDate <= primaryBookStockDate) {
+    blockers.push(
+      "Delivery date must be after the book-stock snapshot date.",
+    );
+  }
+
+  const stores = await Promise.all(storeIds.map((id) => storeRepository.getById(id)));
+  const undated = await countUndatedFutureDeliveryLines(storeIds);
+  for (const entry of undated) {
+    if (entry.undatedLineCount <= 0) continue;
+    const store = stores.find((row) => row?.id === entry.storeId);
+    blockers.push(
+      `${entry.undatedLineCount} future-delivery lines lack expected arrival dates for ${store?.name ?? `store ${entry.storeId}`}. Set delivery dates on Book Stock before generating.`,
+    );
+  }
+
+  return blockers;
 }
 
 export async function resolveSalesDataStatus(input: {

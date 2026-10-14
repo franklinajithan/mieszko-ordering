@@ -74,6 +74,8 @@ export type OrderSheetPreflight = {
 export function preflightOrderSheet(input: {
   storeIds: number[];
   supplierIds: number[];
+  deliveryDate?: string;
+  bookStockDate?: string;
   comparisonPeriods: Array<{ startDate: string; endDate: string }>;
 }): Promise<ActionResult<OrderSheetPreflight>> {
   return apiRequest("/order-sheet/preflight", { method: "POST", body: input });
