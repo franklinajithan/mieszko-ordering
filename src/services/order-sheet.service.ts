@@ -137,8 +137,8 @@ function supplierStatusFromAge(importedAt: string | null): SupplierDataStatusRow
   const ageMs = Date.now() - new Date(importedAt).getTime();
   const ageDays = ageMs / (1000 * 60 * 60 * 24);
   if (ageDays <= 2) return "current";
-  if (ageDays <= 7) return "stale";
-  return "missing";
+  // An old upload is stale, not missing. Only absent uploads are missing.
+  return "stale";
 }
 
 export async function getSupplierDataStatus(
