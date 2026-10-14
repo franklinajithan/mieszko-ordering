@@ -46,6 +46,7 @@ export function FutureDeliveriesForm({
 }) {
   const [source, setSource] = useState<FutureDeliverySource>("ocs");
   const [supplierId, setSupplierId] = useState("");
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [uploads, setUploads] = useState<FutureUploadSummary[]>([]);
   const [results, setResults] = useState<FutureImportFileResult[] | null>(null);
@@ -78,6 +79,7 @@ export function FutureDeliveriesForm({
   const canImport =
     Boolean(storeId) &&
     files.length > 0 &&
+    Boolean(expectedDeliveryDate) &&
     (source === "ocs" || (needsSupplier && Boolean(supplierId)));
 
   const totalQty = useMemo(
@@ -132,6 +134,10 @@ export function FutureDeliveriesForm({
       setError("Choose one or more future delivery files.");
       return;
     }
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(expectedDeliveryDate)) {
+      setError("Choose a valid expected delivery date.");
+      return;
+    }
     setImporting(true);
     setError(null);
     setResults(null);
@@ -151,6 +157,7 @@ export function FutureDeliveriesForm({
           [file],
           source,
           needsSupplier ? Number(supplierId) : undefined,
+          expectedDeliveryDate,
         );
         if (!response.success) {
           failed.push({ fileName: file.name, error: response.error });
@@ -328,6 +335,7 @@ export function FutureDeliveriesForm({
             </div>
           ) : null}
 
+          <div className="space-y-1.5"><Label htmlFor="future-expected-date">Expected delivery date</Label><input id="future-expected-date" type="date" required value={expectedDeliveryDate} disabled={importing} onChange={(event) => setExpectedDeliveryDate(event.target.value)} className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm" /><p className="text-xs text-zinc-500">Required for accurate stock calculations. Use separate uploads for different arrival dates.</p></div>
           <FileUploadField
             key={`${storeId ?? "none"}-${source}-${pickerKey}`}
             name="future-files"
