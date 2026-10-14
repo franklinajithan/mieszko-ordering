@@ -53,6 +53,8 @@ export function createInitialOrderSheetForm(): OrderSheetFormState {
     supplierIds: [],
     departmentIds: [],
     comparisonPeriods: defaultComparisonPeriods(),
+    includeBookStock: true,
+    includeFutureDeliveries: false,
     includeWastage: true,
     includeRtc: true,
     shortfallPeriods: defaultShortfallPeriods(),
