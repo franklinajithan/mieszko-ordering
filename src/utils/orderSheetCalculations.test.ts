@@ -41,6 +41,18 @@ describe("orderSheetCalculations", () => {
     expect(qty.toNumber()).toBe(0);
   });
 
+  it("orders enough to cover shortfall after projected stock at delivery", () => {
+    const qty = calculateOrderSheetSuggestedQty({
+      requiredQuantityForShortfall: new Decimal(30),
+      currentStock: new Decimal(7),
+      wastageQty: new Decimal(0),
+      rtcQty: new Decimal(0),
+      includeWastage: false,
+      includeRtc: false,
+    });
+    expect(qty.toNumber()).toBe(23);
+  });
+
   it("counts unique days across overlapping shortfall periods", () => {
     expect(
       totalUniquePeriodDays([

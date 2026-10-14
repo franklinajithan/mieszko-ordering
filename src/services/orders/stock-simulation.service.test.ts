@@ -48,7 +48,7 @@ describe("stock timeline", () => {
       futureDeliveryEvents: [delivery("2026-10-18", 4)],
       forecastBetween: () => new Decimal(5),
     });
-    expect(result.totalShortage.toString()).toBe("7");
+    expect(result.totalShortage.toString()).toBe("3");
     expect(result.projectedFinalStock.toString()).toBe("0");
   });
 

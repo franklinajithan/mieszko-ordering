@@ -16,7 +16,7 @@ export function DepartmentForm() {
     const code = String(formData.get("code") ?? "").trim();
     const result = await createDepartment({
       name: formData.get("name") as string,
-      code: code || undefined,
+      code: code || null,
       isActive: true,
     });
     if (!result.success) {
