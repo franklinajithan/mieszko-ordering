@@ -141,6 +141,8 @@ export type OrderSheetMetadata = {
   supplierIds?: number[];
   orderDate: string;
   soldQtyMethod: SoldQtyMethod;
+  includeBookStock: boolean;
+  includeFutureDeliveries: boolean;
   includeWastage: boolean;
   includeRtc: boolean;
   shortfallPeriods: DateRange[];
@@ -159,6 +161,8 @@ export type OrderSheetGenerateInput = {
   supplierIds: number[];
   departmentIds: number[];
   comparisonPeriods: DateRange[];
+  includeBookStock: boolean;
+  includeFutureDeliveries: boolean;
   includeWastage: boolean;
   includeRtc: boolean;
   shortfallPeriods: DateRange[];
