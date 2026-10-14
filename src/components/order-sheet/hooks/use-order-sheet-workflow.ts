@@ -5,6 +5,7 @@ import type { Dispatch, SetStateAction } from "react";
 import {
   exportOrder,
   generateOrderSheet,
+  preflightOrderSheet,
   saveOrderSheetDraft,
 } from "@/lib/api";
 import type {
@@ -35,6 +36,7 @@ export function useOrderSheetWorkflow({
 }: Input) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [dataWarnings, setDataWarnings] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
   const [generateProgress, setGenerateProgress] = useState<{
     percent: number;
@@ -54,6 +56,7 @@ export function useOrderSheetWorkflow({
 
   async function onGenerate() {
     setError(null);
+    setDataWarnings([]);
     if (!validateForm() || !form.storeIds.length) return;
 
     setGenerating(true);
@@ -67,13 +70,30 @@ export function useOrderSheetWorkflow({
       );
     }, 400);
     try {
-      const primaryBookStock = bookStockRows.find((row) => row.available);
+      const preflight = await preflightOrderSheet({
+        storeIds: form.storeIds,
+        supplierIds: form.supplierIds,
+        comparisonPeriods: form.comparisonPeriods.map(({ startDate, endDate }) => ({ startDate, endDate })),
+      });
+      if (!preflight.success) {
+        setGenerateProgress(null);
+        setError("Unable to retrieve order source data: " + preflight.error);
+        return;
+      }
+      setDataWarnings(preflight.data.warnings);
+      setBookStockRows(preflight.data.bookStock);
+      if (!preflight.data.ready) {
+        setGenerateProgress(null);
+        setError("Order data is incomplete. " + preflight.data.blockers.join("; "));
+        return;
+      }
+      setGenerateProgress({ percent: 40, done: false });
+
       const response = await generateOrderSheet({
         orderId: orderId ?? undefined,
         storeIds: form.storeIds,
         orderDate: form.orderDate,
         deliveryDate: form.deliveryDate,
-        bookStockDate: primaryBookStock?.bookStockDate ?? undefined,
         supplierIds: form.supplierIds,
         departmentIds: form.departmentIds,
         comparisonPeriods: form.comparisonPeriods.map((period) => ({
@@ -167,6 +187,7 @@ export function useOrderSheetWorkflow({
     setOrderId(null);
     setBookStockRows([]);
     setError(null);
+    setDataWarnings([]);
     setFieldErrors({});
     setConfirmClear(false);
   }
@@ -194,6 +215,7 @@ export function useOrderSheetWorkflow({
   return {
     fieldErrors,
     error,
+    dataWarnings,
     generating,
     generateProgress,
     saving,
