@@ -16,6 +16,8 @@ export type OrderSheetFormState = {
   supplierIds: number[];
   departmentIds: number[];
   comparisonPeriods: ComparisonPeriod[];
+  includeBookStock: boolean;
+  includeFutureDeliveries: boolean;
   includeWastage: boolean;
   includeRtc: boolean;
   shortfallPeriods: ComparisonPeriod[];
