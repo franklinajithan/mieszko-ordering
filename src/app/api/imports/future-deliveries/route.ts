@@ -43,6 +43,8 @@ export const POST = route(async (req) => {
   if (!storeId.success) return apiError("storeId is required");
 
   const source = String(formData.get("source") ?? "ocs");
+  const expectedDeliveryDate = z.string().date().safeParse(formData.get("expectedDeliveryDate"));
+  if (!expectedDeliveryDate.success) return apiError("A valid expected delivery date (YYYY-MM-DD) is required");
   const files = collectFiles(formData);
   if (!files.length) return apiError("Choose at least one future delivery file");
 
@@ -58,6 +60,7 @@ export const POST = route(async (req) => {
       await importFutureOcsFiles({
         storeId: storeId.data,
         files: payloads,
+        expectedDeliveryDate: expectedDeliveryDate.data,
       }),
     );
   }
@@ -72,6 +75,7 @@ export const POST = route(async (req) => {
         storeId: storeId.data,
         supplierId: supplierId.data,
         files: payloads,
+        expectedDeliveryDate: expectedDeliveryDate.data,
         source,
       }),
     );
