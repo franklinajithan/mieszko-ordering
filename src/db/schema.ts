@@ -496,6 +496,7 @@ export const futureDeliveries = pgTable(
       .references(() => storeProducts.id),
     quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
     source: varchar("source", { length: 20 }).notNull().default("ocs"),
+    expectedDeliveryDate: date("expected_delivery_date"),
     supplierId: integer("supplier_id").references(() => suppliers.id),
     fileName: varchar("file_name", { length: 500 }).notNull(),
     importedAt: timestamp("imported_at", { withTimezone: true })
