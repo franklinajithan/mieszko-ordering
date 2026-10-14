@@ -11,6 +11,8 @@ const inputSchema = z.object({
   storeIds: z.array(z.number().int().positive()).min(1),
   supplierIds: z.array(z.number().int().positive()).min(1),
   deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  includeBookStock: z.boolean().default(true),
+  includeFutureDeliveries: z.boolean().default(false),
   bookStockDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   comparisonPeriods: z.array(z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -22,16 +24,16 @@ const inputSchema = z.object({
 export const POST = route(async (req) => {
   const parsed = await parseJson(req, inputSchema);
   if (!parsed.ok) return parsed.response;
-  const { storeIds, supplierIds, comparisonPeriods, deliveryDate, bookStockDate } =
+  const { storeIds, supplierIds, comparisonPeriods, deliveryDate, bookStockDate, includeBookStock, includeFutureDeliveries } =
     parsed.data;
   const [bookStock, suppliers, salesPeriods, generationBlockers] = await Promise.all([
-    resolveBookStockStatuses(storeIds),
+    includeBookStock ? resolveBookStockStatuses(storeIds) : Promise.resolve([]),
     getSupplierDataStatus(supplierIds),
     Promise.all(comparisonPeriods.map(async (period) => ({
       period,
       rows: await resolveSalesDataStatus({ storeIds, ...period }),
     }))),
-    resolveOrderSheetGenerationBlockers({ storeIds, deliveryDate, bookStockDate }),
+    resolveOrderSheetGenerationBlockers({ storeIds, deliveryDate, bookStockDate, includeBookStock, includeFutureDeliveries }),
   ]);
   const blockers = generationBlockers;
   const warnings = [
