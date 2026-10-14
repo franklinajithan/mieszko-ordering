@@ -4,6 +4,7 @@ import { apiFormRequest, apiRequest } from "./client";
 export type FutureUploadSummary = {
   fileName: string;
   source: string;
+  expectedDeliveryDate?: string | null;
   importedAt: string;
   itemCount: number;
   totalQty: string;
