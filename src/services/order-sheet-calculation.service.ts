@@ -28,6 +28,7 @@ import {
   totalUniquePeriodDays,
 } from "@/utils/orderSheetCalculations";
 import { Decimal, decimalToDb, parseDbDecimal, type Decimal as DecimalType } from "@/utils/decimal";
+import { isIsoDateString } from "@/utils/iso-date";
 import { toPeriodSalesRows } from "@/utils/period-sales";
 import type { OrderSheetMetadata } from "@/types/orderSheet";
 import {
@@ -255,7 +256,7 @@ export async function calculateOrderSheet(
     !parseDbDecimal(row.quantity).isFinite() ||
     parseDbDecimal(row.quantity).isNegative() ||
     (row.expectedDeliveryDate !== null &&
-      !/^\\d{4}-\\d{2}-\\d{2}$/.test(row.expectedDeliveryDate))
+      !isIsoDateString(row.expectedDeliveryDate))
   );
   if (invalidFutureRows.length) {
     throw new Error(
@@ -378,10 +379,11 @@ export async function calculateOrderSheet(
     // Current stock comes from a stock snapshot and already reflects movements
     // posted before that snapshot. Adding these again double-counts losses.
     // RTC sales are also typically included in daily sales totals.
+    const stockAtClientDelivery = simulation.projectedFinalStock;
     const suggestedOrderQty = roundOrderQty(
       calculateOrderSheetSuggestedQty({
         requiredQuantityForShortfall: requiredForShortfall,
-        currentStock,
+        currentStock: stockAtClientDelivery,
         wastageQty,
         rtcQty,
         includeWastage: false,
@@ -427,6 +429,8 @@ export async function calculateOrderSheet(
         comparisonPeriodDays,
         baseSoldQty: decimalToDb(baseSoldQty),
         requiredForShortfall: decimalToDb(requiredForShortfall),
+        stockAtClientDelivery: decimalToDb(stockAtClientDelivery),
+        physicalStockIncludingFuture: decimalToDb(currentStock),
         wastageQty: decimalToDb(wastageQty),
         rtcQty: decimalToDb(rtcQty),
         calculatedSoldQty: decimalToDb(baseSoldQty),
@@ -466,22 +470,7 @@ export async function calculateOrderSheet(
     });
   }
 
-  await orderRepository.clearCalculatedItems(orderId);
-  const inserted = await orderRepository.insertOrderItems(pendingItems);
-  const snapshotRows = inserted.flatMap((row) =>
-    (row.supplierQuotes ?? []).map((quote) => ({
-      orderItemId: row.id,
-      supplierId: quote.supplierId,
-      supplierCode: quote.supplierProductCode,
-      netPrice: quote.netPrice,
-      caseSize: quote.caseSize,
-      priceValidationStatus: quote.priceValidationStatus,
-      isCheapest: quote.isCheapest,
-      failureReason: quote.failureReason,
-    })),
-  );
-  await orderRepository.insertItemSupplierPrices(snapshotRows);
-  await orderRepository.update(orderId, { status: "calculated" });
+  await orderRepository.replaceCalculatedItems(orderId, pendingItems);
 }
 
 async function runSimulationWithForecast(input: {
