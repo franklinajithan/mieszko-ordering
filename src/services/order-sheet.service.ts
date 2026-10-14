@@ -1,5 +1,5 @@
 import { getLatestBookStockSummary } from "@/services/book-stock/apply-book-stock-to-order.service";
-import { getNotPostedStoreSummary, clearNotPostedForStores } from "@/services/not-posted/not-posted-import.service";
+import { getNotPostedStoreSummary } from "@/services/not-posted/not-posted-import.service";
 import { getFutureStoreSummary } from "@/services/future-deliveries/future-delivery-import.service";
 import { calculateOrderSheet } from "@/services/order-sheet-calculation.service";
 import {
@@ -592,7 +592,14 @@ export async function generateOrderSheet(
     );
   }
 
+  const snapshotDates = [...new Set(bookStockStatuses.map((status) => status.bookStockDate))];
+  if (snapshotDates.length !== 1) {
+    throw new Error("Selected stores have different book-stock dates. Generate each store separately until per-store stock dates are supported.");
+  }
   const primaryBookStock = bookStockStatuses[0]!;
+  if (input.bookStockDate && input.bookStockDate !== primaryBookStock.bookStockDate) {
+    throw new Error("Book-stock date changed. Refresh stock status before generating.");
+  }
 
   const metadata: OrderSheetMetadata = {
     storeIds,
@@ -622,7 +629,7 @@ export async function generateOrderSheet(
   }
 
   await calculateOrderSheet(orderId, metadata);
-  await clearNotPostedForStores(storeIds);
+  // Preserve imported delivery records across generation and regeneration.
 
   return buildOrderSheetResult(orderId);
 }
