@@ -146,10 +146,6 @@ export async function calculateOrderSheet(
     (id) => Number.isInteger(id) && id > 0,
   );
 
-  if (!departmentIds.length) {
-    throw new Error("Select at least one department");
-  }
-
   const storeIds = options.storeIds?.length ? options.storeIds : order.storeIds;
   const storeProducts: Awaited<
     ReturnType<typeof orderRepository.getStoreProductsForOrder>

@@ -22,7 +22,7 @@ export function OrderSheetPage({
   suppliers: Supplier[];
   departments: DepartmentOption[];
 }) {
-  const formState = useOrderSheetForm(stores, suppliers);
+  const formState = useOrderSheetForm(stores, suppliers, departments);
   const status = useOrderSheetStatus(formState.form);
   const workflow = useOrderSheetWorkflow({
     form: formState.form,

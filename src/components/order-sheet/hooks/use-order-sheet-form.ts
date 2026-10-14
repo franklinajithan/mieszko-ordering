@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import type { DepartmentOption } from "@/types/department";
 import type { Supplier } from "@/types/supplier";
 import type { Store } from "@/types/store";
 import type { ComparisonPeriod, OrderSheetFormState } from "@/types/orderSheet";
@@ -14,7 +15,11 @@ import {
 } from "@/utils/order-sheet-form";
 import { totalUniquePeriodDays } from "@/utils/orderSheetCalculations";
 
-export function useOrderSheetForm(stores: Store[], suppliers: Supplier[]) {
+export function useOrderSheetForm(
+  stores: Store[],
+  suppliers: Supplier[],
+  departments: DepartmentOption[],
+) {
   const [form, setForm] = useState<OrderSheetFormState>(
     createInitialOrderSheetForm,
   );
@@ -28,6 +33,7 @@ export function useOrderSheetForm(stores: Store[], suppliers: Supplier[]) {
 
   const didInitStores = useRef(false);
   const didInitSuppliers = useRef(false);
+  const didInitDepartments = useRef(false);
 
   useEffect(() => {
     if (didInitStores.current || !stores.length) return;
@@ -55,6 +61,18 @@ export function useOrderSheetForm(stores: Store[], suppliers: Supplier[]) {
       return { ...current, supplierIds: defaults };
     });
   }, [activeSuppliers]);
+
+  useEffect(() => {
+    if (didInitDepartments.current || !departments.length) return;
+    didInitDepartments.current = true;
+    setForm((current) => {
+      if (current.departmentIds.length) return current;
+      return {
+        ...current,
+        departmentIds: departments.map((department) => department.id),
+      };
+    });
+  }, [departments]);
 
   function updatePeriod(id: string, patch: Partial<ComparisonPeriod>) {
     setForm((current) => ({

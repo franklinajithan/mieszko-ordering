@@ -1,4 +1,4 @@
-import { Decimal, toDecimal } from "@/utils/decimal";
+import { Decimal, decimalToDb, toDecimal } from "@/utils/decimal";
 import type { SoldQtyMethod } from "@/types/orderSheet";
 
 export function diffDaysInclusive(startDate: string, endDate: string): number {
@@ -42,6 +42,35 @@ export function formatDaySalesLabel(date: string): string {
     day: "2-digit",
     month: "short",
   });
+}
+
+export function formatIsoDateLabel(date: string): string {
+  const parsed = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return parsed.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+export function formatComparisonPeriodDateRange(
+  startDate: string,
+  endDate: string,
+): string {
+  if (startDate === endDate) return formatIsoDateLabel(startDate);
+  return `${formatIsoDateLabel(startDate)} – ${formatIsoDateLabel(endDate)}`;
+}
+
+export function periodSalesTotalsFromDailySales(
+  salesByProductAndDate: Map<number, Map<string, string>>,
+  storeProductId: number,
+  periods: Array<{ startDate: string; endDate: string }>,
+): string[] {
+  const byDate = salesByProductAndDate.get(storeProductId);
+  return periods.map((period) =>
+    decimalToDb(sumQtyInDateRange(byDate, period.startDate, period.endDate)),
+  );
 }
 
 export function formatDaySalesHeading(date: string): string {

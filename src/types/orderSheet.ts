@@ -115,12 +115,21 @@ export type OrderSheetSummary = {
   shortfallDays: number;
 };
 
+export type OrderSheetComparisonPeriodColumn = {
+  periodKey: string;
+  title: string;
+  dateRangeLabel: string;
+  startDate: string;
+  endDate: string;
+};
+
 export type OrderSheetResult = {
   orderId: number;
   summary: OrderSheetSummary;
   items: OrderSheetItem[];
   bookStockStatus: BookStockStatusRow[];
   periodLabels: string[];
+  comparisonPeriods: OrderSheetComparisonPeriodColumn[];
   dailySalesLabels: string[];
   supplierColumns: OrderSheetSupplierColumn[];
 };

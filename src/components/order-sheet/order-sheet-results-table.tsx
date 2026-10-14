@@ -2,13 +2,19 @@
 
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
-import type { OrderItemSupplierQuote, OrderSheetItem, OrderSheetSupplierColumn } from "@/types/orderSheet";
+import type {
+  OrderItemSupplierQuote,
+  OrderSheetComparisonPeriodColumn,
+  OrderSheetItem,
+  OrderSheetSupplierColumn,
+} from "@/types/orderSheet";
 import { formatDecimal, parseDbDecimal } from "@/utils/decimal";
 import { parseQty } from "@/utils/orderSheetCalculations";
 
 export function OrderSheetResultsTable({
   items,
   periodLabels,
+  comparisonPeriods = [],
   dailySalesLabels = [],
   supplierColumns = [],
   includeWastage,
@@ -20,6 +26,7 @@ export function OrderSheetResultsTable({
 }: {
   items: OrderSheetItem[];
   periodLabels: string[];
+  comparisonPeriods?: OrderSheetComparisonPeriodColumn[];
   dailySalesLabels?: string[];
   supplierColumns?: OrderSheetSupplierColumn[];
   includeWastage: boolean;
@@ -107,9 +114,26 @@ export function OrderSheetResultsTable({
               ))}
               <th className="px-3 py-2">Department</th>
               <th className="px-3 py-2 text-right">Current Stock</th>
-              {periodLabels.map((label) => (
-                <th key={label} className="px-3 py-2 text-right">
-                  {label}
+              {(comparisonPeriods.length
+                ? comparisonPeriods
+                : periodLabels.map((label, index) => ({
+                    periodKey: `period_${index + 1}`,
+                    title: label,
+                    dateRangeLabel: "",
+                    startDate: "",
+                    endDate: "",
+                  }))
+              ).map((column) => (
+                <th key={column.periodKey} className="px-3 py-2 text-right align-bottom">
+                  <div className="font-semibold normal-case">{column.title}</div>
+                  {column.dateRangeLabel ? (
+                    <div className="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-zinc-500">
+                      {column.dateRangeLabel}
+                    </div>
+                  ) : null}
+                  <div className="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-zinc-600">
+                    Total sales
+                  </div>
                 </th>
               ))}
               {dailySalesLabels.map((label, index) => (
@@ -169,7 +193,7 @@ export function OrderSheetResultsTable({
                   <td className="px-3 py-2 text-right tabular-nums">{item.currentStock}</td>
                   {item.periodSales.map((sale, index) => (
                     <td key={`${item.orderItemId}-${index}`} className="px-3 py-2 text-right tabular-nums">
-                      {sale}
+                      {formatDecimal(parseDbDecimal(sale), 2)}
                     </td>
                   ))}
                   {item.dailySales.map((sale, index) => (

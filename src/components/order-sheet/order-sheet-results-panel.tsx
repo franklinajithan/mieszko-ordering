@@ -46,6 +46,7 @@ export function OrderSheetResultsPanel({
       <OrderSheetResultsTable
         items={items}
         periodLabels={result.periodLabels}
+        comparisonPeriods={result.comparisonPeriods}
         dailySalesLabels={result.dailySalesLabels}
         supplierColumns={result.supplierColumns}
         includeWastage={includeWastage}

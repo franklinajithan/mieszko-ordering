@@ -13,12 +13,15 @@ import { db } from "@/db";
 import { suppliers } from "@/db/schema";
 import { inArray } from "drizzle-orm";
 import {
+  boundingIsoRange,
   buildDailySalesByProductMap,
   dailySalesForProductInRange,
+  formatComparisonPeriodDateRange,
   formatDaySalesLabel,
   listDatesInclusive,
   normalizeIsoDate,
   parseQty,
+  periodSalesTotalsFromDailySales,
   totalUniquePeriodDays,
 } from "@/utils/orderSheetCalculations";
 import {
@@ -378,7 +381,25 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
     return ai - bi;
   });
   const periodCount = sortedPeriods.length;
-  const periodLabels = sortedPeriods.map((_, index) => `P${index + 1}`);
+  const comparisonPeriods = sortedPeriods.map((period, index) => ({
+    periodKey: period.periodKey,
+    title: `Period ${index + 1}`,
+    dateRangeLabel: formatComparisonPeriodDateRange(period.startDate, period.endDate),
+    startDate: period.startDate,
+    endDate: period.endDate,
+  }));
+  const periodLabels = comparisonPeriods.map((column) => column.title);
+
+  const comparisonSalesBounds = boundingIsoRange(
+    sortedPeriods.map((period) => ({
+      startDate: period.startDate,
+      endDate: period.endDate,
+    })),
+  );
+  const comparisonPeriodRanges = sortedPeriods.map((period) => ({
+    startDate: period.startDate,
+    endDate: period.endDate,
+  }));
 
   const dailySalesDates =
     metadata?.dayBySalesRequired &&
@@ -388,18 +409,31 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
       : [];
   const dailySalesLabels = dailySalesDates.map(formatDaySalesLabel);
 
-  const salesByProductAndDate =
-    dailySalesDates.length &&
+  const storeProductIds = items.map((row) => row.storeProduct.id);
+  const salesQueryRanges = [
+    ...(comparisonSalesBounds ? [comparisonSalesBounds] : []),
+    ...(dailySalesDates.length &&
     metadata?.dayBySalesStartDate &&
     metadata?.dayBySalesEndDate
-      ? buildDailySalesByProductMap(
-          await dailySalesRepository.getSalesByProductsInRange(
-            items.map((row) => row.storeProduct.id),
-            metadata.dayBySalesStartDate,
-            metadata.dayBySalesEndDate,
-          ),
-        )
-      : new Map<number, Map<string, string>>();
+      ? [
+          {
+            startDate: metadata.dayBySalesStartDate,
+            endDate: metadata.dayBySalesEndDate,
+          },
+        ]
+      : []),
+  ];
+  const combinedSalesBounds = boundingIsoRange(salesQueryRanges);
+
+  const salesByProductAndDate = combinedSalesBounds
+    ? buildDailySalesByProductMap(
+        await dailySalesRepository.getSalesByProductsInRange(
+          storeProductIds,
+          combinedSalesBounds.startDate,
+          combinedSalesBounds.endDate,
+        ),
+      )
+    : new Map<number, Map<string, string>>();
 
   const supplierById = new Map(
     selectedSuppliers.map((row) => [row.supplier.id, row.supplier]),
@@ -448,7 +482,13 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
           .plus(parseDbDecimal(row.item.receivedNotPostedQty))
           .plus(parseDbDecimal(row.item.futureDeliveryTotalQty)),
       ),
-      periodSales: extractPeriodSales(row.item, periodCount),
+      periodSales: comparisonSalesBounds
+        ? periodSalesTotalsFromDailySales(
+            salesByProductAndDate,
+            row.storeProduct.id,
+            comparisonPeriodRanges,
+          )
+        : extractPeriodSales(row.item, periodCount),
       dailySales: dailySalesDates.length
         ? dailySalesForProductInRange(
             salesByProductAndDate,
@@ -491,6 +531,7 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
     items: mappedItems,
     bookStockStatus,
     periodLabels,
+    comparisonPeriods,
     dailySalesLabels,
     supplierColumns: selectedSuppliers.map(({ supplier }) => ({
       supplierId: supplier.id,

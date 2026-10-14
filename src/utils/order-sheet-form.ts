@@ -109,9 +109,7 @@ export function validateOrderSheetForm(
     errors.deliveryDate = "Delivery date cannot be earlier than order date";
   }
   if (!form.supplierIds.length) errors.supplierIds = "Select at least one supplier";
-  if (!form.departmentIds.length) {
-    errors.departmentIds = "Select at least one department";
-  }
+  // Departments optional: empty means all products at selected stores.
   if (!form.comparisonPeriods.length) {
     errors.comparisonPeriods = "Add at least one comparison period";
   }
