@@ -55,3 +55,26 @@ export function saveOrderSheetDraft(input: {
     },
   });
 }
+
+export type OrderSheetPreflight = {
+  ready: boolean;
+  blockers: string[];
+  warnings: string[];
+  bookStock: BookStockStatusRow[];
+  suppliers: SupplierDataStatusRow[];
+  salesPeriods: Array<{
+    startDate: string;
+    endDate: string;
+    totalStoreDays: number;
+    availableStoreDays: number;
+    totalItems: number;
+  }>;
+};
+
+export function preflightOrderSheet(input: {
+  storeIds: number[];
+  supplierIds: number[];
+  comparisonPeriods: Array<{ startDate: string; endDate: string }>;
+}): Promise<ActionResult<OrderSheetPreflight>> {
+  return apiRequest("/order-sheet/preflight", { method: "POST", body: input });
+}
