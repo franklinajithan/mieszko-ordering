@@ -73,6 +73,13 @@ export function OrderSheetPage({
           />
         ) : null}
 
+        {workflow.dataWarnings.length > 0 ? (
+          <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="font-semibold">Source data warnings</p>
+            <ul className="mt-2 list-disc pl-5">{workflow.dataWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+          </div>
+        ) : null}
+
         {workflow.error ? (
           <p className="text-sm text-red-600">{workflow.error}</p>
         ) : null}
