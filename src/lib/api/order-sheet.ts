@@ -76,6 +76,8 @@ export function preflightOrderSheet(input: {
   supplierIds: number[];
   deliveryDate?: string;
   bookStockDate?: string;
+  includeBookStock?: boolean;
+  includeFutureDeliveries?: boolean;
   comparisonPeriods: Array<{ startDate: string; endDate: string }>;
 }): Promise<ActionResult<OrderSheetPreflight>> {
   return apiRequest("/order-sheet/preflight", { method: "POST", body: input });
