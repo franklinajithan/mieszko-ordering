@@ -320,8 +320,7 @@ export async function calculateOrderSheet(
     endDate: new Date(period.endDate),
   }));
 
-  await orderRepository.clearCalculatedItems(orderId);
-
+  // Prepare all calculations before touching previously saved order items.
   const pendingItems: Array<typeof orderItems.$inferInsert> = [];
 
   for (const { storeProduct, product } of storeProducts) {
@@ -471,6 +470,7 @@ export async function calculateOrderSheet(
     });
   }
 
+  await orderRepository.clearCalculatedItems(orderId);
   const inserted = await orderRepository.insertOrderItems(pendingItems);
   const snapshotRows = inserted.flatMap((row) =>
     (row.supplierQuotes ?? []).map((quote) => ({
