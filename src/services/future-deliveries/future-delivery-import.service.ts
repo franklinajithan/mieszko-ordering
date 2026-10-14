@@ -63,6 +63,7 @@ async function loadStoreProductMap(storeId: number, codes: string[]) {
 }
 
 export async function importFutureOcsFile(input: {
+  expectedDeliveryDate?: string;
   storeId: number;
   fileName: string;
   buffer: Buffer;
@@ -101,6 +102,7 @@ export async function importFutureOcsFile(input: {
     source: string;
     fileName: string;
     importedAt: Date;
+    expectedDeliveryDate?: string;
   }> = [];
 
   for (const row of pivoted) {
@@ -120,6 +122,7 @@ export async function importFutureOcsFile(input: {
       source: "ocs",
       fileName: input.fileName,
       importedAt,
+      expectedDeliveryDate: input.expectedDeliveryDate,
     });
     result.matchedRows += 1;
   }
@@ -136,6 +139,7 @@ export async function importFutureOcsFile(input: {
 }
 
 export async function importFutureOrderFile(input: {
+  expectedDeliveryDate?: string;
   storeId: number;
   supplierId: number;
   fileName: string;
@@ -187,6 +191,7 @@ export async function importFutureOrderFile(input: {
     supplierId: number;
     fileName: string;
     importedAt: Date;
+    expectedDeliveryDate?: string;
   }> = [];
 
   for (const row of parsed.rows) {
@@ -209,6 +214,7 @@ export async function importFutureOrderFile(input: {
       supplierId: input.supplierId,
       fileName: input.fileName,
       importedAt,
+      expectedDeliveryDate: input.expectedDeliveryDate,
     });
     result.matchedRows += 1;
   }
@@ -225,6 +231,7 @@ export async function importFutureOrderFile(input: {
 }
 
 export async function importFutureOrderFiles(input: {
+  expectedDeliveryDate?: string;
   storeId: number;
   supplierId: number;
   files: Array<{ fileName: string; buffer: Buffer }>;
@@ -243,6 +250,7 @@ export async function importFutureOrderFiles(input: {
           fileName: file.fileName,
           buffer: file.buffer,
           importedAt: new Date(startedAt + index),
+          expectedDeliveryDate: input.expectedDeliveryDate,
           source: input.source ?? "order",
         }),
       );
@@ -265,6 +273,7 @@ export async function importFutureOrderFiles(input: {
 }
 
 export async function importFutureOcsFiles(input: {
+  expectedDeliveryDate?: string;
   storeId: number;
   files: Array<{ fileName: string; buffer: Buffer }>;
 }) {
@@ -280,6 +289,7 @@ export async function importFutureOcsFiles(input: {
           fileName: file.fileName,
           buffer: file.buffer,
           importedAt: new Date(startedAt + index),
+          expectedDeliveryDate: input.expectedDeliveryDate,
         }),
       );
     } catch (error) {
