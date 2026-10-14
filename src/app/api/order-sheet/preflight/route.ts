@@ -31,6 +31,16 @@ export const POST = route(async (req) => {
   const blockers = bookStock
     .filter((row) => !row.available || !row.bookStockDate)
     .map((row) => `Missing book stock: ${row.storeName}`);
+  const snapshotDates = [...new Set(bookStock
+    .filter((row) => row.available && row.bookStockDate)
+    .map((row) => row.bookStockDate))];
+  if (snapshotDates.length > 1) {
+    blockers.push(
+      "Selected stores have different book-stock snapshot dates (" +
+      snapshotDates.join(", ") +
+      "). Import matching snapshots or generate separate orders by snapshot date.",
+    );
+  }
   const warnings = [
     ...suppliers.filter((row) => row.status !== "current").map(
       (row) => `Supplier price data ${row.status}: ${row.supplierName}`,
