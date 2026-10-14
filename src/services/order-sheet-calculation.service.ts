@@ -207,9 +207,9 @@ export async function calculateOrderSheet(
     mappings,
     storeBarcodeMaps,
   ] = await Promise.all([
-    bookStockRepository.latestQtyByStoreProductIds(storeProductIds),
-    notPostedDeliveryRepository.sumQtyByStoreProductIds(storeProductIds),
-    futureDeliveryRepository.listScheduledByStoreProductIds(storeProductIds),
+    options.includeBookStock !== false ? bookStockRepository.latestQtyByStoreProductIds(storeProductIds) : Promise.resolve(new Map<number, string>()),
+    options.includeBookStock !== false ? notPostedDeliveryRepository.sumQtyByStoreProductIds(storeProductIds) : Promise.resolve(new Map<number, string>()),
+    options.includeFutureDeliveries ? futureDeliveryRepository.listScheduledByStoreProductIds(storeProductIds) : Promise.resolve([]),
     salesBounds
       ? dailySalesRepository.getSalesByProductsInRange(
           storeProductIds,
@@ -263,7 +263,7 @@ export async function calculateOrderSheet(
       `Cannot calculate safely: ${invalidFutureRows.length} future-delivery lines have invalid dates or quantities.`,
     );
   }
-  if (order.deliveryDate <= order.bookStockDate) {
+  if (options.includeBookStock !== false && order.deliveryDate <= order.bookStockDate) {
     throw new Error("Delivery date must be after the book-stock snapshot date.");
   }
   const futureLinesByProduct = new Map<number, typeof futureByProduct>();
