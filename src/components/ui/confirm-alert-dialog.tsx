@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +23,9 @@ type ConfirmAlertDialogProps = {
   cancelLabel?: string;
   onConfirm: () => void;
   confirming?: boolean;
+  confirmingLabel?: string;
+  confirmVariant?: "destructive" | "default";
+  children?: ReactNode;
 };
 
 /** Controlled delete/confirm dialog built on shadcn Alert Dialog. */
@@ -34,6 +38,9 @@ export function ConfirmAlertDialog({
   cancelLabel = "Cancel",
   onConfirm,
   confirming = false,
+  confirmingLabel,
+  confirmVariant = "destructive",
+  children,
 }: ConfirmAlertDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -42,17 +49,20 @@ export function ConfirmAlertDialog({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {children}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={confirming}>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
-            className={cn(buttonVariants({ variant: "destructive" }))}
+            className={cn(buttonVariants({ variant: confirmVariant }))}
             disabled={confirming}
             onClick={(event) => {
               event.preventDefault();
               onConfirm();
             }}
           >
-            {confirming ? "Deleting…" : confirmLabel}
+            {confirming
+              ? (confirmingLabel ?? "Working…")
+              : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

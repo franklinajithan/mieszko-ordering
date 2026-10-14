@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { apiError, apiOk, route } from "@/lib/api/http";
+import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
 import { idSchema } from "@/validators/schemas";
 import {
+  assignExpectedDeliveryDateToUpload,
   deleteFutureUpload,
   importFutureOcsFiles,
   importFutureOrderFiles,
@@ -24,6 +25,22 @@ export const GET = route(async (req) => {
   );
   if (!storeId.success) return apiError("storeId is required");
   return apiOk(await listFutureUploads(storeId.data));
+});
+
+const assignDateSchema = z.object({
+  storeId: idSchema,
+  importedAt: z.string().datetime(),
+  fileName: z.string().min(1),
+  source: z.string().min(1),
+  previousExpectedDeliveryDate: z.string().date().nullable().optional(),
+  expectedDeliveryDate: z.string().date(),
+});
+
+export const PATCH = route(async (req) => {
+  const parsed = await parseJson(req, assignDateSchema);
+  if (!parsed.ok) return parsed.response;
+  const updated = await assignExpectedDeliveryDateToUpload(parsed.data);
+  return apiOk({ updatedRows: updated });
 });
 
 export const DELETE = route(async (req) => {

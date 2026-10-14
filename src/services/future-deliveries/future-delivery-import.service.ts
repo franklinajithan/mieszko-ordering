@@ -314,6 +314,42 @@ export async function listFutureUploads(storeId: number) {
   return futureDeliveryRepository.listUploadsForStore(storeId);
 }
 
+export async function assignExpectedDeliveryDateToUpload(input: {
+  storeId: number;
+  importedAt: string;
+  fileName: string;
+  source: string;
+  previousExpectedDeliveryDate?: string | null;
+  expectedDeliveryDate: string;
+}) {
+  const parsed = new Date(input.importedAt);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("Invalid importedAt timestamp");
+  }
+  const updated = await futureDeliveryRepository.setExpectedDeliveryDateForUpload({
+    storeId: input.storeId,
+    importedAt: parsed,
+    fileName: input.fileName,
+    source: input.source,
+    previousExpectedDeliveryDate: input.previousExpectedDeliveryDate ?? null,
+    expectedDeliveryDate: input.expectedDeliveryDate,
+  });
+  if (!updated) {
+    throw new Error("No matching future delivery upload was updated");
+  }
+  return updated;
+}
+
+export async function countUndatedFutureDeliveryLines(storeIds: number[]) {
+  const counts = await Promise.all(
+    storeIds.map(async (storeId) => ({
+      storeId,
+      undatedLineCount: await futureDeliveryRepository.countUndatedNonZeroLines(storeId),
+    })),
+  );
+  return counts;
+}
+
 export async function deleteFutureUpload(storeId: number, importedAt: string) {
   const parsed = new Date(importedAt);
   if (Number.isNaN(parsed.getTime())) {

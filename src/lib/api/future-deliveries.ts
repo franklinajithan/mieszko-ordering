@@ -44,6 +44,20 @@ export function listFutureImports(
   return apiRequest(`/imports/future-deliveries?storeId=${storeId}`);
 }
 
+export function assignFutureUploadExpectedDate(input: {
+  storeId: number;
+  importedAt: string;
+  fileName: string;
+  source: string;
+  previousExpectedDeliveryDate?: string | null;
+  expectedDeliveryDate: string;
+}): Promise<ActionResult<{ updatedRows: number }>> {
+  return apiRequest("/imports/future-deliveries", {
+    method: "PATCH",
+    body: input,
+  });
+}
+
 export function deleteFutureUpload(
   storeId: number,
   importedAt: string,

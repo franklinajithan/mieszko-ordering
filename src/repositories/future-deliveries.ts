@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE } from "@/lib/import-config";
 import { futureDeliveries, storeProducts } from "@/db/schema";
@@ -92,6 +92,60 @@ export const futureDeliveryRepository = {
       itemCount: row?.itemCount ?? 0,
       totalQty: row?.totalQty ?? "0",
     };
+  },
+
+  async countUndatedNonZeroLines(storeId: number) {
+    const ids = await storeProductIds(storeId);
+    if (!ids.length) return 0;
+    const [row] = await db
+      .select({
+        count: sql<number>`count(*)::int`,
+      })
+      .from(futureDeliveries)
+      .where(
+        and(
+          inArray(futureDeliveries.storeProductId, ids),
+          isNull(futureDeliveries.expectedDeliveryDate),
+          sql`${futureDeliveries.quantity} <> 0`,
+        ),
+      );
+    return row?.count ?? 0;
+  },
+
+  async setExpectedDeliveryDateForUpload(input: {
+    storeId: number;
+    importedAt: Date;
+    fileName: string;
+    source: string;
+    previousExpectedDeliveryDate: string | null;
+    expectedDeliveryDate: string;
+  }) {
+    const ids = await storeProductIds(input.storeId);
+    if (!ids.length) return 0;
+
+    const dateCondition =
+      input.previousExpectedDeliveryDate === null
+        ? isNull(futureDeliveries.expectedDeliveryDate)
+        : eq(
+            futureDeliveries.expectedDeliveryDate,
+            input.previousExpectedDeliveryDate,
+          );
+
+    const updated = await db
+      .update(futureDeliveries)
+      .set({ expectedDeliveryDate: input.expectedDeliveryDate })
+      .where(
+        and(
+          eq(futureDeliveries.importedAt, input.importedAt),
+          eq(futureDeliveries.fileName, input.fileName),
+          eq(futureDeliveries.source, input.source),
+          dateCondition,
+          inArray(futureDeliveries.storeProductId, ids),
+        ),
+      )
+      .returning({ id: futureDeliveries.id });
+
+    return updated.length;
   },
 
   async listUploadsForStore(storeId: number) {

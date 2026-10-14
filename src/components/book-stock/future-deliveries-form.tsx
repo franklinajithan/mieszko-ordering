@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { FileSpreadsheet, X } from "lucide-react";
 import {
+  assignFutureUploadExpectedDate,
   deleteFutureUpload,
   importFutureFiles,
   listFutureImports,
@@ -61,6 +62,10 @@ export function FutureDeliveriesForm({
   const [pendingDelete, setPendingDelete] = useState<FutureUploadSummary | null>(
     null,
   );
+  const [pendingAssignDate, setPendingAssignDate] =
+    useState<FutureUploadSummary | null>(null);
+  const [assignDateValue, setAssignDateValue] = useState("");
+  const [assigningUpload, setAssigningUpload] = useState(false);
   const [progress, setProgress] = useState<{
     processed: number;
     total: number;
@@ -134,7 +139,7 @@ export function FutureDeliveriesForm({
       setError("Choose one or more future delivery files.");
       return;
     }
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(expectedDeliveryDate)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expectedDeliveryDate)) {
       setError("Choose a valid expected delivery date.");
       return;
     }
@@ -196,6 +201,33 @@ export function FutureDeliveriesForm({
     } finally {
       setImporting(false);
     }
+  }
+
+  async function confirmAssignExpectedDate() {
+    if (!pendingAssignDate || !storeId) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(assignDateValue)) {
+      setError("Choose a valid expected delivery date.");
+      return;
+    }
+    setAssigningUpload(true);
+    setError(null);
+    const response = await assignFutureUploadExpectedDate({
+      storeId,
+      importedAt: pendingAssignDate.importedAt,
+      fileName: pendingAssignDate.fileName,
+      source: pendingAssignDate.source,
+      previousExpectedDeliveryDate: pendingAssignDate.expectedDeliveryDate ?? null,
+      expectedDeliveryDate: assignDateValue,
+    });
+    setAssigningUpload(false);
+    setPendingAssignDate(null);
+    setAssignDateValue("");
+    if (!response.success) {
+      setError(response.error);
+      return;
+    }
+    setListRefreshKey((key) => key + 1);
+    onChanged?.();
   }
 
   async function confirmDeleteUpload() {
@@ -485,13 +517,22 @@ export function FutureDeliveriesForm({
               </thead>
               <tbody>
                 {uploads.map((entry) => (
-                  <tr key={`${entry.fileName}-${entry.importedAt}`} className="border-t">
+                  <tr
+                    key={`${entry.fileName}-${entry.importedAt}-${entry.expectedDeliveryDate ?? "undated"}`}
+                    className="border-t"
+                  >
                     <td className="px-3 py-2 font-medium">{entry.fileName}</td>
                     <td className="px-3 py-2 uppercase text-zinc-600">{entry.source}</td>
                     <td className="px-3 py-2 text-zinc-600">
                       {new Date(entry.importedAt).toLocaleString()}
                     </td>
-                    <td className="px-3 py-2 text-zinc-700">{entry.expectedDeliveryDate ?? "Date missing"}</td>
+                    <td className="px-3 py-2 text-zinc-700">
+                      {entry.expectedDeliveryDate ? (
+                        entry.expectedDeliveryDate
+                      ) : (
+                        <span className="text-amber-700">Date missing</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {entry.itemCount.toLocaleString()}
                     </td>
@@ -499,15 +540,31 @@ export function FutureDeliveriesForm({
                       {formatDecimal(parseDbDecimal(entry.totalQty), 2)}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={deletingUpload === entry.importedAt}
-                        onClick={() => setPendingDelete(entry)}
-                      >
-                        {deletingUpload === entry.importedAt ? "Deleting…" : "Delete"}
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        {!entry.expectedDeliveryDate ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setPendingAssignDate(entry);
+                              setAssignDateValue("");
+                              setError(null);
+                            }}
+                          >
+                            Set date
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={deletingUpload === entry.importedAt}
+                          onClick={() => setPendingDelete(entry)}
+                        >
+                          {deletingUpload === entry.importedAt ? "Deleting…" : "Delete"}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -532,6 +589,38 @@ export function FutureDeliveriesForm({
         </p>
       ))}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <ConfirmAlertDialog
+        open={pendingAssignDate !== null}
+        onOpenChange={(open) => {
+          if (!open && !assigningUpload) {
+            setPendingAssignDate(null);
+            setAssignDateValue("");
+          }
+        }}
+        title="Set expected delivery date"
+        description={
+          pendingAssignDate
+            ? `Assign the arrival date for ${pendingAssignDate.fileName}. This upload will not be used in order calculations until a date is set.`
+            : ""
+        }
+        confirmLabel="Save date"
+        confirmVariant="default"
+        confirming={assigningUpload}
+        confirmingLabel="Saving…"
+        onConfirm={() => void confirmAssignExpectedDate()}
+      >
+        {pendingAssignDate ? (
+          <input
+            type="date"
+            required
+            value={assignDateValue}
+            disabled={assigningUpload}
+            onChange={(event) => setAssignDateValue(event.target.value)}
+            className="mt-3 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+          />
+        ) : null}
+      </ConfirmAlertDialog>
 
       <ConfirmAlertDialog
         open={pendingDelete !== null}
