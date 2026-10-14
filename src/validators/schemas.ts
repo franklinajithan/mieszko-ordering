@@ -275,6 +275,8 @@ export const orderSheetGenerateSchema = z
     supplierIds: z.array(idSchema).min(1),
     departmentIds: z.array(idSchema).default([]),
     comparisonPeriods: z.array(dateRangeSchema).min(1),
+    includeBookStock: z.boolean().default(true),
+    includeFutureDeliveries: z.boolean().default(false),
     includeWastage: z.boolean().default(true),
     includeRtc: z.boolean().default(true),
     shortfallPeriods: z.array(dateRangeSchema).min(1),
