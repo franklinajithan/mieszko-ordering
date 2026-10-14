@@ -141,6 +141,15 @@ export function OrderSheetFormPanel({
               onChange={(dayBySalesRequired) => set({ dayBySalesRequired })}
             />
           </div>
+          <div className="flex flex-wrap gap-6 text-sm">
+            {(["includeBookStock", "includeFutureDeliveries"] as const).map((key) => (
+              <fieldset key={key} className="flex items-center gap-3">
+                <legend>{key === "includeBookStock" ? "Consider Book Stock?" : "Consider Future Deliveries?"}</legend>
+                <label><input type="radio" name={key} checked={form[key]} onChange={() => set({ [key]: true })} /> Yes</label>
+                <label><input type="radio" name={key} checked={!form[key]} onChange={() => set({ [key]: false })} /> No</label>
+              </fieldset>
+            ))}
+          </div>
           {form.dayBySalesRequired ? (
             <div className="rounded-lg border border-zinc-100 bg-zinc-50/60 p-4">
               <Label>Day-by-sales period</Label>
