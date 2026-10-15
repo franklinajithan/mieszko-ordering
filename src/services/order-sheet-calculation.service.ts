@@ -275,7 +275,7 @@ export async function calculateOrderSheet(
 
   const latestPrices = await supplierPriceRepository.getLatestPricesForSupplierProducts(
     mappings.map((mapping) => mapping.id),
-    order.bookStockDate,
+    order.orderDate,
   );
 
   const salesByProductAndDate = buildDailySalesByProductMap(salesRows);
