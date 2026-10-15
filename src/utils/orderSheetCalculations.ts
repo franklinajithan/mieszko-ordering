@@ -2,8 +2,8 @@ import { Decimal, decimalToDb, toDecimal } from "@/utils/decimal";
 import type { SoldQtyMethod } from "@/types/orderSheet";
 
 export function diffDaysInclusive(startDate: string, endDate: string): number {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
   const ms = end.getTime() - start.getTime();
   if (ms < 0) return 0;
