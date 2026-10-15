@@ -138,7 +138,9 @@ export async function calculateOrderSheet(
   const supplierRows = options.supplierIds?.length
     ? await supplierRepository.getByIds(options.supplierIds)
     : (await orderRepository.getSelectedSuppliers(orderId)).map((row) => row.supplier);
-  const selectedSuppliers = supplierRows.map((supplier) => ({ supplier }));
+  const selectedSuppliers = [...new Map(
+    supplierRows.map((supplier) => [supplier.id, { supplier }] as const),
+  ).values()];
   if (!selectedSuppliers.length) {
     throw new Error("Select at least one supplier");
   }
