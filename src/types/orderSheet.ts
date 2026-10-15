@@ -104,6 +104,13 @@ export type OrderSheetItem = {
   wastageQty: string;
   rtcQty: string;
   shortfallDays: number;
+  forecastMovementQty?: string;
+  projectedStockQty?: string;
+  shortageQty?: string;
+  priceWarning?: string | null;
+  cheapestNetPrice?: string | null;
+  estimatedLineCost?: string | null;
+  quantityOverridden?: boolean;
   suggestedOrderQty: string;
   orderQty: string;
   selected: boolean;
@@ -137,6 +144,8 @@ export type OrderSheetResult = {
 };
 
 export type OrderSheetMetadata = {
+  bookStockDatesByStore?: Record<number,string>;
+  bookStockImportedAtByStore?: Record<number,string>;
   storeIds: number[];
   supplierIds?: number[];
   orderDate: string;

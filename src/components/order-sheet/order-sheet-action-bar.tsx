@@ -53,12 +53,12 @@ export function OrderSheetActionBar({
         <Button
           type="button"
           variant="outline"
-          disabled={!orderId || generating}
+          disabled={!orderId || generating || saving}
           onClick={onExport}
         >
           Export Excel
         </Button>
-        <Button type="button" disabled={generating} onClick={onGenerate}>
+        <Button type="button" disabled={generating || saving} onClick={onGenerate}>
           {generating ? "Generating..." : "Generate Order Sheet"}
         </Button>
       </div>

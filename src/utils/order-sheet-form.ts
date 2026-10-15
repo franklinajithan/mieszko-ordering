@@ -10,26 +10,26 @@ import {
 export const DEFAULT_ORDER_SHEET_SUPPLIER_CODES = ["MM", "SP", "WAB", "ADM"];
 
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-GB", {timeZone:"Europe/London",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+  const value = (type: string) => parts.find(part => part.type === type)!.value;
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 export function addDaysIso(base: string, days: number): string {
-  const date = new Date(`${base}T00:00:00`);
-  date.setDate(date.getDate() + days);
+  const date = new Date(`${base}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
 export function defaultComparisonPeriods(): ComparisonPeriod[] {
   const periods: ComparisonPeriod[] = [];
   for (let index = 2; index >= 0; index -= 1) {
-    const end = new Date();
-    end.setDate(end.getDate() - index * 7 - 1);
-    const start = new Date(end);
-    start.setDate(start.getDate() - 6);
+    const end = addDaysIso(todayIso(), -index * 7 - 1);
+    const start = addDaysIso(end, -6);
     periods.push({
       id: `comparison-period-${periods.length + 1}`,
-      startDate: start.toISOString().slice(0, 10),
-      endDate: end.toISOString().slice(0, 10),
+      startDate: start,
+      endDate: end,
     });
   }
   return periods;

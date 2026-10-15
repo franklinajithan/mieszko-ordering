@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { DepartmentOption } from "@/types/department";
 import type { Supplier } from "@/types/supplier";
@@ -21,7 +21,11 @@ export function useOrderSheetForm(
   departments: DepartmentOption[],
 ) {
   const [form, setForm] = useState<OrderSheetFormState>(
-    createInitialOrderSheetForm,
+    () => ({ ...createInitialOrderSheetForm(),
+      storeIds: stores.map(store => store.id),
+      supplierIds: suppliers.filter(supplier => supplier.isActive && DEFAULT_ORDER_SHEET_SUPPLIER_CODES.includes(supplier.code)).map(supplier => supplier.id),
+      departmentIds: departments.map(department => department.id),
+    }),
   );
 
   const activeSuppliers = useMemo(
@@ -30,49 +34,6 @@ export function useOrderSheetForm(
   );
   const dayBySalesDates = useMemo(() => getDayBySalesDates(form), [form]);
   const shortfallDays = totalUniquePeriodDays(form.shortfallPeriods);
-
-  const didInitStores = useRef(false);
-  const didInitSuppliers = useRef(false);
-  const didInitDepartments = useRef(false);
-
-  useEffect(() => {
-    if (didInitStores.current || !stores.length) return;
-    didInitStores.current = true;
-    setForm((current) => {
-      if (current.storeIds.length) return current;
-      return {
-        ...current,
-        storeIds: stores.map((store) => store.id),
-      };
-    });
-  }, [stores]);
-
-  useEffect(() => {
-    if (didInitSuppliers.current || !activeSuppliers.length) return;
-    didInitSuppliers.current = true;
-    const defaults = activeSuppliers
-      .filter((supplier) =>
-        DEFAULT_ORDER_SHEET_SUPPLIER_CODES.includes(supplier.code),
-      )
-      .map((supplier) => supplier.id);
-    if (!defaults.length) return;
-    setForm((current) => {
-      if (current.supplierIds.length) return current;
-      return { ...current, supplierIds: defaults };
-    });
-  }, [activeSuppliers]);
-
-  useEffect(() => {
-    if (didInitDepartments.current || !departments.length) return;
-    didInitDepartments.current = true;
-    setForm((current) => {
-      if (current.departmentIds.length) return current;
-      return {
-        ...current,
-        departmentIds: departments.map((department) => department.id),
-      };
-    });
-  }, [departments]);
 
   function updatePeriod(id: string, patch: Partial<ComparisonPeriod>) {
     setForm((current) => ({
@@ -129,8 +90,6 @@ export function useOrderSheetForm(
   }
 
   function resetForm() {
-    didInitStores.current = false;
-    didInitSuppliers.current = false;
     setForm(createInitialOrderSheetForm());
   }
 

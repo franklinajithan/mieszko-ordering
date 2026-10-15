@@ -22,6 +22,7 @@ const chunkSchema = z.object({
   quantityColumn: z.string().min(1),
   fileName: z.string().min(1),
   importedAt: z.string().datetime().optional(),
+  totalRows: z.number().int().positive().max(2000000),
   rows: z
     .array(z.record(z.string(), z.string()))
     .min(1)

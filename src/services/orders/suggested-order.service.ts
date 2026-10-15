@@ -1,4 +1,4 @@
-import { Decimal, toDecimal } from "@/utils/decimal";
+import { Decimal } from "@/utils/decimal";
 
 /** Isolated formula – may change later. */
 export function calculateSuggestedOrderQty(

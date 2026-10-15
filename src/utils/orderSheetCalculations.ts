@@ -105,7 +105,7 @@ export function buildDailySalesByProductMap(
     const dateKey = normalizeIsoDate(row.salesDate);
     if (!dateKey) continue;
     const byDate = map.get(row.storeProductId) ?? new Map<string, string>();
-    byDate.set(dateKey, decimalToDb(toDecimal(byDate.get(dateKey) ?? "0").plus(toDecimal(row.soldQty))));
+    byDate.set(dateKey, toDecimal(byDate.get(dateKey) ?? "0").plus(toDecimal(row.soldQty)).toString());
     map.set(row.storeProductId, byDate);
   }
   return map;

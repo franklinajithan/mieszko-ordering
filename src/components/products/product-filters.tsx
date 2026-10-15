@@ -29,9 +29,12 @@ export function ProductFilters({
   const searchParams = useSearchParams();
   const [searchValue, setSearchValue] = useState(searchParams.get("search") ?? "");
 
-  useEffect(() => {
-    setSearchValue(searchParams.get("search") ?? "");
-  }, [searchParams]);
+  const urlSearch = searchParams.get("search") ?? "";
+  const [previousSearch, setPreviousSearch] = useState(urlSearch);
+  if (previousSearch !== urlSearch) {
+    setPreviousSearch(urlSearch);
+    setSearchValue(urlSearch);
+  }
 
   function update(key: string, value: string, resetPage = true) {
     const params = new URLSearchParams(searchParams.toString());

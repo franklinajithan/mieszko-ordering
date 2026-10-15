@@ -21,7 +21,6 @@ export function useOrderSheetStatus(form: OrderSheetFormState) {
   );
   const [supplierStatusLoading, setSupplierStatusLoading] = useState(false);
 
-  const storeIdsKey = form.storeIds.join(",");
 
   const reloadBookStock = useCallback(() => {
     if (!form.storeIds.length) {
@@ -35,14 +34,16 @@ export function useOrderSheetStatus(form: OrderSheetFormState) {
         setBookStockRows(response.success ? response.data : []);
       })
       .finally(() => setStockLoading(false));
-  }, [storeIdsKey]);
+  }, [form.storeIds]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Start the stock request when the store selection changes.
     reloadBookStock();
   }, [reloadBookStock]);
 
   useEffect(() => {
     if (!form.supplierIds.length) {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Clear the previous supplier response when selection is empty.
       setSupplierStatus([]);
       return;
     }

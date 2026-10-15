@@ -49,14 +49,12 @@ export function NotPostedDeliveryForm({
   } | null>(null);
 
   useEffect(() => {
-    if (!storeId) {
-      setUploads([]);
-      return;
-    }
-    void listNotPostedImports(storeId).then((response) => {
-      if (response.success) setUploads(response.data);
-      else setUploads([]);
+    let cancelled = false;
+    const request = storeId ? listNotPostedImports(storeId) : Promise.resolve({ success: true as const, data: [] });
+    void request.then(response => {
+      if (!cancelled) setUploads(response.success ? response.data : []);
     });
+    return () => { cancelled = true; };
   }, [storeId, listRefreshKey]);
 
   const totalRecQty = useMemo(

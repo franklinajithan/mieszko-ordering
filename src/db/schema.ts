@@ -1,4 +1,4 @@
-import { bigint, boolean, date, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, varchar, } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, index, integer, jsonb, numeric, pgTable, primaryKey, check, text, timestamp, unique, varchar, } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 
@@ -517,6 +517,7 @@ export const futureDeliveries = pgTable(
 
 
 export const orders = pgTable("orders", {
+  revision: integer("revision").notNull().default(0),
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   storeIds: jsonb("store_ids").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
   supplierIds: jsonb("supplier_ids").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
@@ -524,6 +525,8 @@ export const orders = pgTable("orders", {
   orderDate: date("order_date").notNull(),
   deliveryDate: date("delivery_date").notNull(),
   bookStockDate: date("book_stock_date").notNull(),
+  includeBookStock: boolean("include_book_stock").notNull().default(true),
+  includeFutureDeliveries: boolean("include_future_deliveries").notNull().default(false),
   includeWastage: boolean("include_wastage").notNull().default(false),
   includeRtc: boolean("include_rtc").notNull().default(false),
   includeDayByDaySales: boolean("include_day_by_day_sales").notNull().default(false),
@@ -649,6 +652,7 @@ export const orderItems = pgTable(
 
       .default("0"),
 
+    quantityOverridden: boolean("quantity_overridden").notNull().default(false),
     finalOrderQty: numeric("final_order_qty", { precision: 18, scale: 4 })
 
       .notNull()
@@ -883,3 +887,33 @@ export const dataImportRuns = pgTable("data_import_runs", {
   index("data_import_runs_store_source_started_idx").on(table.storeId, table.sourceType, table.startedAt),
   index("data_import_runs_status_started_idx").on(table.status, table.startedAt),
 ]);
+
+export const bookStockImportStage = pgTable("book_stock_import_stage", {
+  storeId: integer("store_id").notNull().references(() => stores.id, {onDelete:"cascade"}),
+  importedAt: timestamp("imported_at", {withTimezone:true}).notNull(),
+  storeProductId: integer("store_product_id").notNull().references(() => storeProducts.id, {onDelete:"cascade"}),
+  bookStockDate: date("book_stock_date").notNull(),
+  quantity: numeric("quantity", {precision:18,scale:4}).notNull(),
+  expectedRows: integer("expected_rows").notNull(),
+  createdAt: timestamp("created_at", {withTimezone:true}).notNull().defaultNow(),
+}, table => [primaryKey({columns:[table.storeId,table.importedAt,table.storeProductId]}),
+  check("book_stock_stage_expected_positive",sql`${table.expectedRows}>0`),
+  index("book_stock_stage_created_idx").on(table.createdAt)]);
+
+export type SupplierOrderLine = {
+  storeProductId: number; itemCode: string; productName: string; supplierCode: string;
+  quantity: string; unitPrice: string; lineCost: string; caseSize: string | null;
+};
+export const supplierOrders = pgTable("supplier_orders", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => orders.id, {onDelete:"cascade"}),
+  storeId: integer("store_id").notNull().references(() => stores.id),
+  supplierId: integer("supplier_id").notNull().references(() => suppliers.id),
+  deliveryDate: date("delivery_date").notNull(),
+  totalNetCost: numeric("total_net_cost", {precision:18,scale:4}).notNull(),
+  lines: jsonb("lines").$type<SupplierOrderLine[]>().notNull(),
+  sourceRevision: integer("source_revision").notNull(),
+  sourceUpdatedAt: timestamp("source_updated_at", {withTimezone:true}).notNull(),
+  generatedAt: timestamp("generated_at", {withTimezone:true}).notNull().defaultNow(),
+}, table => [unique("supplier_orders_order_store_supplier_unique").on(table.orderId,table.storeId,table.supplierId),
+  index("supplier_orders_order_idx").on(table.orderId)]);

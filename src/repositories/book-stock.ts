@@ -107,7 +107,7 @@ export const bookStockRepository = {
       );
   },
 
-  async latestQtyByStoreProductIds(storeProductIds: number[]) {
+  async latestQtyByStoreProductIds(storeProductIds: number[], snapshotTimes?: Record<number,string>) {
     const qtyByProduct = new Map<number, string>();
     const uniqueIds = [...new Set(storeProductIds)];
 
@@ -125,7 +125,18 @@ export const bookStockRepository = {
           bookStockQty: bookStock.bookStockQty,
         })
         .from(bookStock)
-        .where(inArray(bookStock.storeProductId, batch))
+        .where(and(
+          inArray(bookStock.storeProductId, batch),
+          // Only the latest complete store upload: absent products must not inherit
+          // quantities from an older snapshot.
+          snapshotTimes ? sql`${bookStock.importedAt} = (
+            ${JSON.stringify(snapshotTimes)}::jsonb ->> (SELECT store_id::text FROM store_products WHERE id = ${bookStock.storeProductId})
+          )::timestamptz` : sql`${bookStock.importedAt} = (
+            SELECT max(bs.imported_at) FROM book_stock bs
+            JOIN store_products sp ON sp.id = bs.store_product_id
+            WHERE sp.store_id = (SELECT store_id FROM store_products WHERE id = ${bookStock.storeProductId})
+          )`,
+        ))
         .orderBy(bookStock.storeProductId, desc(bookStock.importedAt));
 
       for (const row of rows) {

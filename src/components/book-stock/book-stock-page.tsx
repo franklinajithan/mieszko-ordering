@@ -1,3 +1,4 @@
+import { DataOperationsStatus } from "@/components/layout/data-operations-status";
 import { AppShell } from "@/components/layout/app-shell";
 import { BookStockImportForm } from "@/components/book-stock/book-stock-import-form";
 import type { Supplier } from "@/types/supplier";
@@ -16,7 +17,7 @@ export function BookStockPageView({
       title="Book Stock"
       description="Import BK files by store. Optionally add not-posted and future delivery files; those quantities are added to book stock."
     >
-      <BookStockImportForm stores={stores} suppliers={suppliers} />
+      <div className="space-y-6"><DataOperationsStatus /><BookStockImportForm stores={stores} suppliers={suppliers} /></div>
     </AppShell>
   );
 }

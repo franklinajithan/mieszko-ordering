@@ -124,10 +124,11 @@ describe("compareSupplierPrices", () => {
     expect(result.cheapestSupplierId).toBe(2);
   });
 
-  it("CHECK when WAB included with missing code", () => {
+  it("chooses a valid offer and warns when WAB has no mapping", () => {
     const result = compareSupplierPrices([mm, sp, wabMissing], d(10));
-    expect(result.priceStatus).toBe("check_missing_code");
-    expect(result.cheapestSupplierId).toBeNull();
+    expect(result.priceStatus).toBe("complete");
+    expect(result.cheapestSupplierId).toBe(2);
+    expect(result.warning).toContain("missing supplier product code");
   });
 
   it("CHECK when selected supplier has missing price", () => {

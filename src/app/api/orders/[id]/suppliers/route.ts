@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { orderRepository } from "@/repositories";
+import { recalculateSavedOrder } from "@/services/orders/recalculate-saved-order.service";
 import { idSchema } from "@/validators/schemas";
 import { apiError, apiOk, numericParam, parseJson, route } from "@/lib/api/http";
 
@@ -15,7 +15,6 @@ export const PUT = route(
     const parsed = await parseJson(req, bodySchema);
     if (!parsed.ok) return parsed.response;
 
-    await orderRepository.replacePriceSuppliers(orderId, parsed.data.supplierIds);
-    return apiOk(null);
+    return apiOk(await recalculateSavedOrder(orderId,{supplierIds:[...new Set(parsed.data.supplierIds)]}));
   },
 );

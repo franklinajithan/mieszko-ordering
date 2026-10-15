@@ -1,5 +1,6 @@
 "use client";
 
+import { SupplierOrderPanel } from "@/components/orders/supplier-order-panel";
 import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
 import { OrderSheetActionBar } from "@/components/order-sheet/order-sheet-action-bar";
 import { OrderSheetFormPanel } from "@/components/order-sheet/order-sheet-form-panel";
@@ -72,6 +73,8 @@ export function OrderSheetPage({
             onOrderQtyChange={workflow.changeOrderQty}
           />
         ) : null}
+
+        {workflow.orderId ? <SupplierOrderPanel key={workflow.orderId} orderId={workflow.orderId} beforeGenerate={workflow.persistDraft} revision={JSON.stringify(workflow.items.map(item=>[item.orderItemId,item.orderQty,item.selected]))} /> : null}
 
         {workflow.dataWarnings.length > 0 ? (
           <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">

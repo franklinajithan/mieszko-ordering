@@ -35,7 +35,8 @@ export type SupplierPriceComparisonResult = {
 
 function validatePrice(netPrice: string | null): PriceValidationStatus {
   if (netPrice === null || netPrice.trim() === "") return "missing_price";
-  const value = toDecimal(netPrice);
+  let value: Decimal;
+  try { value = toDecimal(netPrice); } catch { return "invalid_price"; }
   if (!value.isFinite()) return "invalid_price";
   if (value.isZero() || value.isNegative()) return "invalid_price";
   return "valid";
@@ -45,18 +46,15 @@ export function compareSupplierPrices(
   suppliers: SupplierPriceInput[],
   finalOrderQty: Decimal,
 ): SupplierPriceComparisonResult {
+  if (!finalOrderQty.isFinite() || finalOrderQty.isNegative()) throw new Error("Invalid order quantity");
   if (suppliers.length === 0) {
     return {
-      priceStatus: "check_missing_code",
-      cheapestSupplierId: null,
-      cheapestNetPrice: null,
-      estimatedLineCost: null,
-      warning: "No suppliers selected",
-      snapshots: [],
+      priceStatus: "check_missing_code", cheapestSupplierId: null, cheapestNetPrice: null,
+      estimatedLineCost: null, warning: "No suppliers selected", snapshots: [],
     };
   }
   const snapshots: SupplierPriceSnapshot[] = suppliers.map((supplier) => {
-    if (!supplier.hasMapping) {
+    if (!supplier.hasMapping || !supplier.supplierCode.trim()) {
       return {
         supplierId: supplier.supplierId,
         supplierKey: supplier.supplierKey,
@@ -137,7 +135,7 @@ export function compareSupplierPrices(
     const bPriority =
       suppliers.find((s) => s.supplierId === b.supplierId)?.priceTiePriority ??
       999;
-    return aPriority - bPriority;
+    return aPriority - bPriority || a.supplierId - b.supplierId;
   });
 
   const cheapest = sorted[0];

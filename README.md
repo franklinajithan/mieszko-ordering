@@ -98,3 +98,48 @@ Unit tests cover:
 ```bash
 npm test
 ```
+
+## Development completion package (15 October 2026)
+
+- Dashboard: separate seven-day Normal Sales, RTC and Wastage quantities, recent
+  orders, audited import status, and manual Book Stock queueing.
+- Saved orders: open `/orders/[id]` from the dashboard, review explanations,
+  adjust quantities, save atomically, and export supplier worksheets.
+- Ordering: UTC weekday forecasts deduplicate overlapping historical dates;
+  separate enabled movement feeds inform stock depletion and coverage demand.
+  Quotes use net **unit** prices; supplier worksheets show case conversions
+  without silently rounding the user's units. Unpriced lines stay flagged.
+- Book Stock: browser chunks stage until all rows arrive; automated imports and
+  whole-file uploads commit atomically. Incomplete or unmatched stock files never
+  replace the previous snapshot. Latest-store snapshots do not inherit omitted
+  products from older uploads.
+- Windows automation: see `docs/office-import-activation.md`. Actual CRM selectors,
+  report layout normalization, credentials and Windows scheduling remain office
+  activation work. Nothing is deployed or scheduled by the development package.
+
+The authoritative schema is `src/db/schema.ts`; `schema.sql` is a generated
+**fresh database** baseline. Existing office installations must review the manual
+migrations rather than run the baseline or `db:push`.
+
+Tests: `npm test` includes isolated embedded PostgreSQL persistence and order/export
+integration tests. `python -m unittest discover -s automation/tests -v` checks worker
+report validation. GitHub CI runs tests, lint and build, with no deployment or
+migration steps. See `docs/development-report-2026-10-15.md` for the verified scope
+and remaining office dependencies.
+
+
+## Supplier orders and history
+
+Open `/orders` to filter saved orders by store, dates and status. Reopen an order to
+edit units, see immediate line/net totals, and generate one supplier order per
+store and supplier. Each supplier order has a separate Excel download. The lowest
+valid **unit price** wins regardless of case size; missing offers remain warnings
+when another supplier has a valid price. Selected lines with no valid price block
+supplier-order generation rather than being silently omitted.
+
+Manual quantities are saved before exports and recalculation, and persist for the
+same store product when suggestions change. Generated supplier drafts track the
+source order revision and must be regenerated after subsequent edits. Apply the
+prepared `2026-10-16-supplier-orders-and-manual-quantities.sql` migration only after
+office review/approval. See `docs/functional-development-report.md` for the latest
+verified changes and remaining integration dependencies.

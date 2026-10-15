@@ -13,8 +13,8 @@ import {
   supplierRepository,
 } from "@/repositories";
 import { db } from "@/db";
-import { suppliers } from "@/db/schema";
-import { inArray } from "drizzle-orm";
+import { suppliers, orders, orderItems } from "@/db/schema";
+import { inArray, eq, and, sql } from "drizzle-orm";
 import {
   boundingIsoRange,
   buildDailySalesByProductMap,
@@ -39,7 +39,6 @@ import {
   type SoldQtyMethod,
   type SupplierDataStatusRow,
 } from "@/types/orderSheet";
-import type { orders } from "@/db/schema";
 import { decimalToDb, parseDbDecimal } from "@/utils/decimal";
 import { periodKeyForIndex, periodSalesList } from "@/utils/period-sales";
 
@@ -86,8 +85,8 @@ export function settingsFromOrder(order: OrderRow): OrderSheetMetadata {
     supplierIds: order.supplierIds,
     orderDate: order.orderDate,
     soldQtyMethod: (order.soldQtyMethod as SoldQtyMethod) || "max",
-    includeBookStock: true,
-    includeFutureDeliveries: false,
+    includeBookStock: order.includeBookStock,
+    includeFutureDeliveries: order.includeFutureDeliveries,
     includeWastage: order.includeWastage,
     includeRtc: order.includeRtc,
     shortfallPeriods: normalizeShortfallPeriods(
@@ -273,13 +272,6 @@ export async function resolveOrderSheetGenerationBlockers(input: {
         .map((row) => row.bookStockDate),
     ),
   ] as string[];
-  if (snapshotDates.length > 1) {
-    blockers.push(
-      "Selected stores have different book-stock snapshot dates (" +
-        snapshotDates.join(", ") +
-        "). Import matching snapshots or generate separate orders by snapshot date.",
-    );
-  }
   const primaryBookStockDate = snapshotDates[0];
   if (
     bookStockDate &&
@@ -290,7 +282,7 @@ export async function resolveOrderSheetGenerationBlockers(input: {
       "Book-stock date changed. Refresh stock status before generating.",
     );
   }
-  if (deliveryDate && primaryBookStockDate && deliveryDate <= primaryBookStockDate) {
+  if (deliveryDate && snapshotDates.some(date=>deliveryDate<=date)) {
     blockers.push(
       "Delivery date must be after the book-stock snapshot date.",
     );
@@ -549,14 +541,14 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
           .plus(parseDbDecimal(row.item.receivedNotPostedQty))
           .plus(parseDbDecimal(row.item.futureDeliveryTotalQty)),
       ),
-      periodSales: comparisonSalesBounds
+      periodSales: row.item.periodSales?.length ? extractPeriodSales(row.item, periodCount) : comparisonSalesBounds
         ? periodSalesTotalsFromDailySales(
             salesByProductAndDate,
             row.storeProduct.id,
             comparisonPeriodRanges,
           )
         : extractPeriodSales(row.item, periodCount),
-      dailySales: dailySalesDates.length
+      dailySales: breakdown?.dailySales?.length ? breakdown.dailySales.map(day => day.soldQty) : dailySalesDates.length
         ? dailySalesForProductInRange(
             salesByProductAndDate,
             row.storeProduct.id,
@@ -568,6 +560,13 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
       wastageQty: breakdown?.wastageQty ?? "0",
       rtcQty: breakdown?.rtcQty ?? "0",
       shortfallDays: breakdown?.shortfallDays ?? 0,
+      forecastMovementQty: row.item.forecastSalesQty,
+      projectedStockQty: row.item.projectedFinalStockQty,
+      shortageQty: row.item.shortageQty,
+      priceWarning: row.item.warning,
+      cheapestNetPrice: row.item.cheapestNetPrice,
+      estimatedLineCost: row.item.estimatedLineCost,
+      quantityOverridden: row.item.quantityOverridden,
       suggestedOrderQty: row.item.suggestedOrderQty,
       orderQty: row.item.finalOrderQty,
       selected: parseQty(row.item.finalOrderQty).gt(0),
@@ -659,22 +658,22 @@ export async function generateOrderSheet(
     );
   }
 
-  const snapshotDates = [...new Set(bookStockStatuses.map((status) => status.bookStockDate))];
-  if (input.includeBookStock && snapshotDates.length !== 1) {
-    throw new Error("Selected stores have different book-stock dates. Generate each store separately until per-store stock dates are supported.");
-  }
   const primaryBookStock = bookStockStatuses[0]!;
   if (input.includeBookStock && input.bookStockDate && input.bookStockDate !== primaryBookStock?.bookStockDate) {
     throw new Error("Book-stock date changed. Refresh stock status before generating.");
   }
 
   const metadata: OrderSheetMetadata = {
+    bookStockImportedAtByStore: Object.fromEntries(bookStockStatuses.filter(row=>row.importedAt).map(row=>[row.storeId,row.importedAt!])),
+    bookStockDatesByStore: Object.fromEntries(bookStockStatuses.filter(row=>row.bookStockDate).map(row=>[row.storeId,row.bookStockDate!])),
     storeIds,
     supplierIds: input.supplierIds,
     orderDate: input.orderDate,
     soldQtyMethod: input.soldQtyMethod,
     includeWastage: input.includeWastage,
     includeRtc: input.includeRtc,
+    includeBookStock: input.includeBookStock,
+    includeFutureDeliveries: input.includeFutureDeliveries,
     shortfallPeriods: input.shortfallPeriods,
     comparisonPeriods: input.comparisonPeriods,
     dayBySalesRequired: input.dayBySalesRequired ?? false,
@@ -688,14 +687,17 @@ export async function generateOrderSheet(
   );
 
   let orderId = input.orderId;
-  if (orderId) {
-    await orderRepository.update(orderId, header);
-  } else {
+  if (!orderId) {
     const created = await orderRepository.create(header);
     orderId = created.id;
   }
 
-  await calculateOrderSheet(orderId, metadata);
+  try {
+    await calculateOrderSheet(orderId, metadata, header);
+  } catch (error) {
+    if (!input.orderId) await db.delete(orders).where(eq(orders.id, orderId));
+    throw error;
+  }
   // Preserve imported delivery records across generation and regeneration.
 
   return buildOrderSheetResult(orderId);
@@ -709,14 +711,19 @@ export async function saveOrderSheetDraft(input: {
   const order = await orderRepository.getById(input.orderId);
   if (!order) throw new Error("Order not found");
 
-  await orderRepository.update(input.orderId, {
-    comment: input.comment?.trim() || null,
-    status: "draft",
+  if (new Set(input.items.map(item => item.orderItemId)).size !== input.items.length) throw new Error("Duplicate order item");
+  await db.transaction(async tx => {
+    await tx.execute(sql`SELECT id FROM orders WHERE id=${input.orderId} FOR UPDATE`);
+    for (const item of input.items) {
+      const qty = parseDbDecimal(item.selected ? item.orderQty : "0");
+      if (!qty.isFinite() || qty.isNegative() || qty.gte("100000000000000")) throw new Error("Invalid order quantity");
+      const updated = await tx.update(orderItems).set({
+        quantityOverridden: sql`${orderItems.quantityOverridden} OR ${orderItems.finalOrderQty} IS DISTINCT FROM ${decimalToDb(qty)}::numeric`,
+        finalOrderQty: decimalToDb(qty),
+        estimatedLineCost: sql`${decimalToDb(qty)}::numeric * ${orderItems.cheapestNetPrice}`,
+      }).where(and(eq(orderItems.id, item.orderItemId), eq(orderItems.orderId, input.orderId))).returning({id:orderItems.id});
+      if (!updated.length) throw new Error("Order item does not belong to this order");
+    }
+    await tx.update(orders).set({comment: input.comment?.trim() || null, status: "draft", updatedAt: new Date(), revision:sql`${orders.revision}+1`}).where(eq(orders.id,input.orderId));
   });
-
-  for (const item of input.items) {
-    const qty = item.selected ? item.orderQty : "0";
-    await orderRepository.updateFinalQuantity(item.orderItemId, qty);
-  }
 }
-

@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Office-local worker credentials and reports
+/automation/.venv/
+/automation/config.local.json
+/automation/crm.local.json
+/automation/downloads/
+__pycache__/

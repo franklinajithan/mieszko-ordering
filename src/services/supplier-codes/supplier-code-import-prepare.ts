@@ -83,7 +83,7 @@ export function findInFileSupplierCodeConflicts(
 
   const conflicts: SupplierCodeConflict[] = [];
 
-  for (const [key, group] of bySupplierCode) {
+  for (const group of bySupplierCode.values()) {
     const uniqueStoreCodes = [
       ...new Set(group.map((a) => a.storeProductCode)),
     ];

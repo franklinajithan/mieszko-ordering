@@ -30,6 +30,7 @@ export function SupplierPriceListPage({ refreshKey = 0 }: { refreshKey?: number 
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Load the external upload history after mount or import.
     void loadUploads();
   }, [loadUploads, refreshKey]);
 

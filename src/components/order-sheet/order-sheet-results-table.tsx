@@ -95,10 +95,6 @@ export function OrderSheetResultsTable({
       {explainedItemId !== null ? (() => {
         const item = items.find((row) => row.orderItemId === explainedItemId);
         if (!item) return null;
-        const normalSales = item.periodSales.reduce((sum, value) => sum.plus(parseQty(value)), parseQty("0"));
-        const periodsCount = item.periodSales.length || 1;
-        const rtc = includeRtc ? parseQty(item.rtcQty) : parseQty("0");
-        const wastage = includeWastage ? parseQty(item.wastageQty) : parseQty("0");
         return (
           <section role="region" aria-label="Suggested quantity explanation" className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-sm">
             <div className="flex items-start justify-between gap-4">
@@ -106,7 +102,7 @@ export function OrderSheetResultsTable({
               <button type="button" onClick={() => setExplainedItemId(null)} className="rounded border bg-white px-3 py-1 text-xs" aria-label="Close explanation">Close ×</button>
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-lg bg-white p-3"><p className="text-xs text-zinc-500">Normal sales (average per comparison period)</p><p className="font-semibold">{normalSales.div(periodsCount).toFixed(2)}</p></div>
+              <div className="rounded-lg bg-white p-3"><p className="text-xs text-zinc-500">Normal sales (selected calculation method)</p><p className="font-semibold">{item.calculatedSoldQty}</p></div>
               <div className="rounded-lg bg-white p-3"><p className="text-xs text-zinc-500">RTC sales (separate feed)</p><p className="font-semibold">{includeRtc ? item.rtcQty : "Excluded"}</p></div>
               <div className="rounded-lg bg-white p-3"><p className="text-xs text-zinc-500">Wastage</p><p className="font-semibold">{includeWastage ? item.wastageQty : "Excluded"}</p></div>
               <div className="rounded-lg bg-white p-3"><p className="text-xs text-zinc-500">Current stock shown</p><p className="font-semibold">{item.currentStock}</p></div>
@@ -120,14 +116,20 @@ export function OrderSheetResultsTable({
             <div className="mt-1 flex flex-wrap gap-2">
               {item.supplierQuotes.length ? item.supplierQuotes.map((quote) => (
                 <div key={quote.supplierId} className={`rounded-lg border bg-white px-3 py-2 ${quote.isCheapest ? "border-emerald-400" : "border-zinc-200"}`}>
-                  <span className="font-medium">{quote.supplierProductCode ?? "Unmapped"}</span>
+                  <span className="font-medium">{quote.supplierName} · {quote.supplierProductCode ?? "Unmapped"}</span>
                   <span className="ml-2">{quote.netPrice ?? "Price unavailable"}</span>
                   {quote.caseSize ? <span className="ml-2 text-zinc-500">Case {quote.caseSize}</span> : null}
                   {quote.isCheapest ? <span className="ml-2 text-emerald-700">Cheapest</span> : null}
                 </div>
               )) : <p className="text-zinc-600">No supplier quotations available.</p>}
             </div>
-            <p className="mt-3 text-xs text-zinc-600">RTC is independent of normal sales. Values reflect the generated order; detailed stock-event forecasting and wastage adjustments will be expanded in the next iteration. Prices may be stale; verify supplier quotes before purchasing.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <p>Forecast movement before delivery: <strong>{item.forecastMovementQty ?? "Unavailable"}</strong></p>
+              <p>Projected stock at delivery: <strong>{item.projectedStockQty ?? "Unavailable"}</strong></p>
+              <p>Expected shortage before delivery: <strong>{item.shortageQty ?? "Unavailable"}</strong></p>
+            </div>
+            {item.priceWarning ? <p role="status" className="mt-3 text-amber-800">{item.priceWarning}</p> : null}
+            <p className="mt-3 text-xs text-zinc-600">Suggested units = rounded-up coverage demand minus projected stock at delivery, with a minimum of zero. Normal Sales, RTC and Wastage stay separate; enabled movement feeds inform the forecast. Figures and supplier quotes are saved with this order.</p>
           </section>
         );
       })() : null}
@@ -188,12 +190,14 @@ export function OrderSheetResultsTable({
               <th className="px-3 py-2 text-right">Shortfall Days</th>
               <th className="px-3 py-2 text-right">Suggested Order Qty</th>
               <th className="px-3 py-2 text-right">Order Qty</th>
+              <th className="px-3 py-2 text-right">Net Unit Price</th>
+              <th className="px-3 py-2 text-right">Line Cost</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={12 + supplierColumns.length + periodLabels.length + dailySalesLabels.length + (showStoreColumn ? 1 : 0)} className="px-3 py-8 text-center text-zinc-500">
+                <td colSpan={14 + supplierColumns.length + periodLabels.length + dailySalesLabels.length + (showStoreColumn ? 1 : 0)} className="px-3 py-8 text-center text-zinc-500">
                   No products match the current filters.
                 </td>
               </tr>
@@ -263,6 +267,8 @@ export function OrderSheetResultsTable({
                       title="Explain suggested quantity"
                       aria-label={`Explain suggested quantity for ${item.productName}`}
                       aria-expanded={explainedItemId === item.orderItemId}
+                      onMouseEnter={() => setExplainedItemId(item.orderItemId)}
+                      onFocus={() => setExplainedItemId(item.orderItemId)}
                       onClick={() => setExplainedItemId(explainedItemId === item.orderItemId ? null : item.orderItemId)}
                       className="rounded px-2 py-1 underline decoration-dotted underline-offset-4 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600"
                     >
@@ -272,12 +278,17 @@ export function OrderSheetResultsTable({
                   <td className="px-3 py-2 text-right">
                     <Input
                       value={item.orderQty}
+                      inputMode="decimal"
+                      aria-label={`Order quantity for ${item.productName} at ${item.storeName ?? item.storeCode}`}
                       onChange={(event) =>
                         onOrderQtyChange(item.orderItemId, event.target.value)
                       }
                       className="ml-auto w-24 text-right tabular-nums"
                     />
+                    {item.quantityOverridden ? <span className="block text-xs text-blue-600">Manual</span> : null}
                   </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{item.cheapestNetPrice ? `£${formatDecimal(item.cheapestNetPrice,4)}` : "Needs price"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums" aria-live="polite">{item.estimatedLineCost !== null && item.estimatedLineCost !== undefined ? `£${formatDecimal(item.estimatedLineCost,2)}` : "—"}</td>
                 </tr>
               ))
             )}

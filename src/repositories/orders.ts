@@ -1,5 +1,6 @@
+import { decimalToDb, parseDbDecimal } from "@/utils/decimal";
 import "server-only";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   orderItemSupplierPrices,
@@ -37,7 +38,7 @@ export const orderRepository = {
   async update(orderId: number, data: Partial<typeof orders.$inferInsert>) {
     const [row] = await db
       .update(orders)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...data, updatedAt: new Date(), revision:sql`${orders.revision}+1` })
       .where(eq(orders.id, orderId))
       .returning();
     return row;
@@ -94,6 +95,7 @@ export const orderRepository = {
   async replaceCalculatedItems(
     orderId: number,
     rows: Array<typeof orderItems.$inferInsert>,
+    header?: Partial<typeof orders.$inferInsert>,
   ) {
     return db.transaction(async (tx) => {
       // Serialise competing recalculations of the same order.
@@ -104,9 +106,16 @@ export const orderRepository = {
         .for("update");
       if (!locked) throw new Error("Order not found");
 
+      const previous = await tx.select().from(orderItems).where(eq(orderItems.orderId,orderId));
+      const overrides = new Map(previous.filter(item => item.quantityOverridden).map(item => [item.storeProductId,item.finalOrderQty]));
+      const preservedRows = rows.map(row => {
+        const finalOrderQty = overrides.get(row.storeProductId);
+        return finalOrderQty === undefined ? row : {...row, finalOrderQty, quantityOverridden:true,
+          estimatedLineCost: row.cheapestNetPrice ? decimalToDb(parseDbDecimal(finalOrderQty).times(parseDbDecimal(row.cheapestNetPrice))) : null};
+      });
       await tx.delete(orderItems).where(eq(orderItems.orderId, orderId));
       const inserted: Array<typeof orderItems.$inferSelect> = [];
-      for (const batch of chunkRows(rows, 250)) {
+      for (const batch of chunkRows(preservedRows, 250)) {
         inserted.push(...(await tx.insert(orderItems).values(batch).returning()));
       }
 
@@ -126,7 +135,7 @@ export const orderRepository = {
         await tx.insert(orderItemSupplierPrices).values(batch);
       }
       await tx.update(orders)
-        .set({ status: "calculated", updatedAt: new Date() })
+        .set({ ...header, status: "calculated", updatedAt: new Date(), revision:sql`${orders.revision}+1` })
         .where(eq(orders.id, orderId));
       return inserted;
     });
@@ -187,12 +196,16 @@ export const orderRepository = {
   },
 
   async updateFinalQuantity(orderItemId: number, finalOrderQty: string) {
-    const [row] = await db
-      .update(orderItems)
-      .set({ finalOrderQty })
-      .where(eq(orderItems.id, orderItemId))
-      .returning();
-    return row;
+    return db.transaction(async tx => {
+      const [item]=await tx.select().from(orderItems).where(eq(orderItems.id,orderItemId));
+      if (!item) throw new Error("Order item not found");
+      await tx.select({id:orders.id}).from(orders).where(eq(orders.id,item.orderId)).for("update");
+      const [row]=await tx.update(orderItems)
+        .set({finalOrderQty,quantityOverridden:true,estimatedLineCost:sql`${finalOrderQty}::numeric * ${orderItems.cheapestNetPrice}`})
+        .where(eq(orderItems.id,orderItemId)).returning();
+      await tx.update(orders).set({updatedAt:new Date(),status:"draft",revision:sql`${orders.revision}+1`}).where(eq(orders.id,item.orderId));
+      return row;
+    });
   },
 
   async getOrderItem(orderItemId: number) {

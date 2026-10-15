@@ -92,7 +92,8 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(
     }, [isControlled, valueProp]);
 
     React.useEffect(() => {
-      if (selectedDate) setViewMonth(selectedDate);
+      const nextDate = parseIsoDate(isoValue);
+      if (nextDate) setViewMonth(nextDate);
     }, [isoValue]);
 
     React.useEffect(() => {

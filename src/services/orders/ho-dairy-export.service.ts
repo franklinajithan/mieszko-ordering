@@ -1,14 +1,10 @@
+import { buildOrderSheetResult } from "@/services/order-sheet.service";
 import ExcelJS from "exceljs";
 import {
   dailySalesRepository,
   orderRepository,
 } from "@/repositories";
 import { soldQtyForPeriod } from "@/utils/period-sales";
-
-function formatDailyColumn(dateIso: string): string {
-  const [, month, day] = dateIso.split("-");
-  return `${day}.${month}`;
-}
 
 function formatPeriodColumn(startDate: string, endDate: string): string {
   const fmt = (iso: string) => {
@@ -37,37 +33,10 @@ export async function exportHoDairyOrderToExcel(orderId: number): Promise<Buffer
     orderRepository.getOrderItemsWithDetails(orderId),
     orderRepository.getPeriods(orderId),
   ]);
-  const dailySalesRepo = dailySalesRepository;
-
-  const itemByCode = new Map(
-    items.map(({ item, storeProduct, product }) => [
-      storeProduct.storeProductCode,
-      { item, storeProduct, product },
-    ]),
-  );
-
-  const periodColumns = periods.map((period) => ({
-    key: period.periodKey,
-    header: formatPeriodColumn(period.startDate, period.endDate),
-    startDate: period.startDate,
-    endDate: period.endDate,
-  }));
-
-  const dailyDates = new Set<string>();
-  if (dailySalesRepo) {
-    for (const { storeProduct } of items) {
-      const sales = await dailySalesRepo.getSalesForProduct(storeProduct.id);
-      for (const sale of sales) {
-        dailyDates.add(sale.salesDate);
-      }
-    }
-  }
-
-  const sortedDailyDates = [...dailyDates].sort();
-  const dailyColumns = sortedDailyDates.map((date) => ({
-    date,
-    header: formatDailyColumn(date),
-  }));
+  const result = await buildOrderSheetResult(orderId);
+  const savedById = new Map(result.items.map(item => [item.orderItemId,item]));
+  const periodColumns = periods.map(period => ({key:period.periodKey,header:formatPeriodColumn(period.startDate,period.endDate)}));
+  const dailyColumns = result.dailySalesLabels.map(date => ({date,header:date}));
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Product");
@@ -97,18 +66,12 @@ export async function exportHoDairyOrderToExcel(orderId: number): Promise<Buffer
       Number(soldQtyForPeriod(item.periodSales, column.key)),
     );
 
-    const dailyValues = await Promise.all(
-      dailyColumns.map(async (column) => {
-        if (!dailySalesRepo) return "";
-        const sales = await dailySalesRepo.getSalesForProduct(storeProduct.id);
-        const match = sales.find((row) => row.salesDate === column.date);
-        return match ? Number(match.soldQty) : "";
-      }),
-    );
+    const saved = savedById.get(item.id);
+    const dailyValues = saved?.dailySales.map(Number) ?? [];
 
     sheet.addRow([
       storeProduct.storeProductCode,
-      "",
+      saved?.barcode ?? "",
       product.name,
       orderDepartmentName ?? product.department,
       ...periodValues,
@@ -132,7 +95,6 @@ export async function exportHoDairyOrderToExcel(orderId: number): Promise<Buffer
     to: { row: 1, column: headers.length },
   };
 
-  void itemByCode;
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
@@ -150,6 +112,7 @@ export async function fillHoDairyTemplate(
     orderRepository.getPeriods(orderId),
   ]);
 
+  if (order.storeIds.length !== 1) throw new Error("Template filling requires a single-store order");
   const itemByCode = new Map(
     items.map(({ item, storeProduct, product }) => [
       storeProduct.storeProductCode,

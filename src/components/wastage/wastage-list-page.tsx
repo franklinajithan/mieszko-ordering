@@ -56,6 +56,7 @@ export function WastageListPage({
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Load the external report when the selected store changes.
     void loadSavedRows(storeId);
   }, [storeId, refreshKey, loadSavedRows]);
 

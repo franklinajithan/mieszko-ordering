@@ -18,7 +18,7 @@ export async function GET() {
   try {
     const result = await db.execute(sql`
       SELECT s.id AS store_id, s.code AS store_code, s.name AS store_name,
-             source.source_type,
+             source.source_type, actual.business_date AS latest_data_date, actual.updated_at AS latest_data_updated_at,
              r.id AS latest_run_id, r.status, r.started_at, r.completed_at, r.imported_at,
              r.imported_row_count, r.error_message,
              last_success.id AS last_successful_run_id,
@@ -39,10 +39,18 @@ export async function GET() {
           AND status = 'success'
         ORDER BY imported_at DESC NULLS LAST, id DESC LIMIT 1
       ) last_success ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT max(feed.business_date)::text AS business_date, max(feed.updated_at) AS updated_at FROM (
+          SELECT d.sales_date AS business_date,d.updated_at FROM daily_sales d JOIN store_products sp ON sp.id=d.store_product_id WHERE sp.store_id=s.id AND source.source_type='normal_sales'
+          UNION ALL SELECT d.rtc_date,d.updated_at FROM rtc_sales d JOIN store_products sp ON sp.id=d.store_product_id WHERE sp.store_id=s.id AND source.source_type='rtc'
+          UNION ALL SELECT d.wastage_date,d.updated_at FROM wastage d JOIN store_products sp ON sp.id=d.store_product_id WHERE sp.store_id=s.id AND source.source_type='wastage'
+          UNION ALL SELECT d.book_stock_date,d.imported_at FROM book_stock d JOIN store_products sp ON sp.id=d.store_product_id WHERE sp.store_id=s.id AND source.source_type='book_stock'
+        ) feed
+      ) actual ON TRUE
       WHERE s.is_active = true
       ORDER BY s.name, source.source_type
     `);
-    return NextResponse.json({ success: true, configured: true, rows: result.rows, generatedAt: new Date().toISOString() }, {
+    return NextResponse.json({ success: true, configured: true, rows: result, generatedAt: new Date().toISOString() }, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

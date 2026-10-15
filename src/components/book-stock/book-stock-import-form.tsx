@@ -162,13 +162,12 @@ export function BookStockImportForm({
   }
 
   useEffect(() => {
-    if (!storeId) {
-      setImports([]);
-      return;
-    }
-    void listBookStockImports(Number(storeId)).then((response) => {
-      if (response.success) setImports(response.data);
+    let cancelled = false;
+    const request = storeId ? listBookStockImports(Number(storeId)) : Promise.resolve({ success: true as const, data: [] });
+    void request.then(response => {
+      if (!cancelled) setImports(response.success ? response.data : []);
     });
+    return () => { cancelled = true; };
   }, [storeId, listRefreshKey]);
 
   async function confirmDeleteUpload() {
@@ -310,6 +309,7 @@ export function BookStockImportForm({
           fileName: file.name,
           importedAt,
           rows: batch,
+          totalRows,
         });
         if (!chunk.success) {
           setError(chunk.error);

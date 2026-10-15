@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { orderRepository } from "@/repositories";
+import { recalculateSavedOrder } from "@/services/orders/recalculate-saved-order.service";
 import { updateOrderPeriodsSchema } from "@/validators/schemas";
 import { apiError, apiOk, numericParam, parseJson, route } from "@/lib/api/http";
 
@@ -27,13 +27,6 @@ export const PUT = route(
     });
     if (!parsed.success) return apiError(parsed.error.message);
 
-    await orderRepository.replacePeriods(
-      parsed.data.orderId,
-      parsed.data.periods.map((period) => ({
-        startDate: period.startDate,
-        endDate: period.endDate,
-      })),
-    );
-    return apiOk(null);
+    return apiOk(await recalculateSavedOrder(orderId,{comparisonPeriods:parsed.data.periods.map(period=>({startDate:period.startDate,endDate:period.endDate}))}));
   },
 );

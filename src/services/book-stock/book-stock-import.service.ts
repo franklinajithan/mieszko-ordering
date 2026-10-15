@@ -1,3 +1,6 @@
+import { db } from "@/db";
+import { bookStock, notPostedDeliveries, storeProducts } from "@/db/schema";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { ErpType, ImportResult, ParsedRow } from "@/types";
 import { toDecimal, decimalToDb } from "@/utils/decimal";
 import {
@@ -5,7 +8,6 @@ import {
   productRepository,
   storeRepository,
 } from "@/repositories";
-import { clearNotPostedForStore } from "@/services/not-posted/not-posted-import.service";
 import { parseBookStockFileBuffer } from "@/parsers/book-stock/book-stock-file-parser";
 import { normalizeProductCode } from "@/parsers/products/product-file-parser";
 import { pivotBookStockByReference } from "@/services/book-stock/book-stock-pivot.service";
@@ -116,6 +118,7 @@ async function processBookStockRowBatch(input: {
 
     let quantity;
     try {
+      if (!qtyRaw) throw new Error("Missing quantity");
       quantity = toDecimal(qtyRaw);
       if (!quantity.isFinite()) throw new Error("invalid");
     } catch {
@@ -167,40 +170,6 @@ async function processBookStockRowBatch(input: {
   return { result, validRows };
 }
 
-async function insertValidRows(
-  validRows: Array<{
-    storeProductId: number;
-    bookStockDate: string;
-    bookStockQty: string;
-  }>,
-  importedAt: Date,
-) {
-  for (const insertBatch of chunkArray(validRows, BOOK_STOCK_INSERT_BATCH_SIZE)) {
-    if (!insertBatch.length) continue;
-    await bookStockRepository.insertBatch(
-      insertBatch.map((row) => ({
-        ...row,
-        importedAt,
-        updatedAt: importedAt,
-        createdAt: importedAt,
-      })),
-    );
-  }
-}
-
-async function discardStagedNotPostedIfNewUpload(
-  storeId: number,
-  importedAt: Date,
-) {
-  const alreadyStarted = await bookStockRepository.hasImportedAt(
-    storeId,
-    importedAt,
-  );
-  if (!alreadyStarted) {
-    await clearNotPostedForStore(storeId);
-  }
-}
-
 /** Save an entire prepared book-stock upload (used by FormData / whole-file import). */
 export async function importBookStockBulk(input: {
   storeId: number;
@@ -243,8 +212,16 @@ export async function importBookStockBulk(input: {
     productByCode,
   });
 
-  await discardStagedNotPostedIfNewUpload(input.storeId, importedAt);
-  await insertValidRows(validRows, importedAt);
+  if (!validRows.length || result.invalidRows || result.unmatchedRows) {
+    throw new Error(`Stock snapshot rejected: ${result.invalidRows} invalid and ${result.unmatchedRows} unmatched rows. Previous snapshot retained.`);
+  }
+  await db.transaction(async (tx) => {
+    for (const batch of chunkArray(validRows, BOOK_STOCK_INSERT_BATCH_SIZE)) {
+      await tx.insert(bookStock).values(batch.map(row => ({ ...row, importedAt, updatedAt: importedAt, createdAt: importedAt })));
+    }
+    await tx.delete(notPostedDeliveries).where(inArray(notPostedDeliveries.storeProductId,
+      tx.select({ id: storeProducts.id }).from(storeProducts).where(eq(storeProducts.storeId, input.storeId))));
+  });
 
   return {
     ...result,
@@ -266,6 +243,7 @@ export async function importBookStockChunk(input: {
   fileName: string;
   rows: ParsedRow[];
   importedAt?: string;
+  totalRows: number;
 }): Promise<ImportResult & { importedAt: string }> {
   if (!input.rows.length) {
     throw new Error("No rows to import");
@@ -298,8 +276,41 @@ export async function importBookStockChunk(input: {
     productByCode,
   });
 
-  await discardStagedNotPostedIfNewUpload(input.storeId, importedAt);
-  await insertValidRows(validRows, importedAt);
+  if (chunkResult.invalidRows || chunkResult.unmatchedRows || !validRows.length) {
+    throw new Error("Stock chunk rejected: invalid or unmatched products. Previous snapshot retained.");
+  }
+  if (!Number.isSafeInteger(input.totalRows) || input.totalRows < validRows.length) throw new Error("Invalid upload row count");
+  if (new Set(validRows.map(row => row.storeProductId)).size !== validRows.length) throw new Error("Duplicate products in stock chunk");
+  await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(73501, ${input.storeId})`);
+    const existing = await tx.select({ id: bookStock.id }).from(bookStock).where(and(
+      eq(bookStock.importedAt, importedAt),
+      inArray(bookStock.storeProductId, tx.select({ id: storeProducts.id }).from(storeProducts).where(eq(storeProducts.storeId, input.storeId))),
+    )).limit(1);
+    if (existing.length) throw new Error("This snapshot timestamp is already imported; choose a new timestamp");
+    for (const row of validRows) {
+      await tx.execute(sql`INSERT INTO book_stock_import_stage
+        (store_id, imported_at, store_product_id, book_stock_date, quantity, expected_rows)
+        VALUES (${input.storeId}, ${importedAt.toISOString()}, ${row.storeProductId}, ${input.bookStockDate}, ${row.bookStockQty}, ${input.totalRows})
+        ON CONFLICT (store_id, imported_at, store_product_id) DO UPDATE SET quantity=EXCLUDED.quantity`);
+    }
+    const staged = await tx.execute(sql`SELECT count(*)::int AS count,
+      min(expected_rows)::int AS minimum, max(expected_rows)::int AS maximum,
+      min(book_stock_date)::text AS first_date, max(book_stock_date)::text AS last_date
+      FROM book_stock_import_stage WHERE store_id=${input.storeId} AND imported_at=${importedAt.toISOString()}`);
+    const count = Number(staged[0].count);
+    if (Number(staged[0].minimum) !== input.totalRows || Number(staged[0].maximum) !== input.totalRows || staged[0].first_date !== input.bookStockDate || staged[0].last_date !== input.bookStockDate || count > input.totalRows) {
+      throw new Error("Inconsistent stock upload metadata");
+    }
+    if (count === input.totalRows) {
+      await tx.execute(sql`INSERT INTO book_stock (store_product_id, book_stock_date, book_stock_qty, imported_at)
+        SELECT store_product_id, book_stock_date, quantity, imported_at FROM book_stock_import_stage
+        WHERE store_id=${input.storeId} AND imported_at=${importedAt.toISOString()}`);
+      await tx.delete(notPostedDeliveries).where(inArray(notPostedDeliveries.storeProductId,
+        tx.select({ id: storeProducts.id }).from(storeProducts).where(eq(storeProducts.storeId, input.storeId))));
+      await tx.execute(sql`DELETE FROM book_stock_import_stage WHERE store_id=${input.storeId} AND imported_at=${importedAt.toISOString()}`);
+    }
+  });
 
   return {
     ...chunkResult,

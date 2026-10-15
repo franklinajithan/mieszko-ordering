@@ -102,6 +102,7 @@ export const navGroups: NavGroup[] = [
   {
     title: "Ordering",
     items: [
+      {href:"/orders",label:"Order History",icon:FileSpreadsheet,match:p=>p.startsWith("/orders")},
       {
         href: "/order-sheet",
         label: "Order Sheet",

@@ -1,3 +1,4 @@
+import { getImportCoverage } from "@/services/import-readiness.service";
 import { z } from "zod";
 import { apiOk, parseJson, route } from "@/lib/api/http";
 import {
@@ -11,6 +12,8 @@ const inputSchema = z.object({
   storeIds: z.array(z.number().int().positive()).min(1),
   supplierIds: z.array(z.number().int().positive()).min(1),
   deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  includeRtc: z.boolean().default(true),
+  includeWastage: z.boolean().default(true),
   includeBookStock: z.boolean().default(true),
   includeFutureDeliveries: z.boolean().default(false),
   bookStockDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -26,7 +29,7 @@ export const POST = route(async (req) => {
   if (!parsed.ok) return parsed.response;
   const { storeIds, supplierIds, comparisonPeriods, deliveryDate, bookStockDate, includeBookStock, includeFutureDeliveries } =
     parsed.data;
-  const [bookStock, suppliers, salesPeriods, generationBlockers] = await Promise.all([
+  const [bookStock, suppliers, salesPeriods, generationBlockers, feeds] = await Promise.all([
     includeBookStock ? resolveBookStockStatuses(storeIds) : Promise.resolve([]),
     getSupplierDataStatus(supplierIds),
     Promise.all(comparisonPeriods.map(async (period) => ({
@@ -34,9 +37,11 @@ export const POST = route(async (req) => {
       rows: await resolveSalesDataStatus({ storeIds, ...period }),
     }))),
     resolveOrderSheetGenerationBlockers({ storeIds, deliveryDate, bookStockDate, includeBookStock, includeFutureDeliveries }),
+    getImportCoverage({...parsed.data}),
   ]);
   const blockers = generationBlockers;
   const warnings = [
+    ...feeds.warnings,
     ...suppliers.filter((row) => row.status !== "current").map(
       (row) => `Supplier price data ${row.status}: ${row.supplierName}`,
     ),
@@ -52,6 +57,7 @@ export const POST = route(async (req) => {
     blockers,
     warnings,
     bookStock,
+    feedCoverage:feeds.coverage,
     suppliers,
     salesPeriods: salesPeriods.map(({ period, rows }) => ({
       ...period,

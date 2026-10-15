@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { parseDbDecimal } from "@/utils/decimal";
 import { orderRepository, storeRepository, supplierRepository } from "@/repositories";
 import { exportHoDairyOrderToExcel } from "@/services/orders/ho-dairy-export.service";
 import { primaryStoreId, settingsFromOrder } from "@/services/order-sheet.service";
@@ -31,6 +32,8 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Order");
+  const stores = await Promise.all(order.storeIds.map(id => storeRepository.getById(id)));
+  const storeNames = new Map(stores.filter(store => store !== null).map(store => [store!.id, store!.name]));
 
   sheet.addRow(["Mieszko Dairy Order Export"]);
   sheet.addRow(["Order ID", orderId]);
@@ -44,6 +47,7 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
 
   const periodCount = metadata.comparisonPeriods.length;
   const headers = [
+    "Store",
     "Store product code",
     "Product name",
     "Department",
@@ -88,6 +92,7 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
     );
 
     sheet.addRow([
+      storeNames.get(storeProduct.storeId) ?? String(storeProduct.storeId),
       storeProduct.storeProductCode,
       product.name,
       orderDepartmentName ?? product.department,
@@ -110,12 +115,31 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
     ]);
   }
 
+  // Supplier-ready tabs only include positive lines with a verified chosen quote.
+  for (const {supplier} of selectedSuppliers) {
+    const selected = items.filter(({item}) => item.cheapestSupplierId === supplier.id && item.priceStatus === "complete" && parseDbDecimal(item.finalOrderQty).gt(0));
+    if (!selected.length) continue;
+    const tab = workbook.addWorksheet(`Supplier ${supplier.id}`);
+    tab.addRow([supplier.name, "Delivery", order.deliveryDate]);
+    tab.addRow(["Store", "Supplier code", "Product", "Units", "Case size", "Cases (units / case)", "Net unit price", "Line cost"]);
+    for (const {item,storeProduct,product} of selected) {
+      const quote = quoteForSupplier(item.supplierQuotes,supplier.id);
+      const units = parseDbDecimal(item.finalOrderQty);
+      const caseText = quote?.caseSize?.trim() ?? "";
+      const caseSize = parseDbDecimal(/^\d+(\.\d+)?$/.test(caseText) ? caseText : "0");
+      tab.addRow([storeNames.get(storeProduct.storeId) ?? String(storeProduct.storeId), quote?.supplierProductCode ?? "", product.name,
+        Number(units), quote?.caseSize ?? "", caseSize.gt(0) ? Number(units.div(caseSize)) : "", Number(item.cheapestNetPrice), Number(item.estimatedLineCost)]);
+    }
+    tab.getRow(2).font = {bold:true}; tab.views = [{state:"frozen",ySplit:2}];
+    tab.columns.forEach(column => {column.width=22;});
+  }
+
   sheet.autoFilter = {
     from: { row: headerRow.number, column: 1 },
     to: { row: headerRow.number, column: headers.length },
   };
 
-  for (let col = 4; col <= headers.length - 3; col++) {
+  for (let col = 5; col <= headers.length - 3; col++) {
     sheet.getColumn(col).numFmt = "#,##0.00";
   }
 
@@ -132,14 +156,14 @@ export async function exportOrderDownload(orderId: number): Promise<{
   const store = await storeRepository.getById(primaryStoreId(order));
 
   const buffer =
-    store?.erpType === "glopos"
+    store?.erpType === "glopos" && order.storeIds.length === 1
       ? await exportHoDairyOrderToExcel(orderId)
       : await exportOrderToExcel(orderId);
 
   return {
     base64: buffer.toString("base64"),
     fileName:
-      store?.erpType === "glopos"
+      store?.erpType === "glopos" && order.storeIds.length === 1
         ? `HO Dairy-order-${orderId}.xlsx`
         : `order-${orderId}.xlsx`,
   };

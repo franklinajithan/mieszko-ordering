@@ -258,6 +258,7 @@ export function SupplierCodeImportForm({ stores }: { stores: Store[] }) {
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-local storage after server rendering.
     setStoredWarning(readStoredWarning());
   }, []);
 

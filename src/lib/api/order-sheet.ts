@@ -76,6 +76,8 @@ export function preflightOrderSheet(input: {
   supplierIds: number[];
   deliveryDate?: string;
   bookStockDate?: string;
+  includeRtc?: boolean;
+  includeWastage?: boolean;
   includeBookStock?: boolean;
   includeFutureDeliveries?: boolean;
   comparisonPeriods: Array<{ startDate: string; endDate: string }>;

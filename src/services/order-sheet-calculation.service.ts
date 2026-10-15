@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { orderItems, productBarcodes } from "@/db/schema";
+import { orderItems, productBarcodes, orders } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE } from "@/lib/import-config";
 import {
@@ -118,9 +118,11 @@ function averagePeriodQty(
 export async function calculateOrderSheet(
   orderId: number,
   options: OrderSheetCalculationOptions,
+  header?: Partial<typeof orders.$inferSelect>,
 ): Promise<void> {
-  const order = await orderRepository.getById(orderId);
-  if (!order) throw new Error("Order not found");
+  const savedOrder = await orderRepository.getById(orderId);
+  if (!savedOrder) throw new Error("Order not found");
+  const order = { ...savedOrder, ...header };
 
   const periods = (
     options.comparisonPeriods.length
@@ -235,7 +237,7 @@ export async function calculateOrderSheet(
     mappings,
     storeBarcodeMaps,
   ] = await Promise.all([
-    options.includeBookStock !== false ? bookStockRepository.latestQtyByStoreProductIds(storeProductIds) : Promise.resolve(new Map<number, string>()),
+    options.includeBookStock !== false ? bookStockRepository.latestQtyByStoreProductIds(storeProductIds,options.bookStockImportedAtByStore) : Promise.resolve(new Map<number, string>()),
     options.includeBookStock !== false ? notPostedDeliveryRepository.sumQtyByStoreProductIds(storeProductIds) : Promise.resolve(new Map<number, string>()),
     options.includeFutureDeliveries ? futureDeliveryRepository.listScheduledByStoreProductIds(storeProductIds) : Promise.resolve([]),
     salesBounds
@@ -294,10 +296,8 @@ export async function calculateOrderSheet(
   // Without a book-stock snapshot, use the order date as the forecast
   // anchor. A historical book-stock date must not pull old deliveries into
   // a stock-free order calculation.
-  const stockAnchorDate = options.includeBookStock !== false
-    ? order.bookStockDate
-    : order.orderDate;
-  if (order.deliveryDate <= stockAnchorDate) {
+  const defaultStockAnchorDate = options.includeBookStock !== false ? order.bookStockDate : order.orderDate;
+  if (order.deliveryDate <= defaultStockAnchorDate || Object.values(options.bookStockDatesByStore ?? {}).some(date=>order.deliveryDate<=date)) {
     throw new Error("Delivery date must be after the stock forecast anchor date.");
   }
   const futureLinesByProduct = new Map<number, typeof futureByProduct>();
@@ -355,6 +355,9 @@ export async function calculateOrderSheet(
   const pendingItems: Array<typeof orderItems.$inferInsert> = [];
 
   for (const { storeProduct, product } of uniqueStoreProducts) {
+    const stockAnchorDate = options.includeBookStock !== false
+      ? options.bookStockDatesByStore?.[storeProduct.storeId] ?? defaultStockAnchorDate
+      : order.orderDate;
     const dailyByDate = salesByProductAndDate.get(storeProduct.id);
     const salesByKey: Record<string, string> = {};
     const salesDecimals: DecimalType[] = [];
@@ -489,6 +492,7 @@ export async function calculateOrderSheet(
     const breakdown = {
       stages: simulation.stages,
       orderSheet: {
+        stockAnchorDate,
         soldQtyMethod: options.soldQtyMethod,
         includeWastage: options.includeWastage,
         includeRtc: options.includeRtc,
@@ -542,7 +546,7 @@ export async function calculateOrderSheet(
     });
   }
 
-  await orderRepository.replaceCalculatedItems(orderId, pendingItems);
+  await orderRepository.replaceCalculatedItems(orderId, pendingItems, header);
 }
 
 async function runSimulationWithForecast(input: {

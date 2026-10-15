@@ -36,7 +36,7 @@ export async function startImportRun(input: StartImport): Promise<number> {
     VALUES (${input.storeId}, ${input.sourceType}, ${input.triggerType}, 'queued', ${input.sourceFileName ?? null})
     RETURNING id
   `);
-  const id = Number(result.rows[0]?.id);
+  const id = Number(result[0]?.id);
   positiveId(id);
   return id;
 }
@@ -51,7 +51,7 @@ export async function markImportRunStatus(runId: number, status: "downloading" |
     WHERE id = ${runId} AND status = ${previousStatus}
     RETURNING id
   `);
-  if (!result.rows.length) throw new Error("Import run not found or already finished");
+  if (!result.length) throw new Error("Import run not found or already finished");
 }
 
 export async function finishImportRun(input: FinishImport): Promise<void> {
@@ -67,7 +67,7 @@ export async function finishImportRun(input: FinishImport): Promise<void> {
     WHERE id = ${input.runId} AND status = 'importing'
     RETURNING id
   `);
-  if (!result.rows.length) throw new Error("Import run must be importing before success");
+  if (!result.length) throw new Error("Import run must be importing before success");
 }
 
 export async function failImportRun(runId: number, reason: string): Promise<void> {
@@ -88,22 +88,22 @@ export async function queueBookStockRefresh(storeId: number): Promise<{ runId: n
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(73501, ${storeId})`);
     const store = await tx.execute(sql`SELECT id FROM stores WHERE id = ${storeId} AND is_active = true`);
-    if (!store.rows.length) throw new Error("Active store not found");
+    if (!store.length) throw new Error("Active store not found");
     const existing = await tx.execute(sql`
       SELECT id FROM data_import_runs
       WHERE store_id = ${storeId} AND source_type = 'book_stock'
         AND status IN ('queued', 'downloading', 'downloaded', 'importing')
       ORDER BY id DESC LIMIT 1
     `);
-    if (existing.rows.length) {
-      return { runId: Number(existing.rows[0].id), alreadyQueued: true };
+    if (existing.length) {
+      return { runId: Number(existing[0].id), alreadyQueued: true };
     }
     const created = await tx.execute(sql`
       INSERT INTO data_import_runs (store_id, source_type, trigger_type, status)
       VALUES (${storeId}, 'book_stock', 'manual', 'queued')
       RETURNING id
     `);
-    return { runId: Number(created.rows[0].id), alreadyQueued: false };
+    return { runId: Number(created[0].id), alreadyQueued: false };
   });
 }
 
@@ -127,7 +127,7 @@ export async function claimNextBookStockRefresh(): Promise<{
     )
     RETURNING id, store_id
   `);
-  const row = result.rows[0];
+  const row = result[0];
   if (!row) return null;
   return { runId: Number(row.id), storeId: Number(row.store_id) };
 }
@@ -147,5 +147,5 @@ export async function failStalledImportRuns(olderThanMinutes = 120): Promise<num
       AND started_at < now() - (${olderThanMinutes} * interval '1 minute')
     RETURNING id
   `);
-  return result.rows.length;
+  return result.length;
 }

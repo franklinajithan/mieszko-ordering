@@ -1,4 +1,5 @@
 "use client";
+import { previewOrderItem } from "@/utils/order-item-edit";
 
 import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
@@ -74,6 +75,8 @@ export function useOrderSheetWorkflow({
         storeIds: form.storeIds,
         supplierIds: form.supplierIds,
         deliveryDate: form.deliveryDate,
+        includeRtc: form.includeRtc,
+        includeWastage: form.includeWastage,
         includeBookStock: form.includeBookStock,
         includeFutureDeliveries: form.includeFutureDeliveries,
         bookStockDate: bookStockRows[0]?.bookStockDate ?? undefined,
@@ -92,6 +95,8 @@ export function useOrderSheetWorkflow({
         return;
       }
       setGenerateProgress({ percent: 40, done: false });
+      // Persist unsaved manual edits before recalculation replaces row IDs.
+      if (orderId) await persistDraft();
 
       const response = await generateOrderSheet({
         orderId: orderId ?? undefined,
@@ -148,42 +153,31 @@ export function useOrderSheetWorkflow({
     }
   }
 
-  async function onSaveDraft() {
-    if (!orderId) {
-      setError("Generate the order sheet before saving a draft.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    const response = await saveOrderSheetDraft({
-      orderId,
-      comment: form.comment,
-      items: items.map((item) => ({
-        orderItemId: item.orderItemId,
-        orderQty: item.orderQty,
-        selected: item.selected,
-      })),
-    });
-    setSaving(false);
-    if (!response.success) setError(response.error);
+  async function persistDraft() {
+    if (!orderId) throw new Error("Generate the order sheet before saving a draft.");
+    const response = await saveOrderSheetDraft({orderId,comment:form.comment,
+      items:items.map(item=>({orderItemId:item.orderItemId,orderQty:item.orderQty,selected:item.selected}))});
+    if (!response.success) throw new Error(response.error);
   }
-
+  async function onSaveDraft() {
+    setSaving(true);setError(null);
+    try { await persistDraft(); }
+    catch (cause) { setError(cause instanceof Error?cause.message:"Unable to save draft"); }
+    finally {setSaving(false);}
+  }
   async function onExport() {
     if (!orderId) return;
-    const response = await exportOrder({ orderId });
-    if (!response.success) {
-      setError(response.error);
-      return;
-    }
-    const blob = Uint8Array.from(atob(response.data.base64), (char) =>
-      char.charCodeAt(0),
-    );
-    const url = URL.createObjectURL(new Blob([blob]));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = response.data.fileName;
-    link.click();
-    URL.revokeObjectURL(url);
+    setSaving(true);setError(null);
+    try {
+      await persistDraft();
+      const response=await exportOrder({orderId});
+      if (!response.success) throw new Error(response.error);
+      const bytes=Uint8Array.from(atob(response.data.base64),char=>char.charCodeAt(0));
+      const url=URL.createObjectURL(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+      const link=document.createElement("a");link.href=url;link.download=response.data.fileName;link.click();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    } catch(cause) {setError(cause instanceof Error?cause.message:"Unable to export");}
+    finally {setSaving(false);}
   }
 
   function onClearAll() {
@@ -201,19 +195,19 @@ export function useOrderSheetWorkflow({
   function toggleSelected(orderItemId: number, selected: boolean) {
     setItems((current) =>
       current.map((item) =>
-        item.orderItemId === orderItemId ? { ...item, selected } : item,
+        item.orderItemId === orderItemId ? previewOrderItem(item, {selected}) : item,
       ),
     );
   }
 
   function toggleAll(selected: boolean) {
-    setItems((current) => current.map((item) => ({ ...item, selected })));
+    setItems((current) => current.map((item) => previewOrderItem(item,{selected})));
   }
 
   function changeOrderQty(orderItemId: number, orderQty: string) {
     setItems((current) =>
       current.map((item) =>
-        item.orderItemId === orderItemId ? { ...item, orderQty } : item,
+        item.orderItemId === orderItemId ? previewOrderItem(item,{orderQty}) : item,
       ),
     );
   }
@@ -232,6 +226,7 @@ export function useOrderSheetWorkflow({
     orderId,
     onGenerate,
     onSaveDraft,
+    persistDraft,
     onExport,
     onClearAll,
     toggleSelected,

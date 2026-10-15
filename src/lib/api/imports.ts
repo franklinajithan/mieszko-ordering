@@ -1,4 +1,4 @@
-import type { ActionResult, FilePreview } from "@/types";
+import type { FilePreview } from "@/types";
 import { apiFormRequest } from "./client";
 
 /** Generic spreadsheet parse (headers + sample rows). Throws on failure. */

@@ -35,6 +35,7 @@ export type BookStockImportChunkInput = {
   quantityColumn: string;
   fileName: string;
   importedAt?: string;
+  totalRows: number;
   rows: Array<Record<string, string>>;
 };
 

@@ -97,14 +97,12 @@ export function FutureDeliveriesForm({
   );
 
   useEffect(() => {
-    if (!storeId) {
-      setUploads([]);
-      return;
-    }
-    void listFutureImports(storeId).then((response) => {
-      if (response.success) setUploads(response.data);
-      else setUploads([]);
+    let cancelled = false;
+    const request = storeId ? listFutureImports(storeId) : Promise.resolve({ success: true as const, data: [] });
+    void request.then(response => {
+      if (!cancelled) setUploads(response.success ? response.data : []);
     });
+    return () => { cancelled = true; };
   }, [storeId, listRefreshKey]);
 
   function onSourceChange(next: FutureDeliverySource) {

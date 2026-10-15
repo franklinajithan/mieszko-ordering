@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   BookOpen,
@@ -14,7 +15,7 @@ import {
 import { AppShell, NavCard } from "@/components/layout/app-shell";
 import { DataOperationsStatus } from "@/components/layout/data-operations-status";
 
-export function HomePageView() {
+export function HomePageView({ overview }: { overview?: ReactNode }) {
   return (
     <AppShell
       title="Dashboard"
@@ -44,6 +45,7 @@ export function HomePageView() {
           </div>
         </section>
 
+        {overview}
         <DataOperationsStatus />
 
         <section className="space-y-4" aria-label="Data operations">
@@ -54,8 +56,8 @@ export function HomePageView() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
               { title: "Normal sales", detail: "Independent sales history", icon: TrendingUp, href: "/daily-sales" },
-              { title: "RTC sales", detail: "Not included in normal sales", icon: Activity, href: "/order-sheet" },
-              { title: "Wastage", detail: "Separate loss history", icon: ClipboardList, href: "/order-sheet" },
+              { title: "RTC sales", detail: "Not included in normal sales", icon: Activity, href: "/rtc" },
+              { title: "Wastage", detail: "Separate loss history", icon: ClipboardList, href: "/wastage" },
               { title: "Book stock", detail: "Refresh before ordering", icon: BookOpen, href: "/book-stock" },
             ].map(({ title, detail, icon: Icon, href }) => (
               <Link key={title} href={href} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-emerald-300">
@@ -68,11 +70,11 @@ export function HomePageView() {
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
               <div className="flex items-center gap-2 font-semibold text-amber-900"><Clock3 className="h-4 w-4" /> Nightly automation</div>
-              <p className="mt-2 text-sm text-amber-900/80">Not connected yet. The office-PC runner must verify successful downloads and database imports.</p>
+              <p className="mt-2 text-sm text-amber-900/80">Office activation required. The Windows runner is available; verify CRM report mappings before scheduling imports.</p>
             </div>
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
               <div className="flex items-center gap-2 font-semibold text-blue-900"><ShieldCheck className="h-4 w-4" /> Book-stock refresh</div>
-              <p className="mt-2 text-sm text-blue-900/80">Use the existing Book Stock import until one-click CRM download is connected. Preserve snapshot history.</p>
+              <p className="mt-2 text-sm text-blue-900/80">Queue a manual refresh in Import monitoring, or upload a file in Book Stock. The office worker must be configured before queued downloads can run.</p>
             </div>
           </div>
         </section>
