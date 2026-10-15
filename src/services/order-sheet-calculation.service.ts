@@ -402,10 +402,15 @@ export async function calculateOrderSheet(
     // Historical losses before the book-stock snapshot are not subtracted
     // again from that snapshot.
     const stockAtClientDelivery = simulation.projectedFinalStock;
+    // Negative projected stock represents unmet demand before the supplier
+    // delivery. That shortage cannot be recovered by stock arriving later:
+    // only the nonnegative on-hand balance is available for the new coverage
+    // window. Keep the shortage visible in the simulation breakdown.
+    const availableAtDelivery = Decimal.max(stockAtClientDelivery, new Decimal(0));
     const suggestedOrderQty = roundOrderQty(
       calculateOrderSheetSuggestedQty({
         requiredQuantityForShortfall: requiredForShortfall,
-        currentStock: stockAtClientDelivery,
+        currentStock: availableAtDelivery,
         wastageQty,
         rtcQty,
         includeWastage: false,
