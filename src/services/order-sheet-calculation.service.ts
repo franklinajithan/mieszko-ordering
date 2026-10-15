@@ -164,8 +164,12 @@ export async function calculateOrderSheet(
     throw new Error("No products found for the selected stores, suppliers, and departments");
   }
 
-  const storeProductIds = storeProducts.map((row) => row.storeProduct.id);
-  const productIds = [...new Set(storeProducts.map((row) => row.product.id))];
+  // Deduplicate store products before loading feed rows and saving order lines.
+  const uniqueStoreProducts = [...new Map(
+    storeProducts.map((row) => [row.storeProduct.id, row] as const),
+  ).values()];
+  const storeProductIds = uniqueStoreProducts.map((row) => row.storeProduct.id);
+  const productIds = [...new Set(uniqueStoreProducts.map((row) => row.product.id))];
   const selectedSupplierIds = selectedSuppliers.map(({ supplier }) => supplier.id);
   const comparisonRanges = periods.map((period) => ({
     startDate: period.startDate,
@@ -193,7 +197,7 @@ export async function calculateOrderSheet(
   ]);
 
   const productsByStore = new Map<number, typeof storeProducts>();
-  for (const row of storeProducts) {
+  for (const row of uniqueStoreProducts) {
     const storeId = row.storeProduct.storeId;
     const list = productsByStore.get(storeId) ?? [];
     list.push(row);
@@ -329,7 +333,7 @@ export async function calculateOrderSheet(
   // Prepare all calculations before touching previously saved order items.
   const pendingItems: Array<typeof orderItems.$inferInsert> = [];
 
-  for (const { storeProduct, product } of storeProducts) {
+  for (const { storeProduct, product } of uniqueStoreProducts) {
     const dailyByDate = salesByProductAndDate.get(storeProduct.id);
     const salesByKey: Record<string, string> = {};
     const salesDecimals: DecimalType[] = [];
