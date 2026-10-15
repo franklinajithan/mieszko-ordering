@@ -1,4 +1,4 @@
-import { boolean, date, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, varchar, } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, varchar, } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 
@@ -861,7 +861,7 @@ export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
 
 /** Office import audit records. Apply the staged SQL migration before use. */
 export const dataImportRuns = pgTable("data_import_runs", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
   storeId: integer("store_id").references(() => stores.id, { onDelete: "set null" }),
   sourceType: varchar("source_type", { length: 32 }).notNull(),
   triggerType: varchar("trigger_type", { length: 16 }).notNull(),
