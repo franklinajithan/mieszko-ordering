@@ -129,7 +129,12 @@ export function compareSupplierPrices(
   );
 
   const sorted = [...validSnapshots].sort((a, b) => {
-    const priceDiff = toDecimal(a.netPrice!).cmp(toDecimal(b.netPrice!));
+    const cost = (q: SupplierPriceSnapshot) => {
+      const size = q.caseSize ? toDecimal(q.caseSize) : new Decimal(1);
+      const pack = size.isFinite() && size.gt(0) ? size : new Decimal(1);
+      return Decimal.max(finalOrderQty, new Decimal(0)).div(pack).ceil().mul(pack).mul(toDecimal(q.netPrice!));
+    };
+    const priceDiff = cost(a).cmp(cost(b));
     if (priceDiff !== 0) return priceDiff;
     const aPriority =
       suppliers.find((s) => s.supplierId === a.supplierId)?.priceTiePriority ??
