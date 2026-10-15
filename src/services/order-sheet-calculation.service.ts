@@ -263,8 +263,14 @@ export async function calculateOrderSheet(
       `Cannot calculate safely: ${invalidFutureRows.length} future-delivery lines have invalid dates or quantities.`,
     );
   }
-  if (options.includeBookStock !== false && order.deliveryDate <= order.bookStockDate) {
-    throw new Error("Delivery date must be after the book-stock snapshot date.");
+  // Without a book-stock snapshot, use the order date as the forecast
+  // anchor. A historical book-stock date must not pull old deliveries into
+  // a stock-free order calculation.
+  const stockAnchorDate = options.includeBookStock !== false
+    ? order.bookStockDate
+    : order.orderDate;
+  if (order.deliveryDate <= stockAnchorDate) {
+    throw new Error("Delivery date must be after the stock forecast anchor date.");
   }
   const futureLinesByProduct = new Map<number, typeof futureByProduct>();
   for (const row of futureByProduct) {
@@ -362,7 +368,7 @@ export async function calculateOrderSheet(
     }
 
     const futureEvents: StockEvent[] = (futureLinesByProduct.get(storeProduct.id) ?? [])
-      .filter((row) => row.expectedDeliveryDate && row.expectedDeliveryDate > order.bookStockDate && row.expectedDeliveryDate <= order.deliveryDate)
+      .filter((row) => row.expectedDeliveryDate && row.expectedDeliveryDate > stockAnchorDate && row.expectedDeliveryDate <= order.deliveryDate)
       .map((row, index) => ({
         eventType: "future_delivery" as const,
         eventDate: new Date(row.expectedDeliveryDate + "T00:00:00Z"),
@@ -382,7 +388,7 @@ export async function calculateOrderSheet(
       .plus(futureQty);
 
     const simulation = await runSimulationWithForecast({
-      bookStockDate: order.bookStockDate,
+      bookStockDate: stockAnchorDate,
       clientDeliveryDate: order.deliveryDate,
       storeProductId: storeProduct.id,
       aggregated,
