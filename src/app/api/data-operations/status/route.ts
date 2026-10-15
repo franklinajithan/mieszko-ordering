@@ -2,6 +2,16 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 
+function postgresErrorCode(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current && typeof current === "object"; depth++) {
+    const candidate = current as { code?: unknown; cause?: unknown };
+    if (typeof candidate.code === "string") return candidate.code;
+    current = candidate.cause;
+  }
+  return undefined;
+}
+
 // Read-only operations summary. A missing migration is reported as setup required,
 // not silently represented as successful nightly imports.
 export async function GET() {
@@ -36,8 +46,7 @@ export async function GET() {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const pgCode = (error as { cause?: { code?: string }; code?: string }).cause?.code
-      ?? (error as { code?: string }).code;
+    const pgCode = postgresErrorCode(error);
     if (pgCode === "42P01") {
       return NextResponse.json({ success: true, configured: false, rows: [], message: "Apply migrations/manual/2026-10-15-data-import-runs.sql on the office PostgreSQL database." }, {
         headers: { "Cache-Control": "no-store" },
