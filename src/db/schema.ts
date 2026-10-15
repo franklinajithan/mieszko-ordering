@@ -858,3 +858,28 @@ export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
 
 }));
 
+
+/** Office import audit records. Apply the staged SQL migration before use. */
+export const dataImportRuns = pgTable("data_import_runs", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  storeId: integer("store_id").references(() => stores.id, { onDelete: "set null" }),
+  sourceType: varchar("source_type", { length: 32 }).notNull(),
+  triggerType: varchar("trigger_type", { length: 16 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("queued"),
+  sourceFileName: text("source_file_name"),
+  sourceFilePath: text("source_file_path"),
+  sourceStartDate: date("source_start_date"),
+  sourceEndDate: date("source_end_date"),
+  downloadedAt: timestamp("downloaded_at", { withTimezone: true }),
+  importedAt: timestamp("imported_at", { withTimezone: true }),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  downloadedRowCount: integer("downloaded_row_count"),
+  importedRowCount: integer("imported_row_count"),
+  rejectedRowCount: integer("rejected_row_count"),
+  errorMessage: text("error_message"),
+  details: jsonb("details").notNull().default(sql`'{}'::jsonb`),
+}, (table) => [
+  index("data_import_runs_store_source_started_idx").on(table.storeId, table.sourceType, table.startedAt),
+  index("data_import_runs_status_started_idx").on(table.status, table.startedAt),
+]);
