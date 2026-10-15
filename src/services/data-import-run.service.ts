@@ -78,3 +78,31 @@ export async function failImportRun(runId: number, reason: string): Promise<void
     WHERE id = ${runId} AND status NOT IN ('success', 'failed')
   `);
 }
+
+/** Reserve one manual book-stock job per store. The office worker will
+ * download/import it; creating a request never marks stock as refreshed.
+ * Concurrent requests are serialized by a PostgreSQL advisory lock.
+ */
+export async function queueBookStockRefresh(storeId: number): Promise<{ runId: number; alreadyQueued: boolean }> {
+  positiveId(storeId);
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(73501, ${storeId})`);
+    const store = await tx.execute(sql`SELECT id FROM stores WHERE id = ${storeId} AND is_active = true`);
+    if (!store.rows.length) throw new Error("Active store not found");
+    const existing = await tx.execute(sql`
+      SELECT id FROM data_import_runs
+      WHERE store_id = ${storeId} AND source_type = 'book_stock'
+        AND status IN ('queued', 'downloading', 'downloaded', 'importing')
+      ORDER BY id DESC LIMIT 1
+    `);
+    if (existing.rows.length) {
+      return { runId: Number(existing.rows[0].id), alreadyQueued: true };
+    }
+    const created = await tx.execute(sql`
+      INSERT INTO data_import_runs (store_id, source_type, trigger_type, status)
+      VALUES (${storeId}, 'book_stock', 'manual', 'queued')
+      RETURNING id
+    `);
+    return { runId: Number(created.rows[0].id), alreadyQueued: false };
+  });
+}
