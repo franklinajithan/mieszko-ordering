@@ -9,20 +9,21 @@ export async function GET() {
     const result = await db.execute(sql`
       SELECT s.id AS store_id, s.code AS store_code, s.name AS store_name,
              source.source_type,
-             r.status, r.started_at, r.completed_at, r.imported_at,
+             r.id AS latest_run_id, r.status, r.started_at, r.completed_at, r.imported_at,
              r.imported_row_count, r.error_message,
+             last_success.id AS last_successful_run_id,
              last_success.imported_at AS last_successful_import_at,
              last_success.imported_row_count AS last_successful_row_count
       FROM stores s
       CROSS JOIN (VALUES ('normal_sales'), ('rtc'), ('wastage'), ('book_stock')) AS source(source_type)
       LEFT JOIN LATERAL (
-        SELECT status, started_at, completed_at, imported_at, imported_row_count, error_message
+        SELECT id, status, started_at, completed_at, imported_at, imported_row_count, error_message
         FROM data_import_runs
         WHERE store_id = s.id AND source_type = source.source_type
         ORDER BY started_at DESC, id DESC LIMIT 1
       ) r ON TRUE
       LEFT JOIN LATERAL (
-        SELECT imported_at, imported_row_count
+        SELECT id, imported_at, imported_row_count
         FROM data_import_runs
         WHERE store_id = s.id AND source_type = source.source_type
           AND status = 'success'
