@@ -177,6 +177,13 @@ export async function calculateOrderSheet(
     startDate: period.startDate,
     endDate: period.endDate,
   }));
+  if (comparisonRanges.some((range) =>
+    !isIsoDateString(range.startDate) ||
+    !isIsoDateString(range.endDate) ||
+    range.endDate < range.startDate
+  )) {
+    throw new Error("Every comparison period needs a valid start and end date");
+  }
   const comparisonBounds = boundingIsoRange(comparisonRanges);
   if (!comparisonBounds) {
     throw new Error("Comparison periods must have valid start and end dates");
