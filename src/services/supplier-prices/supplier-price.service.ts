@@ -45,6 +45,16 @@ export function compareSupplierPrices(
   suppliers: SupplierPriceInput[],
   finalOrderQty: Decimal,
 ): SupplierPriceComparisonResult {
+  if (suppliers.length === 0) {
+    return {
+      priceStatus: "check_missing_code",
+      cheapestSupplierId: null,
+      cheapestNetPrice: null,
+      estimatedLineCost: null,
+      warning: "No suppliers selected",
+      snapshots: [],
+    };
+  }
   const snapshots: SupplierPriceSnapshot[] = suppliers.map((supplier) => {
     if (!supplier.hasMapping) {
       return {
