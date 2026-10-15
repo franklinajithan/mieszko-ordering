@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Decimal } from "@/utils/decimal";
 import {
   aggregatePeriodSales,
+  diffDaysInclusive,
   boundingIsoRange,
   buildDailySalesByProductMap,
   calculateOrderSheetSuggestedQty,
@@ -60,6 +61,11 @@ describe("orderSheetCalculations", () => {
         { startDate: "2026-09-14", endDate: "2026-09-16" },
       ]),
     ).toBe(7);
+  });
+
+  it("counts calendar days across UK daylight saving transitions", () => {
+    expect(diffDaysInclusive("2026-03-28", "2026-03-30")).toBe(3);
+    expect(diffDaysInclusive("2026-10-24", "2026-10-26")).toBe(3);
   });
 
   it("lists each date in an inclusive range", () => {
