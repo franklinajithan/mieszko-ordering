@@ -331,19 +331,35 @@ export async function calculateOrderSheet(
       salesDecimals.push(sold);
     }
 
+    // CRM normal sales and RTC sales are separate feeds: RTC is NOT
+    // contained in normal sales. Combine only when the user enables RTC.
     const baseSoldQty = aggregatePeriodSales(salesDecimals, options.soldQtyMethod);
-    const requiredForShortfall = scaleSoldQtyForShortfall({
-      baseSoldQty,
-      comparisonPeriodDays,
-      shortfallDays,
-    });
-
+    const rtcByDate = rtcByProductAndDate.get(storeProduct.id);
+    const rtcQty = options.includeRtc
+      ? aggregatePeriodSales(
+          periods.map((period) => sumQtyInDateRange(rtcByDate, period.startDate, period.endDate)),
+          options.soldQtyMethod,
+        )
+      : new Decimal(0);
     const wastageQty = options.includeWastage
       ? averagePeriodQty(wastageByProductAndDate.get(storeProduct.id), comparisonRanges)
       : new Decimal(0);
-    const rtcQty = options.includeRtc
-      ? averagePeriodQty(rtcByProductAndDate.get(storeProduct.id), comparisonRanges)
-      : new Decimal(0);
+    const requiredForShortfall = scaleSoldQtyForShortfall({
+      baseSoldQty: baseSoldQty.plus(rtcQty).plus(wastageQty),
+      comparisonPeriodDays,
+      shortfallDays,
+    });
+    // Include RTC in the stock-depletion forecast, not only in the
+    // post-delivery demand target; otherwise projected stock is overstated.
+    const movementByDate = new Map(dailyByDate ?? []);
+    if (options.includeRtc && rtcByDate) {
+      for (const [date, qty] of rtcByDate) {
+        movementByDate.set(
+          date,
+          decimalToDb(parseDbDecimal(movementByDate.get(date) ?? "0").plus(parseDbDecimal(qty))),
+        );
+      }
+    }
 
     const futureEvents: StockEvent[] = (futureLinesByProduct.get(storeProduct.id) ?? [])
       .filter((row) => row.expectedDeliveryDate && row.expectedDeliveryDate > order.bookStockDate && row.expectedDeliveryDate <= order.deliveryDate)
@@ -370,15 +386,15 @@ export async function calculateOrderSheet(
       clientDeliveryDate: order.deliveryDate,
       storeProductId: storeProduct.id,
       aggregated,
-      historicalMap: historicalMapFromDaily(dailyByDate),
+      historicalMap: historicalMapFromDaily(movementByDate),
       periodRanges,
       forecastService,
     });
 
-    // RTC and wastage are historical metrics, not additional demand.
-    // Current stock comes from a stock snapshot and already reflects movements
-    // posted before that snapshot. Adding these again double-counts losses.
-    // RTC sales are also typically included in daily sales totals.
+    // RTC is separate from normal sales and already included in the
+    // required demand above. Do not add it a second time here.
+    // Historical losses before the book-stock snapshot are not subtracted
+    // again from that snapshot.
     const stockAtClientDelivery = simulation.projectedFinalStock;
     const suggestedOrderQty = roundOrderQty(
       calculateOrderSheetSuggestedQty({
@@ -429,6 +445,11 @@ export async function calculateOrderSheet(
         comparisonPeriodDays,
         baseSoldQty: decimalToDb(baseSoldQty),
         requiredForShortfall: decimalToDb(requiredForShortfall),
+        normalSalesQty: decimalToDb(baseSoldQty),
+        separateRtcSalesQty: decimalToDb(rtcQty),
+        historicalWastageQty: decimalToDb(wastageQty),
+        demandIncludesRtc: options.includeRtc,
+        demandIncludesWastage: options.includeWastage,
         stockAtClientDelivery: decimalToDb(stockAtClientDelivery),
         physicalStockIncludingFuture: decimalToDb(currentStock),
         wastageQty: decimalToDb(wastageQty),
