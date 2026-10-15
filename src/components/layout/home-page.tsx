@@ -1,6 +1,10 @@
 import Link from "next/link";
 import {
   BookOpen,
+  Activity,
+  Clock3,
+  ClipboardList,
+  ShieldCheck,
   FileSpreadsheet,
   Package,
   Store,
@@ -13,7 +17,7 @@ export function HomePageView() {
   return (
     <AppShell
       title="Dashboard"
-      description="Replace Excel-based dairy ordering with stock simulation and supplier price comparison."
+      description="Retail replenishment, stock visibility and data-import operations."
     >
       <div className="space-y-8">
         <section className="relative overflow-hidden rounded-2xl border border-emerald-200/60 bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 px-6 py-8 text-white shadow-lg sm:px-8 sm:py-10">
@@ -22,7 +26,7 @@ export function HomePageView() {
           <div className="relative max-w-2xl">
             <p className="text-sm font-medium text-emerald-100">Welcome back</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-              Prepare smarter dairy orders
+              Intelligent retail replenishment
             </h2>
             <p className="mt-3 text-sm leading-relaxed text-emerald-50/90 sm:text-base">
               Import sales history, upload stock files, compare MM / SP / WAB net
@@ -35,6 +39,37 @@ export function HomePageView() {
               >
                 Start order sheet
               </Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4" aria-label="Data operations">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div><h3 className="text-lg font-semibold text-zinc-900">Data operations</h3><p className="text-sm text-zinc-500">Normal sales and RTC are separate feeds. Check imports before ordering.</p></div>
+            <Link href="/order-sheet" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium">Review order readiness →</Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { title: "Normal sales", detail: "Independent sales history", icon: TrendingUp, href: "/daily-sales" },
+              { title: "RTC sales", detail: "Not included in normal sales", icon: Activity, href: "/order-sheet" },
+              { title: "Wastage", detail: "Separate loss history", icon: ClipboardList, href: "/order-sheet" },
+              { title: "Book stock", detail: "Refresh before ordering", icon: BookOpen, href: "/book-stock" },
+            ].map(({ title, detail, icon: Icon, href }) => (
+              <Link key={title} href={href} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-emerald-300">
+                <Icon className="mb-3 h-5 w-5 text-emerald-700" aria-hidden="true" />
+                <p className="font-semibold text-zinc-900">{title}</p><p className="mt-1 text-xs text-zinc-500">{detail}</p>
+                <p className="mt-3 text-xs font-medium text-emerald-700">Open →</p>
+              </Link>
+            ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-center gap-2 font-semibold text-amber-900"><Clock3 className="h-4 w-4" /> Nightly automation</div>
+              <p className="mt-2 text-sm text-amber-900/80">Not connected yet. The office-PC runner must verify successful downloads and database imports.</p>
+            </div>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              <div className="flex items-center gap-2 font-semibold text-blue-900"><ShieldCheck className="h-4 w-4" /> Book-stock refresh</div>
+              <p className="mt-2 text-sm text-blue-900/80">Use the existing Book Stock import until one-click CRM download is connected. Preserve snapshot history.</p>
             </div>
           </div>
         </section>
