@@ -63,7 +63,11 @@ export function simulateStockTimeline(
   });
 
   const futureEvents = [...input.futureDeliveryEvents]
-    .filter((e) => e.eventType === "future_delivery")
+    .filter((e) =>
+      e.eventType === "future_delivery" &&
+      e.eventDate > input.bookStockDate &&
+      e.eventDate <= input.clientDeliveryDate
+    )
     .sort((a, b) => {
       const dateDiff = a.eventDate.getTime() - b.eventDate.getTime();
       if (dateDiff !== 0) return dateDiff;
