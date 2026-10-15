@@ -79,6 +79,16 @@ describe("orderSheetCalculations", () => {
     expect(map.get(1)?.get("2026-08-20")).toBe("3");
   });
 
+  it("adds multiple CRM rows for the same product and date", () => {
+    const rows = buildDailySalesByProductMap([
+      { storeProductId: 1, salesDate: "2026-10-01", soldQty: "5.25" },
+      { storeProductId: 1, salesDate: "2026-10-01", soldQty: "2.75" },
+      { storeProductId: 2, salesDate: "2026-10-01", soldQty: "4" },
+    ]);
+    expect(rows.get(1)?.get("2026-10-01")).toBe("8");
+    expect(rows.get(2)?.get("2026-10-01")).toBe("4");
+  });
+
   it("sums quantities inside an inclusive date range", () => {
     const byDate = new Map([
       ["2026-08-18", "2"],
