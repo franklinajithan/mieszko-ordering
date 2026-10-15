@@ -366,6 +366,18 @@ export async function calculateOrderSheet(
         );
       }
     }
+    // Wastage is physical stock leaving the store. Include its historical
+    // movement in the pre-delivery depletion forecast when enabled, while
+    // retaining a separate wastage feed and separate breakdown figures.
+    const wastageByDate = wastageByProductAndDate.get(storeProduct.id);
+    if (options.includeWastage && wastageByDate) {
+      for (const [date, qty] of wastageByDate) {
+        movementByDate.set(
+          date,
+          decimalToDb(parseDbDecimal(movementByDate.get(date) ?? "0").plus(parseDbDecimal(qty))),
+        );
+      }
+    }
 
     const futureEvents: StockEvent[] = (futureLinesByProduct.get(storeProduct.id) ?? [])
       .filter((row) => row.expectedDeliveryDate && row.expectedDeliveryDate > stockAnchorDate && row.expectedDeliveryDate <= order.deliveryDate)
