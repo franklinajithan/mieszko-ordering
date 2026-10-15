@@ -12,6 +12,7 @@ import {
   Truck,
 } from "lucide-react";
 import { AppShell, NavCard } from "@/components/layout/app-shell";
+import { DataOperationsStatus } from "@/components/layout/data-operations-status";
 
 export function HomePageView() {
   return (
@@ -42,6 +43,8 @@ export function HomePageView() {
             </div>
           </div>
         </section>
+
+        <DataOperationsStatus />
 
         <section className="space-y-4" aria-label="Data operations">
           <div className="flex flex-wrap items-end justify-between gap-3">
