@@ -39,6 +39,7 @@ export function OrderSheetResultsTable({
   const [search, setSearch] = useState("");
   const [onlySuggested, setOnlySuggested] = useState(false);
   const [onlySelected, setOnlySelected] = useState(false);
+  const [explainedItemId, setExplainedItemId] = useState<number | null>(null);
 
   const allSelected = items.length > 0 && items.every((item) => item.selected);
 
@@ -90,6 +91,46 @@ export function OrderSheetResultsTable({
           </label>
         </div>
       </div>
+
+      {explainedItemId !== null ? (() => {
+        const item = items.find((row) => row.orderItemId === explainedItemId);
+        if (!item) return null;
+        const normalSales = item.periodSales.reduce((sum, value) => sum.plus(parseQty(value)), parseQty("0"));
+        const periodsCount = item.periodSales.length || 1;
+        const rtc = includeRtc ? parseQty(item.rtcQty) : parseQty("0");
+        const wastage = includeWastage ? parseQty(item.wastageQty) : parseQty("0");
+        return (
+          <section role="region" aria-label="Suggested quantity explanation" className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-sm">
+            <div className="flex items-start justify-between gap-4">
+              <div><p className="font-semibold text-zinc-900">Why this quantity? — {item.productName}</p><p className="text-xs text-zinc-600">Item {item.itemCode} · {item.storeName ?? item.storeCode ?? "Store"}</p></div>
+              <button type="button" onClick={() => setExplainedItemId(null)} className="rounded border bg-white px-3 py-1 text-xs" aria-label="Close explanation">Close ×</button>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg bg-white p-3"><p className="text-xs text-zinc-500">Normal sales (average per comparison period)</p><p className="font-semibold">{normalSales.div(periodsCount).toFixed(2)}</p></div>
+              <div className="rounded-lg bg-white p-3"><p className="text-xs text-zinc-500">RTC sales (separate feed)</p><p className="font-semibold">{includeRtc ? item.rtcQty : "Excluded"}</p></div>
+              <div className="rounded-lg bg-white p-3"><p className="text-xs text-zinc-500">Wastage</p><p className="font-semibold">{includeWastage ? item.wastageQty : "Excluded"}</p></div>
+              <div className="rounded-lg bg-white p-3"><p className="text-xs text-zinc-500">Current stock shown</p><p className="font-semibold">{item.currentStock}</p></div>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <p><span className="text-zinc-600">Calculated normal sold qty:</span> <strong>{item.calculatedSoldQty}</strong></p>
+              <p><span className="text-zinc-600">Coverage:</span> <strong>{item.shortfallDays} days</strong></p>
+              <p><span className="text-zinc-600">Suggested quantity:</span> <strong>{item.suggestedOrderQty}</strong></p>
+            </div>
+            <p className="mt-3 font-medium">Supplier price comparison</p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {item.supplierQuotes.length ? item.supplierQuotes.map((quote) => (
+                <div key={quote.supplierId} className={`rounded-lg border bg-white px-3 py-2 ${quote.isCheapest ? "border-emerald-400" : "border-zinc-200"}`}>
+                  <span className="font-medium">{quote.supplierProductCode ?? "Unmapped"}</span>
+                  <span className="ml-2">{quote.netPrice ?? "Price unavailable"}</span>
+                  {quote.caseSize ? <span className="ml-2 text-zinc-500">Case {quote.caseSize}</span> : null}
+                  {quote.isCheapest ? <span className="ml-2 text-emerald-700">Cheapest</span> : null}
+                </div>
+              )) : <p className="text-zinc-600">No supplier quotations available.</p>}
+            </div>
+            <p className="mt-3 text-xs text-zinc-600">RTC is independent of normal sales. Values reflect the generated order; detailed stock-event forecasting and wastage adjustments will be expanded in the next iteration. Prices may be stale; verify supplier quotes before purchasing.</p>
+          </section>
+        );
+      })() : null}
 
       <div className="overflow-auto rounded-xl border border-zinc-200">
         <table className="min-w-full text-left text-sm">
@@ -217,7 +258,16 @@ export function OrderSheetResultsTable({
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{item.shortfallDays}</td>
                   <td className="px-3 py-2 text-right font-medium tabular-nums text-blue-700">
-                    {item.suggestedOrderQty}
+                    <button
+                      type="button"
+                      title="Explain suggested quantity"
+                      aria-label={`Explain suggested quantity for ${item.productName}`}
+                      aria-expanded={explainedItemId === item.orderItemId}
+                      onClick={() => setExplainedItemId(explainedItemId === item.orderItemId ? null : item.orderItemId)}
+                      className="rounded px-2 py-1 underline decoration-dotted underline-offset-4 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600"
+                    >
+                      {item.suggestedOrderQty} <span aria-hidden="true">ⓘ</span>
+                    </button>
                   </td>
                   <td className="px-3 py-2 text-right">
                     <Input
