@@ -93,21 +93,23 @@ export function compareSupplierPrices(
   });
 
   const invalid = snapshots.filter((s) => s.priceValidationStatus !== "valid");
-  if (invalid.length > 0) {
+  // Missing quotes must not hide a usable offer from another supplier.
+  // Keep the warnings visible, but choose among suppliers with valid prices.
+  const warning = invalid.map((s) => s.failureReason).filter(Boolean).join("; ") || null;
+  if (invalid.length === suppliers.length) {
     const first = invalid[0];
     const priceStatus: PriceStatus =
-      first.priceValidationStatus === "missing_code"
+      !first || first.priceValidationStatus === "missing_code"
         ? "check_missing_code"
         : first.priceValidationStatus === "missing_price"
           ? "check_missing_price"
           : "check_invalid_price";
-
     return {
       priceStatus,
       cheapestSupplierId: null,
       cheapestNetPrice: null,
       estimatedLineCost: null,
-      warning: invalid.map((s) => s.failureReason).filter(Boolean).join("; "),
+      warning,
       snapshots,
     };
   }
@@ -140,7 +142,7 @@ export function compareSupplierPrices(
     cheapestSupplierId: cheapest.supplierId,
     cheapestNetPrice,
     estimatedLineCost: finalOrderQty.times(cheapestNetPrice),
-    warning: null,
+    warning,
     snapshots,
   };
 }
