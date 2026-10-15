@@ -43,11 +43,12 @@ export async function startImportRun(input: StartImport): Promise<number> {
 
 export async function markImportRunStatus(runId: number, status: "downloading" | "downloaded" | "importing"): Promise<void> {
   positiveId(runId);
+  const previousStatus = status === "downloading" ? "queued" : status === "downloaded" ? "downloading" : "downloaded";
   const result = await db.execute(sql`
     UPDATE data_import_runs
     SET status = ${status},
         downloaded_at = CASE WHEN ${status} = 'downloaded' THEN now() ELSE downloaded_at END
-    WHERE id = ${runId} AND status NOT IN ('success', 'failed')
+    WHERE id = ${runId} AND status = ${previousStatus}
     RETURNING id
   `);
   if (!result.rows.length) throw new Error("Import run not found or already finished");
