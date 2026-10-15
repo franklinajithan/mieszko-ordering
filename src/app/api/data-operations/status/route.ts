@@ -10,7 +10,9 @@ export async function GET() {
       SELECT s.id AS store_id, s.code AS store_code, s.name AS store_name,
              source.source_type,
              r.status, r.started_at, r.completed_at, r.imported_at,
-             r.imported_row_count, r.error_message
+             r.imported_row_count, r.error_message,
+             last_success.imported_at AS last_successful_import_at,
+             last_success.imported_row_count AS last_successful_row_count
       FROM stores s
       CROSS JOIN (VALUES ('normal_sales'), ('rtc'), ('wastage'), ('book_stock')) AS source(source_type)
       LEFT JOIN LATERAL (
@@ -19,6 +21,13 @@ export async function GET() {
         WHERE store_id = s.id AND source_type = source.source_type
         ORDER BY started_at DESC, id DESC LIMIT 1
       ) r ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT imported_at, imported_row_count
+        FROM data_import_runs
+        WHERE store_id = s.id AND source_type = source.source_type
+          AND status = 'success'
+        ORDER BY imported_at DESC NULLS LAST, id DESC LIMIT 1
+      ) last_success ON TRUE
       WHERE s.is_active = true
       ORDER BY s.name, source.source_type
     `);
