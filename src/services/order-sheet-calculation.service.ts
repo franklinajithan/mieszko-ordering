@@ -188,6 +188,15 @@ export async function calculateOrderSheet(
   if (!comparisonBounds) {
     throw new Error("Comparison periods must have valid start and end dates");
   }
+  if (options.dayBySalesRequired && (
+    !options.dayBySalesStartDate ||
+    !options.dayBySalesEndDate ||
+    !isIsoDateString(options.dayBySalesStartDate) ||
+    !isIsoDateString(options.dayBySalesEndDate) ||
+    options.dayBySalesEndDate < options.dayBySalesStartDate
+  )) {
+    throw new Error("Daily sales requires a valid start and end date");
+  }
   const dayBySalesDates =
     options.dayBySalesRequired &&
     options.dayBySalesStartDate &&
