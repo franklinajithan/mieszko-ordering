@@ -20,14 +20,14 @@ export async function GET() {
       SELECT s.id AS store_id, s.code AS store_code, s.name AS store_name,
              source.source_type, actual.business_date AS latest_data_date, actual.updated_at AS latest_data_updated_at,
              r.id AS latest_run_id, r.status, r.started_at, r.completed_at, r.imported_at,
-             r.imported_row_count, r.error_message,
+             r.imported_row_count, r.error_message, r.details->>'duplicate_of' AS duplicate_of,
              last_success.id AS last_successful_run_id,
              last_success.imported_at AS last_successful_import_at,
              last_success.imported_row_count AS last_successful_row_count
       FROM stores s
       CROSS JOIN (VALUES ('normal_sales'), ('rtc'), ('wastage'), ('book_stock')) AS source(source_type)
       LEFT JOIN LATERAL (
-        SELECT id, status, started_at, completed_at, imported_at, imported_row_count, error_message
+        SELECT id, status, started_at, completed_at, imported_at, imported_row_count, error_message, details
         FROM data_import_runs
         WHERE store_id = s.id AND source_type = source.source_type
         ORDER BY started_at DESC, id DESC LIMIT 1
@@ -36,7 +36,7 @@ export async function GET() {
         SELECT id, imported_at, imported_row_count
         FROM data_import_runs
         WHERE store_id = s.id AND source_type = source.source_type
-          AND status = 'success'
+          AND status = 'success' AND NOT (details ? 'duplicate_of')
         ORDER BY imported_at DESC NULLS LAST, id DESC LIMIT 1
       ) last_success ON TRUE
       LEFT JOIN LATERAL (

@@ -208,6 +208,7 @@ export const supplierPriceImportSchema = z.object({
   priceColumn: z.string().min(1),
   caseSizeColumn: z.string().min(1).optional(),
   effectiveDate: z.string().date(),
+  validUntil: z.string().date().optional(),
   /** ISO timestamp — distinguishes multiple uploads on the same day. */
   importedAt: z.string().datetime().optional(),
   fileName: z.string().min(1),
@@ -359,7 +360,7 @@ export const orderSheetDraftSchema = z.object({
   items: z.array(
     z.object({
       orderItemId: idSchema,
-      orderQty: z.string(),
+      orderQty: z.string().regex(/^\d{1,14}(\.\d{1,4})?$/),
       selected: z.boolean(),
     }),
   ),

@@ -129,7 +129,7 @@ export function OrderSheetResultsTable({
               <p>Expected shortage before delivery: <strong>{item.shortageQty ?? "Unavailable"}</strong></p>
             </div>
             {item.priceWarning ? <p role="status" className="mt-3 text-amber-800">{item.priceWarning}</p> : null}
-            <p className="mt-3 text-xs text-zinc-600">Suggested units = rounded-up coverage demand minus projected stock at delivery, with a minimum of zero. Normal Sales, RTC and Wastage stay separate; enabled movement feeds inform the forecast. Figures and supplier quotes are saved with this order.</p>
+            <p className="mt-3 text-xs text-zinc-600">Suggested units = coverage demand minus projected stock at delivery, with a minimum of zero, rounded to 2 decimal places. Normal Sales, RTC and Wastage stay separate; enabled movement feeds inform the forecast. Figures and supplier quotes are saved with this order.</p>
           </section>
         );
       })() : null}

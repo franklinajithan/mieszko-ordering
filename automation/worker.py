@@ -1,5 +1,6 @@
 """Office-local queue runner. No scheduling or database migrations occur at startup."""
 import argparse
+import hashlib
 import csv
 import json
 import os
@@ -94,7 +95,12 @@ def claim(conn):
             RETURNING id, store_id, source_type, source_start_date, source_end_date''').fetchone()
 
 
-def import_report(conn, job, rows, filename, mapping_type="store_product_code"):
+def row_fingerprint(rows):
+    return hashlib.sha256(json.dumps([(pid, str(day), format(qty.normalize(), 'f'))
+        for (pid, day), qty in sorted(rows.items())], separators=(',', ':')).encode()).hexdigest()
+
+
+def import_report(conn, job, rows, filename, mapping_type="store_product_code", source_sha256=None):
     run_id, store_id, source, start, end = job
     table, date_column, quantity_column = FEEDS[source]  # Identifiers only from allowlist.
     with conn.transaction():
@@ -116,6 +122,35 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code"):
             key = (products[code], day)
             resolved[key] = resolved.get(key, Decimal(0)) + quantity
         rows = resolved
+        fingerprint = row_fingerprint(rows)
+        details = {'data_sha256': fingerprint, 'source_sha256': source_sha256}
+        # Only the latest overlapping import describes the current database state.
+        # An older matching fingerprint must not suppress a legitimate correction.
+        previous = conn.execute("""SELECT id, imported_at, details->>'data_sha256', details->>'duplicate_of'
+            FROM data_import_runs WHERE store_id=%s AND source_type=%s
+            AND source_start_date<=%s AND source_end_date>=%s AND status='success'
+            ORDER BY imported_at DESC NULLS LAST, id DESC LIMIT 1""",
+            (store_id, source, end, start)).fetchone()
+        unchanged = previous and previous[2] == fingerprint
+        if unchanged and source == 'book_stock':
+            # Browser uploads need not have a worker audit row. A newer manual
+            # snapshot invalidates the previous worker fingerprint.
+            latest = conn.execute("""SELECT max(imported_at) FROM book_stock WHERE
+                store_product_id IN (SELECT id FROM store_products WHERE store_id=%s)""", (store_id,)).fetchone()[0]
+            unchanged = latest == previous[1]
+        elif unchanged:
+            # Likewise, manual movement imports can change this range without
+            # changing the worker audit history. Compare the stored data too.
+            current = conn.execute(f'SELECT store_product_id,{date_column},{quantity_column} FROM {table} '
+                f'WHERE {date_column} BETWEEN %s AND %s AND store_product_id IN '
+                '(SELECT id FROM store_products WHERE store_id=%s)', (start, end, store_id)).fetchall()
+            unchanged = row_fingerprint({(pid, day): qty for pid, day, qty in current}) == fingerprint
+        if unchanged:
+            details['duplicate_of'] = int(previous[3]) if previous[3] else previous[0]
+            conn.execute("""UPDATE data_import_runs SET status='success', imported_at=%s, completed_at=now(),
+                imported_row_count=0, rejected_row_count=0, source_file_name=%s, details=details || %s::jsonb WHERE id=%s""",
+                (previous[1], filename, json.dumps(details), run_id))
+            return
         imported_at = conn.execute('SELECT clock_timestamp()').fetchone()[0]
         if source == 'book_stock':
             # One snapshot timestamp, committed atomically with the successful audit record.
@@ -130,14 +165,17 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code"):
             for (product_id, day), quantity in rows.items():
                 conn.execute(f'INSERT INTO {table} (store_product_id,{date_column},{quantity_column}) VALUES (%s,%s,%s)', (product_id, day, quantity))
         conn.execute('''UPDATE data_import_runs SET status='success', imported_at=%s, completed_at=now(),
-            imported_row_count=%s, rejected_row_count=0, source_file_name=%s WHERE id=%s''',
-            (imported_at, len(rows), filename, run_id))
+            imported_row_count=%s, rejected_row_count=0, source_file_name=%s, details=details || %s::jsonb WHERE id=%s''',
+            (imported_at, len(rows), filename, json.dumps(details), run_id))
 
 
 def process_job(conn, config, job):
     run_id, store_id, source, start, end = job
     try:
         store = config['stores'][str(store_id)]
+        identity = conn.execute('SELECT code FROM stores WHERE id=%s AND is_active=true', (store_id,)).fetchone()
+        if not identity or (store.get('code') and store['code'] != identity[0]):
+            raise ValueError('Configured store identity does not match the database')
         feed = store['feeds'][source]
         if source != 'book_stock' and feed.get('complete_store_report') is not True:
             raise ValueError('Movement imports require complete_store_report=true')
@@ -175,9 +213,11 @@ def process_job(conn, config, job):
             mapping = {'code': 'Code', 'quantity': 'Qty', 'date': 'Date'}
         else:
             raw_rows = read_rows(output, mapping)
+        if mapping.get('store') and any(str(row.get(mapping['store'], '')).strip() != identity[0] for row in raw_rows):
+            raise ValueError('Report contains another store or an unrecognized store marker')
         prepared = prepare_rows(raw_rows, mapping, source, start, end, allow_empty=feed.get("allow_empty_report") is True)
         conn.execute("UPDATE data_import_runs SET status='importing', downloaded_row_count=%s WHERE id=%s AND status='downloaded'", (len(prepared), run_id))
-        import_report(conn, (run_id, store_id, source, start, end), prepared, output.name, mapping_type)
+        import_report(conn, (run_id, store_id, source, start, end), prepared, output.name, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
         print(f'Job {run_id}: success ({len(prepared)} rows)', flush=True)
     except Exception as exc:
         # Keep credentials/command arguments out of logs and dashboard errors.
@@ -197,7 +237,7 @@ def main():
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text(encoding='utf-8-sig'))
     import psycopg
-    with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True) as conn:
+    with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True, prepare_threshold=None) as conn:
         if args.fail_stalled_minutes:
             if args.fail_stalled_minutes < 60:
                 raise ValueError('Stalled timeout must be at least 60 minutes')

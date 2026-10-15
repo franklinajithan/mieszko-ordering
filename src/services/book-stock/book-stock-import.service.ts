@@ -1,3 +1,4 @@
+import { InputError } from "@/utils/input-error";
 import { db } from "@/db";
 import { bookStock, notPostedDeliveries, storeProducts } from "@/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -118,9 +119,9 @@ async function processBookStockRowBatch(input: {
 
     let quantity;
     try {
-      if (!qtyRaw) throw new Error("Missing quantity");
+      if (!qtyRaw) throw new InputError("Missing quantity");
       quantity = toDecimal(qtyRaw);
-      if (!quantity.isFinite()) throw new Error("invalid");
+      if (!quantity.isFinite()) throw new InputError("invalid");
     } catch {
       result.invalidRows += 1;
       result.errors.push({
@@ -182,14 +183,14 @@ export async function importBookStockBulk(input: {
   importedAt?: string;
 }): Promise<ImportResult & { importedAt: string }> {
   if (!input.rows.length) {
-    throw new Error("No rows to import");
+    throw new InputError("No rows to import");
   }
 
   const importedAt = input.importedAt
     ? new Date(input.importedAt)
     : new Date();
   if (Number.isNaN(importedAt.getTime())) {
-    throw new Error("Invalid importedAt timestamp");
+    throw new InputError("Invalid importedAt timestamp");
   }
 
   const uniqueCodes = [
@@ -213,7 +214,7 @@ export async function importBookStockBulk(input: {
   });
 
   if (!validRows.length || result.invalidRows || result.unmatchedRows) {
-    throw new Error(`Stock snapshot rejected: ${result.invalidRows} invalid and ${result.unmatchedRows} unmatched rows. Previous snapshot retained.`);
+    throw new InputError(`Stock snapshot rejected: ${result.invalidRows} invalid and ${result.unmatchedRows} unmatched rows. Previous snapshot retained.`);
   }
   await db.transaction(async (tx) => {
     for (const batch of chunkArray(validRows, BOOK_STOCK_INSERT_BATCH_SIZE)) {
@@ -246,14 +247,14 @@ export async function importBookStockChunk(input: {
   totalRows: number;
 }): Promise<ImportResult & { importedAt: string }> {
   if (!input.rows.length) {
-    throw new Error("No rows to import");
+    throw new InputError("No rows to import");
   }
 
   const importedAt = input.importedAt
     ? new Date(input.importedAt)
     : new Date();
   if (Number.isNaN(importedAt.getTime())) {
-    throw new Error("Invalid importedAt timestamp");
+    throw new InputError("Invalid importedAt timestamp");
   }
 
   const chunkCodes = [
@@ -277,17 +278,17 @@ export async function importBookStockChunk(input: {
   });
 
   if (chunkResult.invalidRows || chunkResult.unmatchedRows || !validRows.length) {
-    throw new Error("Stock chunk rejected: invalid or unmatched products. Previous snapshot retained.");
+    throw new InputError("Stock chunk rejected: invalid or unmatched products. Previous snapshot retained.");
   }
-  if (!Number.isSafeInteger(input.totalRows) || input.totalRows < validRows.length) throw new Error("Invalid upload row count");
-  if (new Set(validRows.map(row => row.storeProductId)).size !== validRows.length) throw new Error("Duplicate products in stock chunk");
+  if (!Number.isSafeInteger(input.totalRows) || input.totalRows < validRows.length) throw new InputError("Invalid upload row count");
+  if (new Set(validRows.map(row => row.storeProductId)).size !== validRows.length) throw new InputError("Duplicate products in stock chunk");
   await db.transaction(async tx => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(73501, ${input.storeId})`);
     const existing = await tx.select({ id: bookStock.id }).from(bookStock).where(and(
       eq(bookStock.importedAt, importedAt),
       inArray(bookStock.storeProductId, tx.select({ id: storeProducts.id }).from(storeProducts).where(eq(storeProducts.storeId, input.storeId))),
     )).limit(1);
-    if (existing.length) throw new Error("This snapshot timestamp is already imported; choose a new timestamp");
+    if (existing.length) throw new InputError("This snapshot timestamp is already imported; choose a new timestamp");
     for (const row of validRows) {
       await tx.execute(sql`INSERT INTO book_stock_import_stage
         (store_id, imported_at, store_product_id, book_stock_date, quantity, expected_rows)
@@ -300,7 +301,7 @@ export async function importBookStockChunk(input: {
       FROM book_stock_import_stage WHERE store_id=${input.storeId} AND imported_at=${importedAt.toISOString()}`);
     const count = Number(staged[0].count);
     if (Number(staged[0].minimum) !== input.totalRows || Number(staged[0].maximum) !== input.totalRows || staged[0].first_date !== input.bookStockDate || staged[0].last_date !== input.bookStockDate || count > input.totalRows) {
-      throw new Error("Inconsistent stock upload metadata");
+      throw new InputError("Inconsistent stock upload metadata");
     }
     if (count === input.totalRows) {
       await tx.execute(sql`INSERT INTO book_stock (store_product_id, book_stock_date, book_stock_qty, imported_at)
@@ -349,7 +350,7 @@ export async function importBookStockFromForm(
   formData: FormData,
 ): Promise<ImportResult> {
   const file = formData.get("file");
-  if (!(file instanceof File)) throw new Error("No file uploaded");
+  if (!(file instanceof File)) throw new InputError("No file uploaded");
 
   const meta = bookStockImportSchema.safeParse({
     storeId: formData.get("storeId"),
@@ -358,10 +359,10 @@ export async function importBookStockFromForm(
     quantityColumn: formData.get("quantityColumn"),
     fileName: file.name,
   });
-  if (!meta.success) throw new Error(meta.error.message);
+  if (!meta.success) throw new InputError(meta.error.message);
 
   const store = await storeRepository.getById(meta.data.storeId);
-  if (!store) throw new Error("Store not found");
+  if (!store) throw new InputError("Store not found");
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const parsed = await parseBookStockFileBuffer(buffer, file.name);
@@ -370,7 +371,7 @@ export async function importBookStockFromForm(
     detectBookStockFileErpType(parsed.headers, file.name),
     storeErpType,
   );
-  if (mismatch) throw new Error(mismatch);
+  if (mismatch) throw new InputError(mismatch);
 
   const referenceColumn =
     parsed.referenceColumn ?? meta.data.referenceColumn;
@@ -407,9 +408,9 @@ export async function deleteBookStockForStoreUpload(
 ) {
   const importedAt = new Date(importedAtIso);
   if (Number.isNaN(importedAt.getTime())) {
-    throw new Error("Invalid importedAt timestamp");
+    throw new InputError("Invalid importedAt timestamp");
   }
-  await bookStockRepository.deleteForStoreAndImportedAt(storeId, importedAt);
+  await bookStockRepository.deleteForStoreAndImportedAt(storeId, importedAtIso);
 }
 
 export type BookStockParseResult = {

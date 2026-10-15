@@ -1,3 +1,4 @@
+import { InputError } from "@/utils/input-error";
 import { db } from "@/db";
 import { orderItems, productBarcodes, orders } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
@@ -121,7 +122,7 @@ export async function calculateOrderSheet(
   header?: Partial<typeof orders.$inferSelect>,
 ): Promise<void> {
   const savedOrder = await orderRepository.getById(orderId);
-  if (!savedOrder) throw new Error("Order not found");
+  if (!savedOrder) throw new InputError("Order not found");
   const order = { ...savedOrder, ...header };
 
   const periods = (
@@ -134,7 +135,7 @@ export async function calculateOrderSheet(
       : await orderRepository.getPeriods(orderId)
   ).sort((a, b) => periodSortKey(a.periodKey) - periodSortKey(b.periodKey));
   if (!periods.length) {
-    throw new Error("Add at least one comparison period");
+    throw new InputError("Add at least one comparison period");
   }
 
   const supplierRows = options.supplierIds?.length
@@ -144,7 +145,7 @@ export async function calculateOrderSheet(
     supplierRows.map((supplier) => [supplier.id, { supplier }] as const),
   ).values()];
   if (!selectedSuppliers.length) {
-    throw new Error("Select at least one supplier");
+    throw new InputError("Select at least one supplier");
   }
 
   const departmentIds = (order.departmentIds ?? []).filter(
@@ -153,7 +154,7 @@ export async function calculateOrderSheet(
 
   const storeIds = options.storeIds?.length ? options.storeIds : order.storeIds;
   if (!storeIds.length) {
-    throw new Error("Select at least one store before generating an order");
+    throw new InputError("Select at least one store before generating an order");
   }
   const storeProducts: Awaited<
     ReturnType<typeof orderRepository.getStoreProductsForOrder>
@@ -165,7 +166,7 @@ export async function calculateOrderSheet(
   }
 
   if (!storeProducts.length) {
-    throw new Error("No products found for the selected stores, suppliers, and departments");
+    throw new InputError("No products found for the selected stores, suppliers, and departments");
   }
 
   // Deduplicate store products before loading feed rows and saving order lines.
@@ -184,11 +185,11 @@ export async function calculateOrderSheet(
     !isIsoDateString(range.endDate) ||
     range.endDate < range.startDate
   )) {
-    throw new Error("Every comparison period needs a valid start and end date");
+    throw new InputError("Every comparison period needs a valid start and end date");
   }
   const comparisonBounds = boundingIsoRange(comparisonRanges);
   if (!comparisonBounds) {
-    throw new Error("Comparison periods must have valid start and end dates");
+    throw new InputError("Comparison periods must have valid start and end dates");
   }
   if (options.dayBySalesRequired && (
     !options.dayBySalesStartDate ||
@@ -197,7 +198,7 @@ export async function calculateOrderSheet(
     !isIsoDateString(options.dayBySalesEndDate) ||
     options.dayBySalesEndDate < options.dayBySalesStartDate
   )) {
-    throw new Error("Daily sales requires a valid start and end date");
+    throw new InputError("Daily sales requires a valid start and end date");
   }
   const dayBySalesDates =
     options.dayBySalesRequired &&
@@ -276,7 +277,7 @@ export async function calculateOrderSheet(
     (row) => !row.expectedDeliveryDate && !parseDbDecimal(row.quantity).isZero(),
   ).length;
   if (undatedFutureCount > 0) {
-    throw new Error(
+    throw new InputError(
       `Cannot calculate safely: ${undatedFutureCount} future-delivery lines lack expected arrival dates. Set their delivery dates before generating.`,
     );
   }
@@ -289,7 +290,7 @@ export async function calculateOrderSheet(
       !isIsoDateString(row.expectedDeliveryDate))
   );
   if (invalidFutureRows.length) {
-    throw new Error(
+    throw new InputError(
       `Cannot calculate safely: ${invalidFutureRows.length} future-delivery lines have invalid dates or quantities.`,
     );
   }
@@ -298,7 +299,7 @@ export async function calculateOrderSheet(
   // a stock-free order calculation.
   const defaultStockAnchorDate = options.includeBookStock !== false ? order.bookStockDate : order.orderDate;
   if (order.deliveryDate <= defaultStockAnchorDate || Object.values(options.bookStockDatesByStore ?? {}).some(date=>order.deliveryDate<=date)) {
-    throw new Error("Delivery date must be after the stock forecast anchor date.");
+    throw new InputError("Delivery date must be after the stock forecast anchor date.");
   }
   const futureLinesByProduct = new Map<number, typeof futureByProduct>();
   for (const row of futureByProduct) {

@@ -82,7 +82,7 @@ Business logic lives in `services/` so it can later move to FastAPI without chan
 2. **Products** — `/products` (codes, barcodes, supplier mappings, Excel import)
 3. **Daily sales** — `/daily-sales`
 4. **Supplier prices** — `/supplier-prices`
-5. **New order** — `/orders/new` (4-step wizard)
+5. **Generate order** — `/order-sheet` (`/orders/new` redirects here)
 6. **Order review & export** — `/orders/[id]`
 
 ## Testing
@@ -143,3 +143,35 @@ source order revision and must be regenerated after subsequent edits. Apply the
 prepared `2026-10-16-supplier-orders-and-manual-quantities.sql` migration only after
 office review/approval. See `docs/functional-development-report.md` for the latest
 verified changes and remaining integration dependencies.
+
+
+## Isolated full-system verification
+
+The system suite starts its own in-memory PostgreSQL engine and production Next
+server. It uses seven-store fixtures, fake supplier data, generated Excel reports
+and an offline CRM site. It never reads an office database URL. Ports 55432, 3100
+and 3200 must be free; an existing server is rejected rather than reused.
+
+```bash
+npm ci
+python -m pip install -r automation/requirements.txt
+npx playwright install chromium
+python -m playwright install chromium
+npm test
+python -m unittest discover -s automation/tests -v
+npm run lint
+npm run build
+npm run test:system
+```
+
+Use `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` only when providing an already installed
+compatible Chromium to both the Node and Python browser tests. Otherwise each
+Playwright installation uses its managed browser. The disposable PGlite socket
+adapter supports application and psycopg integration; native PostgreSQL locking,
+multiple database connections and Windows Task Scheduler still require office
+acceptance testing. The injected SQL-error test uses a test-only simple-query
+wrapper to avoid the embedded adapter's extended-query recovery limitation.
+
+See `docs/integration-readiness-report.md` for results, fixes, changed files,
+prepared migrations and remaining activation dependencies. No command above
+installs a Windows scheduled task, sends orders or deploys the application.

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 type StatusRow = {
   latest_data_date: string | null;
   latest_data_updated_at: string | null;
+  duplicate_of?: string | null;
   store_id: number;
   store_code: string;
   store_name: string;
@@ -94,7 +95,7 @@ export function DataOperationsStatus() {
                     ? (Date.now() - new Date(item.last_successful_import_at).getTime()) / 3600000
                     : null;
                   const stale = ageHours !== null && ageHours > (key === "book_stock" ? 24 : 36);
-                  const statusLabel = failed ? "Latest attempt failed" : item?.status === "success" ? "Last attempt succeeded" : item?.status ?? "No automated runs recorded";
+                  const statusLabel = failed ? "Latest attempt failed" : item?.duplicate_of ? "Duplicate report retained" : item?.status === "success" ? "Last attempt succeeded" : item?.status ?? "No automated runs recorded";
                   return <td key={key} className="p-3">
                     <p className={`font-medium ${failed ? "text-red-700" : item?.status === "success" ? "text-emerald-700" : "text-amber-700"}`}>{statusLabel}</p>
                     <p className="mt-1 text-xs text-zinc-600">Latest data date: {item?.latest_data_date ?? "No data"}</p>

@@ -93,6 +93,7 @@ export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }
   const [referenceColumn, setReferenceColumn] = useState("");
   const [priceColumn, setPriceColumn] = useState("");
   const [caseSizeColumn, setCaseSizeColumn] = useState("");
+  const [validUntil,setValidUntil]=useState("");
   const [importedAtLocal, setImportedAtLocal] = useState(toDatetimeLocalValue);
   const [progress, setProgress] = useState<SupplierPriceImportProgress | null>(
     null,
@@ -216,6 +217,7 @@ export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }
           priceColumn,
           caseSizeColumn: caseCol,
           effectiveDate,
+          validUntil: validUntil || undefined,
           importedAt,
           fileName: file.name,
           rows: batch,
@@ -377,6 +379,7 @@ export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }
                     ))}
                   </Select>
                 </div>
+                <div><Label htmlFor="price-valid-until">Valid until (optional)</Label><Input id="price-valid-until" type="date" value={validUntil} onChange={event=>setValidUntil(event.target.value)} /></div>
                 <div>
                   <Label>Import date &amp; time</Label>
                   <Input
@@ -387,7 +390,7 @@ export function SupplierPriceImportForm({ suppliers }: { suppliers: Supplier[] }
                   />
                   <p className="mt-1 text-xs text-zinc-500">
                     Date is used as effective date; full time marks this upload
-                    for latest-price selection.
+                    as the tie-break for prices with the same effective date.
                   </p>
                 </div>
               </div>

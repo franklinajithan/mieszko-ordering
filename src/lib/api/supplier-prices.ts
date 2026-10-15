@@ -18,6 +18,7 @@ export type SupplierPriceImportChunkInput = {
   priceColumn: string;
   caseSizeColumn?: string;
   effectiveDate: string;
+  validUntil?: string;
   importedAt?: string;
   fileName: string;
   rows: Array<Record<string, string>>;

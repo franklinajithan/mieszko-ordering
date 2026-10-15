@@ -1,3 +1,5 @@
+import { orderSheetGenerateSchema } from "@/validators/schemas";
+import { InputError } from "@/utils/input-error";
 import { getLatestBookStockSummary } from "@/services/book-stock/apply-book-stock-to-order.service";
 import { getNotPostedStoreSummary } from "@/services/not-posted/not-posted-import.service";
 import {
@@ -75,7 +77,7 @@ function normalizeShortfallPeriods(
 
 export function primaryStoreId(order: { storeIds: number[] }): number {
   const storeId = order.storeIds[0];
-  if (!storeId) throw new Error("Order has no store");
+  if (!storeId) throw new InputError("Order has no store");
   return storeId;
 }
 
@@ -405,7 +407,7 @@ function extractSupplierQuotes(item: {
 
 export async function buildOrderSheetResult(orderId: number): Promise<OrderSheetResult> {
   const order = await orderRepository.getById(orderId);
-  if (!order) throw new Error("Order not found");
+  if (!order) throw new InputError("Order not found");
 
   const metadata = settingsFromOrder(order);
   const storeIds = metadata.storeIds;
@@ -610,41 +612,44 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
 export async function generateOrderSheet(
   input: OrderSheetGenerateInput,
 ): Promise<OrderSheetResult> {
+  const validated=orderSheetGenerateSchema.safeParse(input);
+  if (!validated.success) throw new InputError(validated.error.issues[0]?.message ?? "Invalid order input");
+  input=validated.data;
   if (input.deliveryDate < input.orderDate) {
-    throw new Error("Delivery date cannot be earlier than order date");
+    throw new InputError("Delivery date cannot be earlier than order date");
   }
 
   for (const period of input.comparisonPeriods) {
     if (period.endDate < period.startDate) {
-      throw new Error("Comparison period end date cannot be before start date");
+      throw new InputError("Comparison period end date cannot be before start date");
     }
   }
 
   if (!input.shortfallPeriods.length) {
-    throw new Error("Add at least one shortfall period");
+    throw new InputError("Add at least one shortfall period");
   }
   for (const period of input.shortfallPeriods) {
     if (period.endDate < period.startDate) {
-      throw new Error("Shortfall end date cannot be before start date");
+      throw new InputError("Shortfall end date cannot be before start date");
     }
   }
 
   if (input.dayBySalesRequired) {
     if (!input.dayBySalesStartDate || !input.dayBySalesEndDate) {
-      throw new Error("Day-by-sales start and end dates are required");
+      throw new InputError("Day-by-sales start and end dates are required");
     }
     if (input.dayBySalesEndDate < input.dayBySalesStartDate) {
-      throw new Error("Day-by-sales end date cannot be before start date");
+      throw new InputError("Day-by-sales end date cannot be before start date");
     }
     if (listDatesInclusive(input.dayBySalesStartDate, input.dayBySalesEndDate).length > 31) {
-      throw new Error("Day-by-sales range cannot exceed 31 days");
+      throw new InputError("Day-by-sales range cannot exceed 31 days");
     }
   }
 
   const storeIds = input.storeIds;
   const stores = await Promise.all(storeIds.map((id) => storeRepository.getById(id)));
   if (stores.some((store) => !store)) {
-    throw new Error("One or more stores not found");
+    throw new InputError("One or more stores not found");
   }
 
   const bookStockStatuses = input.includeBookStock ? await resolveBookStockStatuses(storeIds) : [];
@@ -653,14 +658,14 @@ export async function generateOrderSheet(
   );
   if (unavailable.length) {
     const names = unavailable.map((status) => status.storeName).join(", ");
-    throw new Error(
+    throw new InputError(
       `No stock snapshot is available for: ${names}. Import book stock before generating an order sheet.`,
     );
   }
 
   const primaryBookStock = bookStockStatuses[0]!;
   if (input.includeBookStock && input.bookStockDate && input.bookStockDate !== primaryBookStock?.bookStockDate) {
-    throw new Error("Book-stock date changed. Refresh stock status before generating.");
+    throw new InputError("Book-stock date changed. Refresh stock status before generating.");
   }
 
   const metadata: OrderSheetMetadata = {
@@ -709,20 +714,21 @@ export async function saveOrderSheetDraft(input: {
   items: Array<{ orderItemId: number; orderQty: string; selected: boolean }>;
 }): Promise<void> {
   const order = await orderRepository.getById(input.orderId);
-  if (!order) throw new Error("Order not found");
+  if (!order) throw new InputError("Order not found");
 
-  if (new Set(input.items.map(item => item.orderItemId)).size !== input.items.length) throw new Error("Duplicate order item");
+  if (new Set(input.items.map(item => item.orderItemId)).size !== input.items.length) throw new InputError("Duplicate order item");
   await db.transaction(async tx => {
     await tx.execute(sql`SELECT id FROM orders WHERE id=${input.orderId} FOR UPDATE`);
     for (const item of input.items) {
+      if (!/^\d{1,14}(\.\d{1,4})?$/.test(item.orderQty)) throw new InputError("Quantity must be a non-negative decimal with at most 4 decimal places");
       const qty = parseDbDecimal(item.selected ? item.orderQty : "0");
-      if (!qty.isFinite() || qty.isNegative() || qty.gte("100000000000000")) throw new Error("Invalid order quantity");
+      if (!qty.isFinite() || qty.isNegative() || qty.gte("100000000000000")) throw new InputError("Invalid order quantity");
       const updated = await tx.update(orderItems).set({
         quantityOverridden: sql`${orderItems.quantityOverridden} OR ${orderItems.finalOrderQty} IS DISTINCT FROM ${decimalToDb(qty)}::numeric`,
         finalOrderQty: decimalToDb(qty),
         estimatedLineCost: sql`${decimalToDb(qty)}::numeric * ${orderItems.cheapestNetPrice}`,
       }).where(and(eq(orderItems.id, item.orderItemId), eq(orderItems.orderId, input.orderId))).returning({id:orderItems.id});
-      if (!updated.length) throw new Error("Order item does not belong to this order");
+      if (!updated.length) throw new InputError("Order item does not belong to this order");
     }
     await tx.update(orders).set({comment: input.comment?.trim() || null, status: "draft", updatedAt: new Date(), revision:sql`${orders.revision}+1`}).where(eq(orders.id,input.orderId));
   });

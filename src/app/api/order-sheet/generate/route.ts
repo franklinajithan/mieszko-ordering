@@ -1,3 +1,4 @@
+import { InputError } from "@/utils/input-error";
 import { generateOrderSheet } from "@/services/order-sheet.service";
 import { orderSheetGenerateSchema } from "@/validators/schemas";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
@@ -12,6 +13,7 @@ export const POST = route(async (req) => {
     const result = await generateOrderSheet(parsed.data);
     return apiOk(result);
   } catch (error) {
+    if (error instanceof InputError) return apiError(error.message,400);
     const cause = error instanceof Error && "cause" in error ? error.cause : undefined;
     const dbError = cause && typeof cause === "object" ? cause as {
       code?: string;

@@ -179,3 +179,16 @@ describe('store-specific stock dates and order grouping',()=>{
     expect(json.rows.find((row:{store_id:number;source_type:string})=>row.store_id===1&&row.source_type==='normal_sales')).toMatchObject({latest_data_date:'2026-10-15',last_successful_import_at:null});
   });
 });
+
+it('retains microsecond snapshot identity from the Python worker',async()=>{
+  await client.exec("INSERT INTO book_stock(store_product_id,book_stock_qty,book_stock_date,imported_at) VALUES(1,9,'2026-10-15','2026-10-15T10:00:00.123456Z')");
+  const {getLatestBookStockSummary}=await import('./book-stock/apply-book-stock-to-order.service');
+  const snapshot=await getLatestBookStockSummary(1);
+  expect((await bookStockRepository.latestQtyByStoreProductIds([1],{1:snapshot!.importedAt})).get(1)).toBe('9.0000');
+});
+it('deletes only the exact microsecond Book Stock upload',async()=>{
+ await client.exec("INSERT INTO book_stock(store_product_id,book_stock_qty,book_stock_date,imported_at) VALUES(1,9,'2026-10-15','2026-10-15T10:00:00.123456Z'),(1,8,'2026-10-15','2026-10-15T10:00:00.123789Z')");
+ const {deleteBookStockForStoreUpload}=await import('./book-stock/book-stock-import.service');
+ await deleteBookStockForStoreUpload(1,'2026-10-15T10:00:00.123456Z');
+ expect((await client.query('SELECT book_stock_qty FROM book_stock')).rows).toEqual([{book_stock_qty:'8.0000'}]);
+});

@@ -15,6 +15,7 @@ const chunkSchema = z.object({
   priceColumn: z.string().min(1),
   caseSizeColumn: z.string().min(1).optional(),
   effectiveDate: z.string().date(),
+  validUntil: z.string().date().optional(),
   importedAt: z.string().datetime().optional(),
   fileName: z.string().min(1),
   rows: z

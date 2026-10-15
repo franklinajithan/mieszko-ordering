@@ -18,7 +18,7 @@ export const bookStockRepository = {
     return db.insert(bookStock).values(data).returning();
   },
 
-  async deleteForStoreAndImportedAt(storeId: number, importedAt: Date) {
+  async deleteForStoreAndImportedAt(storeId: number, importedAt: Date | string) {
     const ids = await storeProductIds(storeId);
     if (!ids.length) return;
 
@@ -26,7 +26,7 @@ export const bookStockRepository = {
       .delete(bookStock)
       .where(
         and(
-          eq(bookStock.importedAt, importedAt),
+          sql`${bookStock.importedAt} = ${typeof importedAt === "string" ? importedAt : importedAt.toISOString()}::timestamptz`,
           inArray(bookStock.storeProductId, ids),
         ),
       );
@@ -156,6 +156,7 @@ export const bookStockRepository = {
       .select({
         bookStockDate: bookStock.bookStockDate,
         importedAt: bookStock.importedAt,
+        importedAtExact: sql<string>`to_char(${bookStock.importedAt} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
         itemCount: sql<number>`count(*)::int`,
         totalBookStockQty: sql<string>`coalesce(sum(${bookStock.bookStockQty}), 0)::text`,
       })
@@ -166,7 +167,7 @@ export const bookStockRepository = {
 
     return rows.map((row) => ({
       bookStockDate: row.bookStockDate,
-      importedAt: row.importedAt.toISOString(),
+      importedAt: row.importedAtExact,
       itemCount: row.itemCount,
       totalBookStockQty: row.totalBookStockQty,
     }));

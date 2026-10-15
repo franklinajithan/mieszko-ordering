@@ -1,3 +1,4 @@
+import { isSameOriginSubmission } from "@/lib/api/same-origin";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { queueBookStockRefresh } from "@/services/data-import-run.service";
@@ -11,12 +12,8 @@ const schema = z.object({ storeId: z.number().int().positive() });
  */
 export const POST = route(async (request) => {
   // Reject cross-site browser submissions; this is CSRF protection, not user authorization.
-  const origin = request.headers.get("origin");
-  if (origin) {
-    const expected = new URL(request.url).origin;
-    if (origin !== expected) {
-      return NextResponse.json({ success: false, error: "Cross-origin requests are not permitted." }, { status: 403 });
-    }
+  if (!isSameOriginSubmission(request)) {
+    return NextResponse.json({success:false,error:"Cross-origin requests are not permitted."},{status:403});
   }
   const parsed = await parseJson(request, schema);
   if (!parsed.ok) return parsed.response;

@@ -12,7 +12,7 @@ def download(config_path, source, start, end, output):
     config = json.loads(Path(config_path).read_text(encoding='utf-8-sig'))
     steps = config['reports'][source]
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=config.get('headless', True))
+        browser = playwright.chromium.launch(headless=config.get('headless', True), executable_path=config.get('browser_executable'), args=config.get('browser_args'))
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
         page.set_default_timeout(config.get('timeout_ms', 1200000))

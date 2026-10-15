@@ -1,3 +1,7 @@
+import { and,eq } from "drizzle-orm";
+import { supplierProducts as mappingsTable,supplierPrices } from "@/db/schema";
+import { InputError } from "@/utils/input-error";
+import { isIsoDateString } from "@/utils/iso-date";
 import { db } from "@/db";
 import type { ImportResult, ParsedRow } from "@/types";
 import { toDecimal, decimalToDb } from "@/utils/decimal";
@@ -41,10 +45,13 @@ export async function importSupplierPriceRows(input: {
   priceColumn: string;
   caseSizeColumn?: string;
   effectiveDate: string;
+  validUntil?: string;
   importedAt?: string;
   fileName: string;
   rows: ParsedRow[];
 }): Promise<ImportResult> {
+  if (!input.rows.length) throw new InputError("No rows to import");
+  if (!isIsoDateString(input.effectiveDate) || (input.validUntil && (!isIsoDateString(input.validUntil) || input.validUntil<input.effectiveDate))) throw new InputError("Price expiry must be on or after its effective date");
   const result: ImportResult = {
     totalRows: input.rows.length,
     matchedRows: 0,
@@ -60,7 +67,7 @@ export async function importSupplierPriceRows(input: {
     throw new Error("Select a valid import date and time");
   }
 
-  await db.transaction(async () => {
+  await db.transaction(async (tx) => {
     const validRows: Array<{
       supplierId: number;
       supplierProductId: number | null;
@@ -68,6 +75,7 @@ export async function importSupplierPriceRows(input: {
       netPrice: string;
       caseSize: string | null;
       effectiveDate: string;
+      validUntil: string | null;
       fileName: string;
       importedAt: Date;
     }> = [];
@@ -116,10 +124,7 @@ export async function importSupplierPriceRows(input: {
         continue;
       }
 
-      const supplierProducts = await supplierPriceRepository.findSupplierProducts(
-        input.supplierId,
-        supplierCode,
-      );
+      const supplierProducts = await tx.select().from(mappingsTable).where(and(eq(mappingsTable.supplierId,input.supplierId),eq(mappingsTable.supplierCode,supplierCode),eq(mappingsTable.isActive,true)));
 
       if (!supplierProducts.length) {
         result.unmatchedRows += 1;
@@ -139,6 +144,7 @@ export async function importSupplierPriceRows(input: {
           netPrice: decimalToDb(price),
           caseSize,
           effectiveDate: input.effectiveDate,
+          validUntil: input.validUntil ?? null,
           fileName: input.fileName,
           importedAt,
         });
@@ -147,7 +153,7 @@ export async function importSupplierPriceRows(input: {
     }
 
     if (validRows.length) {
-      await supplierPriceRepository.insertPrices(validRows);
+      await tx.insert(supplierPrices).values(validRows);
     }
   });
 
@@ -178,6 +184,7 @@ export async function importSupplierPricesFromForm(
     priceColumn: formData.get("priceColumn"),
     caseSizeColumn,
     effectiveDate: formData.get("effectiveDate"),
+    validUntil: formData.get("validUntil") || undefined,
     importedAt,
     fileName: file.name,
   });

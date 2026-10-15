@@ -242,6 +242,7 @@ CREATE TABLE "supplier_prices" (
 	"net_price" numeric(18, 4) NOT NULL,
 	"case_size" varchar(100),
 	"effective_date" date NOT NULL,
+	"valid_until" date,
 	"file_name" varchar(500),
 	"imported_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL

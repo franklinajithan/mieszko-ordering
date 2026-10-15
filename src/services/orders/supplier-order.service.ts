@@ -1,3 +1,4 @@
+import { InputError } from "@/utils/input-error";
 import 'server-only';
 import ExcelJS from 'exceljs';
 import { and, eq } from 'drizzle-orm';
@@ -9,7 +10,7 @@ import { Decimal, decimalToDb, parseDbDecimal } from '@/utils/decimal';
 export async function generateSupplierOrders(orderId: number) {
   return db.transaction(async tx => {
     const [order] = await tx.select().from(orders).where(eq(orders.id,orderId)).for('update');
-    if (!order) throw new Error('Order not found');
+    if (!order) throw new InputError('Order not found');
     const items = await tx.select({item:orderItems,storeProduct:storeProducts,product:products})
       .from(orderItems).innerJoin(storeProducts,eq(storeProducts.id,orderItems.storeProductId))
       .innerJoin(products,eq(products.id,storeProducts.productId)).where(eq(orderItems.orderId,orderId));
@@ -17,14 +18,14 @@ export async function generateSupplierOrders(orderId: number) {
     const unpriced: string[] = [];
     for (const {item,storeProduct,product} of items) {
       const quantity=parseDbDecimal(item.finalOrderQty);
-      if (!quantity.isFinite() || quantity.isNegative()) throw new Error('Invalid saved order quantity');
+      if (!quantity.isFinite() || quantity.isNegative()) throw new InputError('Invalid saved order quantity');
       if (quantity.isZero()) continue;
       const quote=item.supplierQuotes.find(quote=>quote.supplierId===item.cheapestSupplierId && quote.isCheapest);
       if (!quote || quote.priceValidationStatus!=='valid' || !quote.supplierProductCode?.trim() || !item.cheapestNetPrice || item.priceStatus!=='complete') {
         unpriced.push(`${storeProduct.storeId}/${storeProduct.storeProductCode}`); continue;
       }
       const price=parseDbDecimal(item.cheapestNetPrice);
-      if (!price.isFinite() || !price.gt(0)) throw new Error('Invalid chosen supplier price');
+      if (!price.isFinite() || !price.gt(0)) throw new InputError('Invalid chosen supplier price');
       const key=`${storeProduct.storeId}:${quote.supplierId}`;
       const group=groups.get(key) ?? {storeId:storeProduct.storeId,supplierId:quote.supplierId,lines:[],total:new Decimal(0)};
       const lineCost=quantity.times(price);
@@ -32,11 +33,11 @@ export async function generateSupplierOrders(orderId: number) {
       group.total=group.total.plus(lineCost); groups.set(key,group);
     }
     // Fail the whole operation rather than silently omit a selected line.
-    if (unpriced.length) throw new Error(`Resolve supplier prices for ${unpriced.length} selected lines: ${unpriced.slice(0,10).join(', ')}`);
-    if (!groups.size) throw new Error('Select at least one product with a positive quantity');
+    if (unpriced.length) throw new InputError(`Resolve supplier prices for ${unpriced.length} selected lines: ${unpriced.slice(0,10).join(', ')}`);
+    if (!groups.size) throw new InputError('Select at least one product with a positive quantity');
     const [activeStores,activeSuppliers]=await Promise.all([tx.select().from(stores),tx.select().from(suppliers)]);
     for (const group of groups.values()) {
-      if (!activeStores.some(store=>store.id===group.storeId && store.isActive) || !activeSuppliers.some(supplier=>supplier.id===group.supplierId && supplier.isActive)) throw new Error('A selected store or supplier is inactive');
+      if (!activeStores.some(store=>store.id===group.storeId && store.isActive) || !activeSuppliers.some(supplier=>supplier.id===group.supplierId && supplier.isActive)) throw new InputError('A selected store or supplier is inactive');
     }
     const results: Array<typeof supplierOrders.$inferSelect> = [];
     for (const group of groups.values()) {
@@ -52,7 +53,7 @@ export async function generateSupplierOrders(orderId: number) {
 
 export async function listSupplierOrders(orderId: number) {
   const [order]=await db.select().from(orders).where(eq(orders.id,orderId));
-  if (!order) throw new Error('Order not found');
+  if (!order) throw new InputError('Order not found');
   const rows=await db.select({draft:supplierOrders,storeName:stores.name,supplierName:suppliers.name}).from(supplierOrders)
     .innerJoin(stores,eq(stores.id,supplierOrders.storeId)).innerJoin(suppliers,eq(suppliers.id,supplierOrders.supplierId)).where(eq(supplierOrders.orderId,orderId));
   return rows.map(({draft,...names})=>({...draft,...names,stale:draft.sourceRevision!==order.revision}));
@@ -62,8 +63,8 @@ export async function exportSupplierOrder(orderId: number, supplierOrderId: numb
   const [row]=await db.select({draft:supplierOrders,order:orders,storeName:stores.name,supplierName:suppliers.name}).from(supplierOrders)
     .innerJoin(orders,eq(orders.id,supplierOrders.orderId)).innerJoin(stores,eq(stores.id,supplierOrders.storeId))
     .innerJoin(suppliers,eq(suppliers.id,supplierOrders.supplierId)).where(and(eq(supplierOrders.id,supplierOrderId),eq(supplierOrders.orderId,orderId)));
-  if (!row) throw new Error('Supplier order not found');
-  if (row.draft.sourceRevision!==row.order.revision) throw new Error('Order quantities or settings changed. Regenerate supplier orders before exporting.');
+  if (!row) throw new InputError('Supplier order not found');
+  if (row.draft.sourceRevision!==row.order.revision) throw new InputError('Order quantities or settings changed. Regenerate supplier orders before exporting.');
   const book=new ExcelJS.Workbook();
   const sheet=book.addWorksheet('Supplier Order');
   sheet.addRow(['Mieszko supplier order',row.draft.id]);

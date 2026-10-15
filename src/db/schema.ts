@@ -402,6 +402,7 @@ export const supplierPrices = pgTable("supplier_prices", {
   caseSize: varchar("case_size", { length: 100 }),
 
   effectiveDate: date("effective_date").notNull(),
+  validUntil: date("valid_until"),
 
   fileName: varchar("file_name", { length: 500 }),
 

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, lte, gte, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { supplierPrices, supplierProducts, suppliers } from "@/db/schema";
 import { BOOK_STOCK_CODE_LOOKUP_BATCH_SIZE } from "@/lib/import-config";
@@ -22,7 +22,7 @@ export const supplierPriceRepository = {
 
   /**
    * Latest price for a supplier product (product-wise, not store-wise).
-   * Prefer the most recent import timestamp, then createdAt.
+   * Prefer the latest effective date, then the latest import and deterministic id.
    */
   async getLatestPrice(supplierProductId: number, asOfDate: string) {
     const [row] = await db
@@ -32,9 +32,10 @@ export const supplierPriceRepository = {
         and(
           eq(supplierPrices.supplierProductId, supplierProductId),
           lte(supplierPrices.effectiveDate, asOfDate),
+          or(isNull(supplierPrices.validUntil),gte(supplierPrices.validUntil,asOfDate)),
         ),
       )
-      .orderBy(desc(supplierPrices.importedAt), desc(supplierPrices.createdAt))
+      .orderBy(desc(supplierPrices.effectiveDate), desc(supplierPrices.importedAt), desc(supplierPrices.id))
       .limit(1);
     return row ?? null;
   },
@@ -97,12 +98,14 @@ export const supplierPriceRepository = {
           and(
             inArray(supplierPrices.supplierProductId, batch),
             lte(supplierPrices.effectiveDate, asOfDate),
+            or(isNull(supplierPrices.validUntil),gte(supplierPrices.validUntil,asOfDate)),
           ),
         )
         .orderBy(
           supplierPrices.supplierProductId,
+          desc(supplierPrices.effectiveDate),
           desc(supplierPrices.importedAt),
-          desc(supplierPrices.createdAt),
+          desc(supplierPrices.id),
         );
 
       for (const row of rows) {

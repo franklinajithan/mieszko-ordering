@@ -1,3 +1,4 @@
+import { InputError } from "@/utils/input-error";
 import { NextResponse } from "next/server";
 import type { ZodType } from "zod";
 import type { ActionResult } from "@/types";
@@ -64,6 +65,7 @@ export function route<Args extends unknown[]>(
     try {
       return await handler(req, ...args);
     } catch (error) {
+      if (error instanceof InputError) return apiError(error.message,400);
       // Keep full database diagnostics on the server, never in API responses.
       console.error(`[API ${req.method} ${new URL(req.url).pathname}]`, error);
       if (isUniqueViolation(error)) {

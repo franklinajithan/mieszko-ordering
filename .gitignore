@@ -46,3 +46,5 @@ next-env.d.ts
 /automation/crm.local.json
 /automation/downloads/
 __pycache__/
+/test-results/
+/playwright-report/

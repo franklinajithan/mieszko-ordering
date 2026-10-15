@@ -5,9 +5,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["172.20.10.8", "localhost", "127.0.0.1"],
   async redirects() {
     return [
-      { source: "/orders", destination: "/order-sheet", permanent: false },
       { source: "/orders/new", destination: "/order-sheet", permanent: false },
-      { source: "/orders/:id", destination: "/order-sheet", permanent: false },
     ];
   },
   experimental: {
