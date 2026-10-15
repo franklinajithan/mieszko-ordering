@@ -148,6 +148,9 @@ export async function calculateOrderSheet(
   );
 
   const storeIds = options.storeIds?.length ? options.storeIds : order.storeIds;
+  if (!storeIds.length) {
+    throw new Error("Select at least one store before generating an order");
+  }
   const storeProducts: Awaited<
     ReturnType<typeof orderRepository.getStoreProductsForOrder>
   > = [];
