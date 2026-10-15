@@ -450,7 +450,7 @@ export async function calculateOrderSheet(
         supplierCode: mapping?.supplierCode ?? "",
         supplierName: supplier.name,
         priceTiePriority: supplier.priceTiePriority,
-        hasMapping: Boolean(mapping),
+        hasMapping: Boolean(mapping?.supplierCode?.trim()),
         netPrice: price?.netPrice ?? null,
         caseSize: price?.caseSize ?? null,
       };
