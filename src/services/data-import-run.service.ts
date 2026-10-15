@@ -106,3 +106,46 @@ export async function queueBookStockRefresh(storeId: number): Promise<{ runId: n
     return { runId: Number(created.rows[0].id), alreadyQueued: false };
   });
 }
+
+/**
+ * Atomically claim the oldest pending book-stock refresh for an office worker.
+ * SKIP LOCKED ensures concurrent workers never process the same request.
+ */
+export async function claimNextBookStockRefresh(): Promise<{
+  runId: number;
+  storeId: number;
+} | null> {
+  const result = await db.execute(sql`
+    UPDATE data_import_runs
+    SET status = 'downloading', started_at = now()
+    WHERE id = (
+      SELECT id FROM data_import_runs
+      WHERE source_type = 'book_stock' AND status = 'queued'
+      ORDER BY id ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    RETURNING id, store_id
+  `);
+  const row = result.rows[0];
+  if (!row) return null;
+  return { runId: Number(row.id), storeId: Number(row.store_id) };
+}
+
+/** Identify abandoned work after an office PC crash or interrupted downloader.
+ * Requeue only with a deliberate retry operation; never mark it successful.
+ */
+export async function failStalledImportRuns(olderThanMinutes = 120): Promise<number> {
+  if (!Number.isSafeInteger(olderThanMinutes) || olderThanMinutes < 15 || olderThanMinutes > 1440) {
+    throw new Error("Invalid stalled import timeout");
+  }
+  const result = await db.execute(sql`
+    UPDATE data_import_runs
+    SET status = 'failed', completed_at = now(),
+        error_message = 'Import worker stopped or timed out before completion'
+    WHERE status IN ('downloading', 'downloaded', 'importing')
+      AND started_at < now() - (${olderThanMinutes} * interval '1 minute')
+    RETURNING id
+  `);
+  return result.rows.length;
+}
