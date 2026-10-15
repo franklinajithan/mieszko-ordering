@@ -62,10 +62,17 @@ export function DataOperationsStatus() {
                 {sources.map(([key]) => {
                   const item = rows.find(row => row.store_id === store.id && row.source_type === key);
                   const failed = item?.status === "failed";
+                  const ageHours = item?.last_successful_import_at
+                    ? (Date.now() - new Date(item.last_successful_import_at).getTime()) / 3600000
+                    : null;
+                  const stale = ageHours !== null && ageHours > (key === "book_stock" ? 24 : 36);
+                  const statusLabel = failed ? "Latest attempt failed" : item?.status === "success" ? "Last attempt succeeded" : item?.status ?? "No runs recorded";
                   return <td key={key} className="p-3">
-                    <p className={`font-medium ${failed ? "text-red-700" : item?.status === "success" ? "text-emerald-700" : "text-amber-700"}`}>{item?.status ?? "No runs recorded"}</p>
+                    <p className={`font-medium ${failed ? "text-red-700" : item?.status === "success" ? "text-emerald-700" : "text-amber-700"}`}>{statusLabel}</p>
                     <p className="mt-1 text-xs text-zinc-600">Last success: {dateLabel(item?.last_successful_import_at ?? null)}</p>
-                    <p className="text-xs text-zinc-500">Rows: {item?.last_successful_row_count ?? "—"}</p>
+                    <p className="text-xs text-zinc-500">Rows: {item?.last_successful_row_count ?? "Not reported"}</p>
+                    {stale ? <p className="mt-1 text-xs font-medium text-amber-700">Last success older than {key === "book_stock" ? "24" : "36"} hours</p> : null}
+                    {!item?.last_successful_import_at ? <p className="mt-1 text-xs text-amber-700">No successful import recorded</p> : null}
                     {failed ? <p className="mt-1 max-w-56 break-words text-xs text-red-700">{item?.error_message ?? "Import failed"}</p> : null}
                   </td>;
                 })}</tr>
