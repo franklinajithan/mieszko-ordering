@@ -4,6 +4,7 @@ No CRM records are edited. Login credentials come only from the local environmen
 Actual office acceptance is still required; offline browser fixtures test the flow.
 """
 import argparse
+import getpass
 import json
 from datetime import date
 import os
@@ -18,6 +19,15 @@ REPORTS = {
     'rtc': ('History', 'Price Override & RTC Sales History'),
     'wastage': ('Stock', 'Wastage'),
 }
+
+# Nebula versions use different labels for the product-level sales report.
+# Do not fall back to department summaries or daily item volume reports.
+NORMAL_SALES_TITLES = ('Product Sales Enquiry', 'Item Sales Enquiry')
+
+
+def report_title_pattern(source, title):
+    names = NORMAL_SALES_TITLES if source == 'normal_sales' else (title,)
+    return re.compile(r'^\s*(?:\d+\s*\.\s*)?(?:' + '|'.join(re.escape(name) for name in names) + r')\s*$')
 
 
 class CrmExportError(ValueError):
@@ -95,6 +105,8 @@ def select_report(page, category, title, source):
     # Category selection can replace the iframe during an ASP.NET postback.
     # Always resolve controls in the current frame rather than retaining the
     # frame from the previous screen.
+    pattern = report_title_pattern(source, title)
+
     def category_control():
         current = explorer_frame(page)
         return visible(current.get_by_text(category, exact=True)) if current is not None else None
@@ -105,7 +117,7 @@ def select_report(page, category, title, source):
         current = explorer_frame(page)
         if current is None:
             return None
-        matches = current.get_by_text(title, exact=False)
+        matches = current.get_by_text(pattern)
         options = [matches.nth(i) for i in range(matches.count()) if matches.nth(i).is_visible()]
         if source == 'wastage' and len(options) > 1:
             options = [item for item in options if re.match(r'^9\s*\.', item.inner_text().strip())]
@@ -121,7 +133,7 @@ def select_report(page, category, title, source):
             return None
         body = current.locator('body').inner_text()
         match = re.search(r'Selected Report\s*:\s*([^\n]+)', body)
-        return current if match and title in match.group(1) else None
+        return current if match and pattern.fullmatch(match.group(1)) else None
 
     return wait_for(page, selected_report, 'Selected report screen did not become ready')
 
@@ -241,10 +253,13 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--prompt-login', action='store_true', help='Prompt locally for a hidden CRM login code for a download-only test')
     for name in ('url', 'store-code', 'source', 'start', 'end', 'output'):
         parser.add_argument('--' + name, required=True)
     args = parser.parse_args()
     try:
+        if args.prompt_login:
+            os.environ['MIESZKO_CRM_LOGIN_CODE'] = getpass.getpass('CRM login code (hidden): ')
         download(args.url, args.store_code, args.source, args.start, args.end, args.output)
     except Exception as error:
         # Never print Playwright call logs, which may contain the filled login code.

@@ -2,7 +2,7 @@
 import http from 'node:http';
 import ExcelJS from 'exceljs';
 const observed=[];
-const labels={normal_sales:'Product Sales Enquiry',rtc:'Price Override & RTC Sales History',wastage:'9. Wastage'};
+const labels={normal_sales:'6. Item Sales Enquiry',rtc:'Price Override & RTC Sales History',wastage:'9. Wastage'};
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://127.0.0.1:3201');res.setHeader('Content-Type','text/html');
  if(url.pathname==='/observed'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(observed));return;}
