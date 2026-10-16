@@ -58,3 +58,28 @@ and actual server timing remain separate operational checks.
 Verified for this change: 164 application tests, 45 Python worker tests, 21
 browser/database integration scenarios, ESLint and the production Next build all
 passed. No live office database or CRM session was used for verification.
+
+## Current report and next reports
+
+The screen now includes a global **Processing now** panel and the next five
+waiting CRM reports above the filtered table. It remains visible when viewing
+Waiting or filtering to another store, so current activity does not disappear.
+Current reports show store, feed, business dates, job ID, recorded stage, start
+time and the actual filename once the worker records it. The recorded stages are
+opening CRM/downloading, downloaded/validating, and importing into PostgreSQL.
+An attempt recorded as active for over two hours displays a worker-check warning.
+
+The next list uses ascending job IDs, matching the database-backed worker's FIFO
+selection for active MSP stores with saved CRM settings. It excludes paused,
+cancelled and manual Book Stock jobs. The worker still selects only its enabled
+feeds; this list shows waiting candidates, not a claim that the worker is online
+or that an unenabled feed will run. Book Stock remains separately manual.
+The Waiting table now also displays oldest attempts first. Other history views
+remain newest first. Navigation and view shortcuts are buttons.
+
+The list is a PostgreSQL stage snapshot refreshed every five seconds, not a
+network transfer percentage. Stop controls can prevent an old attempt importing
+while its existing CRM session finishes; the active panel reflects audit states.
+
+Current/next refinement verification: 164 application tests, five queue browser/
+database scenarios, ESLint and the production build passed.

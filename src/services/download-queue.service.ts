@@ -10,15 +10,22 @@ export type QueueFilters={storeId?:number;feed?:string;view:string;page:number};
 export async function getDownloadQueue(filters:QueueFilters){
  const scope=sql`(${filters.storeId??null}::int IS NULL OR r.store_id=${filters.storeId??null}) AND (${filters.feed??null}::text IS NULL OR r.source_type=${filters.feed??null})`;
  const view=filters.view==='processing'?sql`${queueState} IN ('downloading','downloaded','importing')`:filters.view==='completed'?sql`${queueState}='success'`:filters.view==='all'?sql`true`:sql`${queueState}=${filters.view}`;
- const [rows,totals,stores]=await Promise.all([
+ const [rows,totals,stores,active,next]=await Promise.all([
   db.execute(sql`SELECT r.id::int,r.store_id,s.name AS store_name,r.source_type,${queueState} AS status,r.source_start_date::text AS from_date,r.source_end_date::text AS to_date,r.started_at,r.completed_at,r.downloaded_row_count,r.imported_row_count,r.error_message,r.source_file_name,r.details->>'retry_of' AS retry_of
-   FROM data_import_runs r LEFT JOIN stores s ON s.id=r.store_id WHERE ${scope} AND ${view} ORDER BY r.id DESC LIMIT 50 OFFSET ${(filters.page-1)*50}`),
+   FROM data_import_runs r LEFT JOIN stores s ON s.id=r.store_id WHERE ${scope} AND ${view} ORDER BY r.id ${filters.view==='queued'?sql`ASC`:sql`DESC`} LIMIT 50 OFFSET ${(filters.page-1)*50}`),
   db.execute(sql`SELECT ${queueState} AS status,count(*)::int AS count FROM data_import_runs r WHERE ${scope} GROUP BY 1`),
   db.execute(sql`SELECT id,name FROM stores ORDER BY name`),
+  // Always show current activity across stores, even while the table is filtered.
+  db.execute(sql`SELECT r.id::int,s.name AS store_name,r.source_type,r.status,r.source_start_date::text AS from_date,r.source_end_date::text AS to_date,r.started_at,r.source_file_name,r.downloaded_row_count
+    FROM data_import_runs r LEFT JOIN stores s ON s.id=r.store_id WHERE r.status IN ('downloading','downloaded','importing') ORDER BY r.id LIMIT 10`),
+  // Match the database-backed CRM worker's FIFO order. Book Stock is separate.
+  db.execute(sql`SELECT r.id::int,s.name AS store_name,r.source_type,r.status,r.source_start_date::text AS from_date,r.source_end_date::text AS to_date
+    FROM data_import_runs r JOIN stores s ON s.id=r.store_id JOIN store_crm_settings c ON c.store_id=s.id
+    WHERE r.status='queued' AND s.is_active AND s.erp_type='msp' AND r.source_type IN ('normal_sales','rtc','wastage') ORDER BY r.id LIMIT 5`),
  ]);
  const counts=Object.fromEntries(totals.map(row=>[String(row.status),Number(row.count)]));
  const total=filters.view==='all'?totals.reduce((sum,row)=>sum+Number(row.count),0):filters.view==='processing'?['downloading','downloaded','importing'].reduce((sum,key)=>sum+(counts[key]??0),0):filters.view==='completed'?(counts.success??0):counts[filters.view]??0;
- return {rows,counts,stores,total,page:filters.page,pageSize:50,checkedAt:new Date().toISOString()};
+ return {rows,counts,stores,live:{active,next},total,page:filters.page,pageSize:50,checkedAt:new Date().toISOString()};
 }
 export async function controlDownload(runId:number,action:'pause'|'resume'|'cancel'|'redownload'){
  return db.transaction(async tx=>{

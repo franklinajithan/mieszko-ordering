@@ -26,6 +26,30 @@ test('queue screen separates stages, pauses, resumes with a new ID, cancels and 
  expect((await request.get('/api/download-queue?view=invalid')).status()).toBe(400);
 });
 
+test('live panel shows current reports across filters and the next CRM files in worker FIFO order',async({page,request})=>{
+ await sql`INSERT INTO store_crm_settings(store_id,crm_url) VALUES(1,'http://127.0.0.1:3201/'),(2,'http://127.0.0.1:3201/')`;
+ const manual=await job('queued','2026-10-01');await sql`UPDATE data_import_runs SET source_type='book_stock' WHERE id=${manual}`;
+ const stopped=await job('failed','2026-10-01');await sql`UPDATE data_import_runs SET details='{"queue_control":"paused"}' WHERE id=${stopped}`;
+ const first=await job('queued','2026-10-03'),second=await job('queued','2026-10-04',2),current=await job('downloading','2026-10-15',2);
+ await sql`UPDATE data_import_runs SET source_type='rtc' WHERE id=${second}`;
+ const unconfigured=await job('queued','2026-10-05',3);
+ const api=(await (await request.get('/api/download-queue?storeId=1&view=queued')).json()).data;
+ expect(api.live.next.map((row:{id:number})=>row.id)).toEqual([first,second]);
+ expect(api.live.active.map((row:{id:number})=>row.id)).toEqual([current]);
+ expect(api.live.next.map((row:{id:number})=>row.id)).not.toContain(unconfigured);
+ expect(api.rows.map((row:{id:number})=>row.id)).toEqual([manual,first]);
+ await page.goto('/downloads');const panel=page.getByRole('region',{name:'Live worker activity'});
+ await expect(panel.getByRole('article',{name:`Current job ${current}`})).toContainText('Perivale · Normal Sales · 2026-10-15');
+ await expect(panel.getByRole('listitem',{name:'Queue position 1',exact:true})).toContainText(`Job #${first}`);
+ await expect(panel.getByRole('listitem',{name:'Queue position 2',exact:true})).toContainText(`Job #${second}`);
+ await page.getByRole('combobox',{name:'Queue store'}).selectOption('1');
+ await expect(panel.getByRole('article',{name:`Current job ${current}`})).toBeVisible();
+ await panel.getByRole('button',{name:'Show waiting reports'}).click();
+ await expect(page.getByRole('button',{name:`Pause job ${first}`,exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'New download / CRM settings',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Office Operations',exact:true}).click();await expect(page).toHaveURL(/\/operations$/);
+});
+
 test('queue controls protect committing imports and do not report user pauses as import failures',async({request})=>{
  const id=await job('importing');expect((await request.post('/api/download-queue',{headers,data:{runId:id,action:'cancel'}})).status()).toBe(400);
  expect((await sql`SELECT status FROM data_import_runs WHERE id=${id}`)[0].status).toBe('importing');

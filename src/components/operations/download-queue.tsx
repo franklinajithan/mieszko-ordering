@@ -1,12 +1,17 @@
 'use client';
-import Link from 'next/link';
+import {useRouter} from 'next/navigation';
+import {Button} from '@/components/ui/button';
 import {useEffect,useState} from 'react';
 import {apiRequest} from '@/lib/api/client';
 const feeds={normal_sales:'Normal Sales',rtc:'RTC Sales',wastage:'Wastage',book_stock:'Book Stock'};
 const views=[['processing','Processing'],['queued','Waiting'],['paused','Paused'],['completed','Completed'],['failed','Failed'],['cancelled','Cancelled'],['all','All history']] as const;
 type Row={id:number;store_name:string|null;source_type:keyof typeof feeds;status:string;from_date:string|null;to_date:string|null;started_at:string;completed_at:string|null;downloaded_row_count:number|null;imported_row_count:number|null;error_message:string|null;source_file_name:string|null;retry_of:string|null};
-type Queue={rows:Row[];counts:Record<string,number>;stores:{id:number;name:string}[];total:number;page:number;pageSize:number;checkedAt:string};
+type LiveRow=Pick<Row,'id'|'store_name'|'source_type'|'status'|'from_date'|'to_date'> & Partial<Pick<Row,'started_at'|'source_file_name'|'downloaded_row_count'>>;
+const stages:Record<string,string>={downloading:'Opening CRM / downloading report',downloaded:'Download complete — validating file',importing:'Saving validated data to PostgreSQL'};
+function reportName(row:LiveRow){return `${row.store_name??'Store removed'} · ${feeds[row.source_type]} · ${row.from_date??'Date not recorded'}${row.to_date!==row.from_date?` to ${row.to_date??'unknown'}`:''}`;}
+type Queue={live:{active:LiveRow[];next:LiveRow[]};rows:Row[];counts:Record<string,number>;stores:{id:number;name:string}[];total:number;page:number;pageSize:number;checkedAt:string};
 export function DownloadQueue(){
+ const router=useRouter();
  const [view,setView]=useState('processing'),[storeId,setStore]=useState(''),[feed,setFeed]=useState(''),[page,setPage]=useState(1);
  const [result,setResult]=useState<{query:string;data:Queue}|null>(null),[error,setError]=useState(''),[message,setMessage]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState<number|null>(null),[refresh,setRefresh]=useState(0);
  const query=new URLSearchParams({view,page:String(page),...(storeId?{storeId}:{}),...(feed?{feed}:{})}).toString();
@@ -30,9 +35,28 @@ export function DownloadQueue(){
  const counts=data?.counts??{};
  const count=(key:string)=>key==='processing'?['downloading','downloaded','importing'].reduce((n,s)=>n+(counts[s]??0),0):key==='completed'?(counts.success??0):key==='all'?Object.values(counts).reduce((n,v)=>n+v,0):counts[key]??0;
  return <div className="space-y-4">
-  <div className="flex flex-wrap gap-4"><Link className="text-blue-700 underline" href="/automation">CRM URLs and new download requests</Link><Link className="text-blue-700 underline" href="/operations">Office Operations</Link><button className="rounded border bg-white px-3 py-1" disabled={loading} onClick={()=>setRefresh(n=>n+1)}>Refresh queue</button></div>
+  <div className="flex flex-wrap gap-3"><Button onClick={()=>router.push('/automation')}>New download / CRM settings</Button><Button variant="outline" onClick={()=>router.push('/operations')}>Office Operations</Button><Button variant="outline" disabled={loading} onClick={()=>setRefresh(n=>n+1)}>Refresh queue</Button></div>
   <p className="text-sm">Queued reports wait for the Ubuntu worker and an enabled report feed. This screen refreshes every 5 seconds while visible. Closing it does not stop the worker. Book Stock remains manual.</p>
   <p className="text-sm text-zinc-600">Pause stops this attempt from importing; Resume starts a fresh attempt. A CRM download already underway may finish. An atomic database import already in progress cannot be interrupted.</p>
+  {data&&<section aria-label="Live worker activity" className="grid gap-4 lg:grid-cols-2">
+   <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4">
+    <h2 className="text-lg font-semibold">Processing now</h2>
+    <p className="text-xs text-zinc-600">All stores and feeds · Worker stages recorded in PostgreSQL · Checked {new Date(data.checkedAt).toLocaleTimeString('en-GB')}</p>
+    {data.live.active.length?data.live.active.map(row=><article key={row.id} aria-label={`Current job ${row.id}`} className="mt-3 rounded border bg-white p-3">
+     <p className="font-semibold">{reportName(row)}</p><p>Job #{row.id} · {stages[row.status]??row.status}</p>
+     {row.started_at&&<p className="text-sm">Started {new Date(row.started_at).toLocaleString('en-GB')}</p>}
+     <p className="text-sm">File: {row.source_file_name??'Filename recorded when download finishes'}{row.downloaded_row_count!=null?` · ${row.downloaded_row_count} rows`:''}</p>
+     {row.started_at&&Date.parse(data.checkedAt)-Date.parse(row.started_at)>7200000&&<p className="text-amber-900">This attempt has been active for over two hours. Check the worker before assuming it is still progressing.</p>}
+    </article>):<p className="mt-3">No report is currently recorded as processing. Waiting jobs need the worker and feed enabled.</p>}
+    <Button className="mt-3" variant="outline" onClick={()=>{setView('processing');setPage(1);}}>Show processing reports</Button>
+   </div>
+   <div className="rounded-xl border bg-white p-4">
+    <h2 className="text-lg font-semibold">Next waiting CRM reports</h2>
+    <p className="text-xs text-zinc-600">All stores · Oldest job first · The worker selects from its enabled feeds. Book Stock is handled separately.</p>
+    {data.live.next.length?<ol className="mt-3 list-decimal space-y-2 pl-5">{data.live.next.map((row,index)=><li key={row.id} aria-label={`Queue position ${index+1}`}><strong>{reportName(row)}</strong><div className="text-sm">Job #{row.id}{index===0?' · First waiting candidate':''}</div></li>)}</ol>:<p className="mt-3">No waiting CRM reports with an active store and saved CRM settings.</p>}
+    <Button className="mt-3" variant="outline" onClick={()=>{setView('queued');setPage(1);}}>Show waiting reports</Button>
+   </div>
+  </section>}
   <div className="flex flex-wrap gap-4">
    <label>Store<select aria-label="Queue store" className="ml-2 rounded border p-2" value={storeId} onChange={e=>{setStore(e.target.value);setPage(1);}}><option value="">All stores</option>{(result?.data.stores??[]).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
    <label>Feed<select aria-label="Queue feed" className="ml-2 rounded border p-2" value={feed} onChange={e=>{setFeed(e.target.value);setPage(1);}}><option value="">All feeds</option>{Object.entries(feeds).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
