@@ -101,3 +101,18 @@ test('worker: a manual data correction cannot be mistaken for an unchanged dupli
  expect(Number((await sql`SELECT sold_qty FROM daily_sales WHERE store_product_id=11 AND sales_date='2026-10-07'`)[0].sold_qty)).toBe(4);
  expect((await sql`SELECT details FROM data_import_runs ORDER BY id DESC LIMIT 1`)[0].details.duplicate_of).toBeUndefined();
 });
+
+
+test('worker: store markers are checked before the normalizer can discard them',async()=>{
+ const config=configFor([1],{mapping:{code:'Item Code',quantity:'Quantity',store:'Store Code'},command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}','--report-store','0766']});
+ run(config,['--enqueue-date','2026-10-07']);
+ const runs=await sql`SELECT status,error_message FROM data_import_runs`;
+ expect(runs).toHaveLength(3);expect(runs.every(row=>row.status==='failed'&&row.error_message.includes('another store'))).toBe(true);
+ expect(Number((await sql`SELECT sold_qty FROM daily_sales WHERE store_product_id=11 AND sales_date='2026-10-07'`)[0].sold_qty)).toBe(4);
+});
+
+test('worker: a matching store marker survives validation and imports all scheduled feeds',async()=>{
+ const config=configFor([1],{mapping:{code:'Item Code',quantity:'Quantity',store:'Store Code'},command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}','--report-store','0365']});
+ run(config,['--enqueue-date','2026-10-07']);
+ const runs=await sql`SELECT status FROM data_import_runs`;expect(runs).toHaveLength(3);expect(runs.every(row=>row.status==='success')).toBe(true);
+});

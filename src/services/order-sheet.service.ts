@@ -648,8 +648,8 @@ export async function generateOrderSheet(
 
   const storeIds = input.storeIds;
   const stores = await Promise.all(storeIds.map((id) => storeRepository.getById(id)));
-  if (stores.some((store) => !store)) {
-    throw new InputError("One or more stores not found");
+  if (stores.some((store) => !store || !store.isActive)) {
+    throw new InputError("Active store not found for one or more selections");
   }
 
   const bookStockStatuses = input.includeBookStock ? await resolveBookStockStatuses(storeIds) : [];

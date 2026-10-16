@@ -198,6 +198,13 @@ def process_job(conn, config, job):
         conn.execute("UPDATE data_import_runs SET status='downloaded', downloaded_at=now(), source_file_path=%s, source_start_date=%s, source_end_date=%s WHERE id=%s AND status='downloading'", (str(output), start, end, run_id))
         mapping_type = feed.get('mapping_type', 'store_product_code')
         mapping = feed['mapping']
+        raw_rows = None
+        if mapping.get('store'):
+            # App parsers emit only code/date/quantity. Validate report identity
+            # before normalization discards the original store column.
+            raw_rows = read_rows(output, mapping)
+            if any(str(row.get(mapping['store'], '')).strip() != identity[0] for row in raw_rows):
+                raise ValueError('Report contains another store or an unrecognized store marker')
         if feed.get('normalize_with_app_parsers'):
             normalized = folder / 'normalized.json'
             app_dir = Path(config['app_directory']).resolve()
@@ -211,10 +218,8 @@ def process_job(conn, config, job):
             raw_rows = envelope['rows']
             mapping_type = envelope['mapping_type']
             mapping = {'code': 'Code', 'quantity': 'Qty', 'date': 'Date'}
-        else:
+        elif raw_rows is None:
             raw_rows = read_rows(output, mapping)
-        if mapping.get('store') and any(str(row.get(mapping['store'], '')).strip() != identity[0] for row in raw_rows):
-            raise ValueError('Report contains another store or an unrecognized store marker')
         prepared = prepare_rows(raw_rows, mapping, source, start, end, allow_empty=feed.get("allow_empty_report") is True)
         conn.execute("UPDATE data_import_runs SET status='importing', downloaded_row_count=%s WHERE id=%s AND status='downloaded'", (len(prepared), run_id))
         import_report(conn, (run_id, store_id, source, start, end), prepared, output.name, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())

@@ -77,7 +77,7 @@ export const orderRepository = {
   },
 
   async getStoreProductsForOrder(storeId: number, departmentIds: number[]) {
-    const conditions = [eq(storeProducts.storeId, storeId), eq(storeProducts.isActive, true)];
+    const conditions = [eq(storeProducts.storeId, storeId), eq(storeProducts.isActive, true), eq(products.isActive, true)];
     if (departmentIds.length) {
       conditions.push(inArray(products.orderDepartment, departmentIds));
     }

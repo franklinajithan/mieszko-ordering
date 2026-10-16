@@ -54,6 +54,10 @@ const cases:Case[]=[
  {name:'41 expired supplier offer',setup:"UPDATE supplier_prices SET valid_until='2026-10-07' WHERE supplier_id=2",quantity:7.5,winner:3},
  {name:'42 offer valid on inclusive expiry date',setup:"UPDATE supplier_prices SET valid_until='2026-10-08' WHERE supplier_id=2",quantity:7.5,winner:2},
  {name:'40 disjoint department filtering',patch:{departmentIds:[2]},quantity:6.75},
+ {name:'46 remapped supplier code cannot reuse the old code price',setup:"UPDATE supplier_products SET supplier_code='REPLACED-CODE' WHERE id=12",quantity:7.5,winner:3},
+ {name:'47 inactive cheapest supplier is excluded',setup:'UPDATE suppliers SET is_active=false WHERE id=2',quantity:7.5,winner:3},
+ {name:'48 all selected suppliers inactive',setup:'UPDATE suppliers SET is_active=false',status:400},
+ {name:'49 inactive store is an input error',setup:'UPDATE stores SET is_active=false WHERE id=1',status:400},
 ];
 for(const scenario of cases) test(scenario.name,async({request})=>{
   if(scenario.setup) await sql.unsafe(scenario.setup);

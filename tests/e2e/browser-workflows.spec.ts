@@ -81,3 +81,21 @@ test('browser: dashboard totals, freshness warnings and all primary screens rend
  }
  expect(errors).toEqual([]);
 });
+
+test('browser: retry a failed nightly import and observe the successful linked attempt',async({page})=>{
+  const [original]=await sql`INSERT INTO data_import_runs(store_id,source_type,trigger_type,status,source_start_date,source_end_date,error_message)
+    VALUES(1,'normal_sales','nightly','failed','2026-10-07','2026-10-07','Fixture timeout') RETURNING id`;
+  await page.goto('/');const monitor=page.getByRole('region',{name:'Live data import monitoring'});
+  await monitor.getByRole('button',{name:'Retry normal sales import for Hounslow',exact:true}).click();
+  await expect(monitor.getByRole('status')).toContainText('Import retry queued');
+  const attempts=await sql`SELECT status,source_start_date::text AS start,source_end_date::text AS end,details FROM data_import_runs ORDER BY id`;
+  expect(attempts).toHaveLength(2);expect(attempts[0].status).toBe('failed');
+  expect(attempts[1]).toMatchObject({status:'queued',start:'2026-10-07',end:'2026-10-07',details:{retry_of:Number(original.id)}});
+  const folder=mkdtempSync(path.join(tmpdir(),'mieszko-retry-e2e-'));const config=path.join(folder,'config.json');
+  writeFileSync(config,JSON.stringify({download_directory:path.join(folder,'downloads'),app_directory:process.cwd(),stores:{'1':{erp:'msp',feeds:{normal_sales:{complete_store_report:true,normalize_with_app_parsers:true,extension:'.xlsx',mapping:{code:'Item Code',quantity:'Sold Qty'},command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}']}}}}}));
+  execFileSync('python',['automation/worker.py','--config',config,'--once'],{env:{...process.env,DATABASE_URL:connection},timeout:30000});
+  await monitor.getByRole('button',{name:'Refresh status'}).click();
+  await expect(monitor.locator('tr').filter({hasText:'Hounslow'}).getByText('Last attempt succeeded',{exact:true})).toBeVisible();
+  const [latest]=await sql`SELECT status,details FROM data_import_runs ORDER BY id DESC LIMIT 1`;
+  expect(latest.status).toBe('success');expect(latest.details.retry_of).toBe(Number(original.id));
+});

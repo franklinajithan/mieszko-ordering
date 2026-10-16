@@ -142,10 +142,10 @@ export async function calculateOrderSheet(
     ? await supplierRepository.getByIds(options.supplierIds)
     : (await orderRepository.getSelectedSuppliers(orderId)).map((row) => row.supplier);
   const selectedSuppliers = [...new Map(
-    supplierRows.map((supplier) => [supplier.id, { supplier }] as const),
+    supplierRows.filter(supplier => supplier.isActive).map((supplier) => [supplier.id, { supplier }] as const),
   ).values()];
   if (!selectedSuppliers.length) {
-    throw new InputError("Select at least one supplier");
+    throw new InputError("Select at least one active supplier");
   }
 
   const departmentIds = (order.departmentIds ?? []).filter(

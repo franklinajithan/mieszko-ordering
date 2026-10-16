@@ -175,3 +175,11 @@ wrapper to avoid the embedded adapter's extended-query recovery limitation.
 See `docs/integration-readiness-report.md` for results, fixes, changed files,
 prepared migrations and remaining activation dependencies. No command above
 installs a Windows scheduled task, sends orders or deploys the application.
+
+
+Failed imports show a **Retry import** button in the dashboard/import monitor.
+It queues the same store, feed and report period as a new linked attempt while
+retaining the original failure. An office worker must be running to process it;
+clicking Retry does not mark data as updated. Repeated clicks reuse active work.
+Inactive stores/products/suppliers are excluded from new orders, and changing a
+supplier product code requires a matching price for the new code.

@@ -1,3 +1,4 @@
+import { InputError } from "@/utils/input-error";
 import "server-only";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
@@ -20,7 +21,7 @@ type FinishImport = {
   sourceFileName?: string;
 };
 function positiveId(id: number) {
-  if (!Number.isSafeInteger(id) || id < 1) throw new Error("Invalid import identifier");
+  if (!Number.isSafeInteger(id) || id < 1) throw new InputError("Invalid import identifier");
 }
 function nonnegativeCount(count: number) {
   if (!Number.isSafeInteger(count) || count < 0) throw new Error("Invalid import row count");
@@ -88,7 +89,7 @@ export async function queueBookStockRefresh(storeId: number): Promise<{ runId: n
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(73501, ${storeId})`);
     const store = await tx.execute(sql`SELECT id FROM stores WHERE id = ${storeId} AND is_active = true`);
-    if (!store.length) throw new Error("Active store not found");
+    if (!store.length) throw new InputError("Active store not found");
     const existing = await tx.execute(sql`
       SELECT id FROM data_import_runs
       WHERE store_id = ${storeId} AND source_type = 'book_stock'
@@ -148,4 +149,28 @@ export async function failStalledImportRuns(olderThanMinutes = 120): Promise<num
     RETURNING id
   `);
   return result.length;
+}
+
+/** Explicit operator retry; preserves the failed attempt and its report period. */
+export async function retryFailedImportRun(runId: number): Promise<{runId:number;alreadyQueued:boolean}> {
+  positiveId(runId);
+  return db.transaction(async tx => {
+    const failed=await tx.execute(sql`SELECT store_id,source_type,source_start_date::text AS source_start_date,source_end_date::text AS source_end_date
+      FROM data_import_runs WHERE id=${runId} AND status='failed' FOR UPDATE`);
+    const original=failed[0];
+    if (!original) throw new InputError('Failed import run not found');
+    const storeId=Number(original.store_id);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(73501, ${storeId})`);
+    const store=await tx.execute(sql`SELECT id FROM stores WHERE id=${storeId} AND is_active=true`);
+    if (!store.length) throw new InputError('Active store not found');
+    const active=await tx.execute(sql`SELECT id FROM data_import_runs WHERE store_id=${storeId}
+      AND source_type=${original.source_type} AND status IN ('queued','downloading','downloaded','importing')
+      ORDER BY id DESC LIMIT 1`);
+    if (active.length) return {runId:Number(active[0].id),alreadyQueued:true};
+    const created=await tx.execute(sql`INSERT INTO data_import_runs
+      (store_id,source_type,source_start_date,source_end_date,trigger_type,status,details)
+      VALUES(${storeId},${original.source_type},${original.source_start_date},${original.source_end_date},'retry','queued',
+        jsonb_build_object('retry_of',${runId}::integer)) RETURNING id`);
+    return {runId:Number(created[0].id),alreadyQueued:false};
+  });
 }

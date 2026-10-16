@@ -26,8 +26,14 @@ export const supplierPriceRepository = {
    */
   async getLatestPrice(supplierProductId: number, asOfDate: string) {
     const [row] = await db
-      .select()
+      .select({ price: supplierPrices })
       .from(supplierPrices)
+      .innerJoin(supplierProducts, and(
+        eq(supplierProducts.id, supplierPrices.supplierProductId),
+        eq(supplierProducts.supplierId, supplierPrices.supplierId),
+        eq(supplierProducts.supplierCode, supplierPrices.supplierCode),
+        eq(supplierProducts.isActive, true),
+      ))
       .where(
         and(
           eq(supplierPrices.supplierProductId, supplierProductId),
@@ -37,7 +43,7 @@ export const supplierPriceRepository = {
       )
       .orderBy(desc(supplierPrices.effectiveDate), desc(supplierPrices.importedAt), desc(supplierPrices.id))
       .limit(1);
-    return row ?? null;
+    return row?.price ?? null;
   },
 
   async listActiveMappings(productIds: number[], supplierIds: number[]) {
@@ -94,6 +100,12 @@ export const supplierPriceRepository = {
           caseSize: supplierPrices.caseSize,
         })
         .from(supplierPrices)
+        .innerJoin(supplierProducts, and(
+          eq(supplierProducts.id, supplierPrices.supplierProductId),
+          eq(supplierProducts.supplierId, supplierPrices.supplierId),
+          eq(supplierProducts.supplierCode, supplierPrices.supplierCode),
+          eq(supplierProducts.isActive, true),
+        ))
         .where(
           and(
             inArray(supplierPrices.supplierProductId, batch),

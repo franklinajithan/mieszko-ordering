@@ -3,6 +3,7 @@
 ## Scope and outcome
 
 Verification started from GitHub main `188771e26b36094bf4d3227132aa49bf92cc6819`.
+Continuation work fetched main `15a711e27c5dd4aca598ced95fdb816ef313061a` before further changes.
 The application was exercised through a production Next.js server, real HTTP
 requests, Chromium, generated Excel workbooks, the Python CRM downloader and
 worker, and a disposable PostgreSQL engine. Reproduced defects were fixed with
@@ -17,13 +18,13 @@ Windows execution and Task Scheduler require a separate approved office run.
 
 | Check | Result |
 | --- | --- |
-| `npm test` | 91 passed, 15 files |
+| `npm test` | 98 passed, 15 files |
 | `python -m unittest discover -s automation/tests -v` | 9 passed |
 | `npm run lint` | Passed |
 | `npm run build` | Passed, production Next.js build and TypeScript checks |
-| `npm run test:system` with Chromium executable override | 61 passed, 0 failed, 0 skipped |
-| Distinct Generate Order scenarios | 45 passed, including independent quantity expectations |
-| Total test cases across final application, worker and system suites | 161 passed |
+| `npm run test:system` with Chromium executable override | 68 passed, 0 failed, 0 skipped |
+| Distinct Generate Order scenarios | 49 passed, including independent quantity expectations |
+| Total test cases across final application, worker and system suites | 175 passed |
 
 These are final-run counts; failed exploratory runs are not counted as passing.
 Initial failures included real defects, an incorrect whole-unit rounding oracle
@@ -38,7 +39,7 @@ execution of that hosted CI job is separate from the local results above.
 | --- | --- | --- |
 | Separate Normal Sales, RTC Sales, Wastage | Verified | Actual Excel normalization and Python imports, independent sums, enabled/disabled feed calculations; no joined-row multiplication |
 | Seven-store/product retrieval | Verified | Repeated item codes and shared barcodes across all seven stores, exact scoped quantities and department/store filters |
-| Demand forecast and stock projection | Verified | 45 order scenarios plus application regressions; zero/high/fractional demand, negative/missing stock, multiple periods and deliveries |
+| Demand forecast and stock projection | Verified | 49 order scenarios plus application regressions; zero/high/fractional demand, negative/missing stock, multiple periods and deliveries |
 | Cheapest valid supplier unit price | Verified | Case sizes 1/6/24/1000, ties, zero/invalid/missing offers, effective dates and inclusive expiry boundaries |
 | Manual edits and regeneration | Verified | Browser immediate cost, atomic save, workbook export, reopening and concurrent repeated regeneration preserve units |
 | Supplier order grouping and Excel | Verified | Seven store-specific groups, persisted revisions, actual XLSX downloads parsed for quantity and unit price; unpriced/stale draft regressions |
@@ -99,6 +100,40 @@ Psycopg automatic prepared statements are disabled for compatibility with
 PostgreSQL protocol proxies. A test-only simple-query wrapper handles the PGlite
 socket adapter's error recovery limitation during the injected SQL failure;
 production connection/error handling otherwise remains exercised by the real CLI.
+
+## Continuation: active catalogue, supplier remapping and dashboard retries
+
+Six further defects were reproduced before fixing them:
+
+- Globally inactive products were still generated because only store-product
+  activity was checked. Both flags now exclude the product from new calculations.
+- An inactive supplier could win the comparison and block supplier generation
+  later. Calculations now compare active suppliers only and reject an entirely
+  inactive selection. Case size still has no effect on unit-price selection.
+- Inactive stores could create orders. They are rejected before creating a draft.
+- An inactive-store stock refresh returned 500. It now returns an input error
+  (400), with no queued work.
+- Changing a supplier product code retained the mapping id, so the old code's
+  price could apply to the replacement. Both quote lookups now match mapping id,
+  supplier id and current supplier code; fresh matching prices restore the offer.
+- App normalization dropped a configured store-marker column before validation.
+  The worker now validates the raw report marker first. Real worker tests reject
+  another store and accept the matching store across all three scheduled feeds.
+
+The import monitor now provides **Retry import** for a failed attempt. The new
+`POST /api/data-operations/retry` endpoint creates a linked queued attempt for the
+same feed and original date range. The original failure/error stays intact;
+repeated requests reuse active work for that store/feed. Nonfailed jobs and
+inactive stores are rejected. The worker consumes the retry through its existing
+queue. A Chromium test clicks the retry button, executes the Python worker and
+observes success with the original `retry_of` audit link retained. The first
+browser run caught the PostgreSQL bigint/string ID transport mismatch; the
+button now converts the ID to the API numeric payload before submission. This remains
+an explicit operator action; Book Stock is never added to the nightly schedule.
+
+New unit coverage adds seven cases; system coverage adds four ordering cases,
+one browser retry workflow and two worker store-marker cases. No additional
+migration or office configuration change is required for this continuation.
 
 ## Data and scenario coverage
 
@@ -184,7 +219,8 @@ is no claim that office integration is production-ready before the above gates.
 Changes are grouped below; the final GitHub commit identifiers accompany this
 report in the delivery message and Git history.
 
-- Runtime/API: `next.config.ts`, `src/db/client.ts`, `src/lib/api/http.ts`,
+- Runtime/API: `src/app/api/data-operations/retry/route.ts`,
+  `src/services/data-import-run.service.ts`, `src/repositories/orders.ts`, `next.config.ts`, `src/db/client.ts`, `src/lib/api/http.ts`,
   `src/lib/api/same-origin.ts`, `src/utils/input-error.ts`,
   `src/app/api/data-operations/{book-stock,status}/route.ts`,
   `src/app/api/order-sheet/{generate,sales-data-status}/route.ts`,

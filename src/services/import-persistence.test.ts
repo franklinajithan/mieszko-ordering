@@ -192,3 +192,74 @@ it('deletes only the exact microsecond Book Stock upload',async()=>{
  await deleteBookStockForStoreUpload(1,'2026-10-15T10:00:00.123456Z');
  expect((await client.query('SELECT book_stock_qty FROM book_stock')).rows).toEqual([{book_stock_qty:'8.0000'}]);
 });
+
+describe('active catalogue boundaries',()=>{
+  const input={storeIds:[1],supplierIds:[1],departmentIds:[1],orderDate:'2026-10-15',deliveryDate:'2026-10-16',includeBookStock:false,includeFutureDeliveries:false,includeRtc:false,includeWastage:false,soldQtyMethod:'average' as const,comparisonPeriods:[{startDate:'2026-10-08',endDate:'2026-10-08'}],shortfallPeriods:[{startDate:'2026-10-16',endDate:'2026-10-16'}]};
+  it('does not generate lines for globally inactive products',async()=>{
+    await client.exec('UPDATE products SET is_active=false WHERE id=1');
+    try {
+      const {generateOrderSheet}=await import('./order-sheet.service');
+      const result=await generateOrderSheet(input);
+      expect(result.items.some(item=>item.itemCode==='A')).toBe(false);
+      expect(result.items.some(item=>item.itemCode==='B')).toBe(true);
+    }finally{await client.exec('UPDATE products SET is_active=true WHERE id=1');}
+  });
+  it('ignores a cheaper inactive supplier while retaining active quotes',async()=>{
+    await client.exec(`INSERT INTO suppliers(id,name,code,is_active) VALUES(333,'Inactive offer','OFF333',false);
+      INSERT INTO supplier_products(id,product_id,supplier_id,supplier_code) VALUES(333,1,333,'OFF-MILK');
+      INSERT INTO supplier_prices(supplier_id,supplier_product_id,supplier_code,net_price,effective_date) VALUES(333,333,'OFF-MILK',0.1,'2026-10-01');`);
+    try{
+      const {generateOrderSheet}=await import('./order-sheet.service');
+      const result=await generateOrderSheet({...input,supplierIds:[1,333]});
+      const milk=result.items.find(item=>item.itemCode==='A')!;
+      expect(milk.supplierQuotes.find(quote=>quote.isCheapest)?.supplierId).toBe(1);
+    }finally{await client.exec('DELETE FROM supplier_prices WHERE supplier_id=333;DELETE FROM supplier_products WHERE supplier_id=333;DELETE FROM suppliers WHERE id=333;');}
+  });
+  it('rejects an inactive store before creating an order',async()=>{
+    await client.exec('UPDATE stores SET is_active=false WHERE id=1');
+    try{
+      const {generateOrderSheet}=await import('./order-sheet.service');
+      await expect(generateOrderSheet(input)).rejects.toThrow(/active store/i);
+      expect((await client.query('SELECT id FROM orders')).rows).toHaveLength(0);
+    }finally{await client.exec('UPDATE stores SET is_active=true WHERE id=1');}
+  });
+  it('returns an input error when browser refresh targets an inactive store',async()=>{
+    const {POST}=await import('@/app/api/data-operations/book-stock/route');
+    const response=await POST(new Request('http://localhost/api/data-operations/book-stock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({storeId:2})}));
+    expect(response.status).toBe(400);
+    expect((await client.query('SELECT id FROM data_import_runs')).rows).toHaveLength(0);
+  });
+});
+
+it('never applies a previous supplier code price after remapping a product',async()=>{
+  await client.exec("UPDATE supplier_products SET supplier_code='NEW-MILK' WHERE id=1");
+  try{
+    const {supplierPriceRepository}=await import('@/repositories/supplier-prices');
+    expect(await supplierPriceRepository.getLatestPrice(1,'2026-10-15')).toBeNull();
+    expect((await supplierPriceRepository.getLatestPricesForSupplierProducts([1],'2026-10-15')).has(1)).toBe(false);
+    await client.exec("INSERT INTO supplier_prices(supplier_id,supplier_product_id,supplier_code,net_price,effective_date) VALUES(1,1,'NEW-MILK',4,'2026-10-01')");
+    expect((await supplierPriceRepository.getLatestPrice(1,'2026-10-15'))?.netPrice).toBe('4.0000');
+    expect((await supplierPriceRepository.getLatestPricesForSupplierProducts([1],'2026-10-15')).get(1)?.netPrice).toBe('4.0000');
+  }finally{await client.exec("DELETE FROM supplier_prices WHERE supplier_code='NEW-MILK';UPDATE supplier_products SET supplier_code='MILK' WHERE id=1;");}
+});
+
+describe('operator import retry',()=>{
+  it('preserves the failed audit and exact feed period, without duplicate queue entries',async()=>{
+    await client.exec("INSERT INTO data_import_runs(store_id,source_type,trigger_type,status,source_start_date,source_end_date,error_message) VALUES(1,'rtc','nightly','failed','2026-10-08','2026-10-09','Downloader timed out')");
+    const original=Number((await client.query('SELECT id FROM data_import_runs')).rows[0].id);
+    const first=await queue.retryFailedImportRun(original);
+    expect(first.alreadyQueued).toBe(false);
+    expect(await queue.retryFailedImportRun(original)).toEqual({runId:first.runId,alreadyQueued:true});
+    const rows=(await client.query('SELECT status,source_type,source_start_date::text AS source_start_date,source_end_date::text AS source_end_date,trigger_type,details,error_message FROM data_import_runs ORDER BY id')).rows;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({status:'failed',error_message:'Downloader timed out'});
+    expect(rows[1]).toMatchObject({status:'queued',source_type:'rtc',source_start_date:'2026-10-08',source_end_date:'2026-10-09',trigger_type:'retry',details:{retry_of:original}});
+  });
+  it('rejects retrying nonfailed or inactive-store jobs without creating work',async()=>{
+    await queue.queueBookStockRefresh(1);
+    await expect(queue.retryFailedImportRun(1)).rejects.toThrow('Failed import');
+    await client.exec("INSERT INTO data_import_runs(store_id,source_type,trigger_type,status) VALUES(2,'normal_sales','nightly','failed')");
+    await expect(queue.retryFailedImportRun(2)).rejects.toThrow('Active store');
+    expect((await client.query('SELECT id FROM data_import_runs')).rows).toHaveLength(2);
+  });
+});
