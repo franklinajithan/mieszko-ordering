@@ -6,6 +6,31 @@ import ExcelJS from 'exceljs';
 
 const request={source:'normal_sales',start:'2026-10-15',end:'2026-10-15',erp:'msp' as const,fileName:'report.csv'};
 describe('office parser adapter',()=>{
+  async function rtcHistory(options:{range?:string;scan?:string}={}) {
+    const workbook=new ExcelJS.Workbook();const sheet=workbook.addWorksheet('VoidSaleHistory');
+    sheet.addRow(['Price Override & RTC Sales History']);
+    sheet.addRow([`Date Range: ${options.range??'15-10-2026 to 15-10-2026'}`]);
+    sheet.addRow(['EAN','Sale Description','Scanned Date','Qty','Reason']);
+    sheet.addRow(['00001234','Weighted RTC product','15/10/2026 12:00','4.675','REDUCE TO CLEAR']);
+    sheet.addRow(['00001234','Weighted RTC product',options.scan??'15/10/2026 13:00','0.805','REDUCE TO CLEAR']);
+    sheet.addRow(['00005678','Ordinary price override','15/10/2026 13:00','100','PRICE OVERRIDE']);
+    sheet.addRow(['','','','105.48','']);
+    return {...request,source:'rtc',fileName:'rtc-history.xls',buffer:Buffer.from(await workbook.xlsx.writeBuffer())};
+  }
+  it('reads the RTC range and barcode, excludes ordinary overrides and adds weighted quantities exactly',async()=>{
+    expect(await normalizeReport(await rtcHistory())).toEqual({source:'rtc',mapping_type:'barcode',rows:[
+      {Code:'00001234',Date:'2026-10-15',Qty:'5.48'},
+    ]});
+  });
+  it('rejects an RTC history file downloaded for a different job date',async()=>{
+    await expect(normalizeReport({...await rtcHistory(),start:'2026-10-14',end:'2026-10-14'})).rejects.toThrow('date');
+  });
+  it.each(['16/10/2026 13:00','', '31/02/2026 13:00'])('rejects inconsistent or invalid scanned dates: %s',async scan=>{
+    await expect(normalizeReport(await rtcHistory({scan}))).rejects.toThrow();
+  });
+  it('rejects a weekly RTC range passed to a daily job',async()=>{
+    await expect(normalizeReport(await rtcHistory({range:'14-10-2026 to 15-10-2026'}))).rejects.toThrow();
+  });
   it('aggregates weighted CRM report lines with exact decimal quantities and ignores report totals',async()=>{
     const workbook=new ExcelJS.Workbook();const sheet=workbook.addWorksheet('ProductSalesEnquiry');
     sheet.addRow(['Item Sales Enquiry']);sheet.addRow(['Date Range: 15-10-2026 to 15-10-2026']);

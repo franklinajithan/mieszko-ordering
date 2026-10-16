@@ -1,6 +1,8 @@
 import ExcelJS from "exceljs";
 import type { ParsedRow } from "@/types";
 import { formatSpreadsheetBarcode } from "@/utils/barcode";
+import { Decimal } from "@/utils/decimal";
+import { isIsoDateString } from "@/utils/iso-date";
 
 export type GloposRtcHistoryParseResult = {
   headers: string[];
@@ -11,6 +13,8 @@ export type GloposRtcHistoryParseResult = {
   duplicateRows: number;
   sourceRows: number;
 };
+
+class RtcHistoryDateError extends Error {}
 
 function cellText(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return "";
@@ -36,12 +40,21 @@ function normHeader(value: string): string {
 }
 
 function isoFromDmy(dd: string, mm: string, yyyy: string): string {
-  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  const day = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  if (!isIsoDateString(day)) throw new RtcHistoryDateError("RTC report contains an invalid date");
+  return day;
 }
 
 function parseRtcDateFromRow(values: Array<string | undefined>): string | null {
   for (const value of values) {
     if (!value) continue;
+    const range = value.match(/date\s*range\s*:\s*(\d{1,2})[-/](\d{1,2})[-/](\d{4})\s+to\s+(\d{1,2})[-/](\d{1,2})[-/](\d{4})/i);
+    if (range) {
+      const start = isoFromDmy(range[1], range[2], range[3]);
+      const end = isoFromDmy(range[4], range[5], range[6]);
+      if (start !== end) throw new RtcHistoryDateError("RTC history must cover one calendar date");
+      return start;
+    }
     const enquiryDate = value.match(/date\s*:\s*(\d{1,2})[-/](\d{1,2})[-/](\d{4})/i);
     if (enquiryDate) {
       const [, dd, mm, yyyy] = enquiryDate;
@@ -86,11 +99,11 @@ function findColumnIndex(headers: string[], patterns: string[]): number {
   return -1;
 }
 
-function parsePlainNumber(value: string): number | null {
+function parsePlainNumber(value: string): Decimal | null {
   const trimmed = value.trim();
   if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
+  const parsed = new Decimal(trimmed);
+  return parsed.isFinite() ? parsed : null;
 }
 
 function isMetaRow(barcode: string, description: string): boolean {
@@ -125,7 +138,8 @@ export async function tryParseGloposRtcHistoryReport(
 ): Promise<GloposRtcHistoryParseResult | null> {
   try {
     return await parseGloposRtcHistoryReport(buffer, fileName);
-  } catch {
+  } catch (error) {
+    if (error instanceof RtcHistoryDateError) throw error;
     return null;
   }
 }
@@ -166,12 +180,14 @@ export async function parseGloposRtcHistoryReport(
   const barcodeIndex = findColumnIndex(headers, ["barcode", "ean"]);
   const qtyIndex = findColumnIndex(headers, ["qty"]);
   const descriptionIndex = findColumnIndex(headers, ["sale description", "description"]);
+  const reasonIndex = findColumnIndex(headers, ["reason"]);
+  const scannedDateIndex = findColumnIndex(headers, ["scanned date"]);
 
   if (barcodeIndex < 0 || qtyIndex < 0) {
     throw new Error("GloPOS RTC file is missing Barcode/EAN or Qty columns");
   }
 
-  const aggregated = new Map<string, { qty: number; productName: string }>();
+  const aggregated = new Map<string, { qty: Decimal; productName: string }>();
   let sourceRows = 0;
 
   for (
@@ -195,13 +211,26 @@ export async function parseGloposRtcHistoryReport(
 
     if (isMetaRow(barcode, description)) continue;
 
+    // This history includes ordinary price overrides as well as RTC sales.
+    if (reasonIndex >= 0 && !/^(?:reduce\s+to\s+clear|rtc)$/i.test(rowValues[reasonIndex]?.trim() ?? "")) continue;
+
     const qty = parsePlainNumber(qtyRaw);
-    if (qty === null || qty <= 0) continue;
+    if (qty === null || qty.lte(0)) continue;
+
+    if (scannedDateIndex >= 0) {
+      const scanned = rowValues[scannedDateIndex]?.trim() ?? "";
+      const dmy = scanned.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s|$)/);
+      const iso = scanned.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s]|$)/);
+      const day = dmy ? isoFromDmy(dmy[1], dmy[2], dmy[3]) : iso?.[1];
+      if (!day || !isIsoDateString(day)) throw new RtcHistoryDateError("RTC transaction has a missing or invalid scanned date");
+      if (rtcDate && rtcDate !== day) throw new RtcHistoryDateError("RTC transaction date differs from the report date");
+      rtcDate = day;
+    }
 
     sourceRows += 1;
     const existing = aggregated.get(barcode);
     aggregated.set(barcode, {
-      qty: (existing?.qty ?? 0) + qty,
+      qty: (existing?.qty ?? new Decimal(0)).plus(qty),
       productName: existing?.productName || description,
     });
   }

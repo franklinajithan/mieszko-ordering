@@ -153,6 +153,20 @@ product codes, excluded summary rows and rejection of a different report date.
 The original office workbook is not committed to the repository.
 
 This checkpoint verifies downloading and parsing one office report. Actual
-RTC and Wastage downloads, store-product matching against the office catalogue,
+Wastage downloads, store-product matching against the office catalogue,
 atomic office imports and unattended scheduling still require acceptance.
 No office sales import or timer was started by this verification.
+
+The operator subsequently supplied the Hayes RTC history for the same day.
+Its 38 transaction lines aggregate to 35 barcodes and exactly 72.976, matching
+the report grand total and an independent per-barcode reconciliation. All
+transaction reasons are REDUCE TO CLEAR and all scanned dates are 15 October.
+The RTC normalizer is barcode-mapped; matching those barcodes against the
+store-specific office catalogue remains unverified.
+
+This second acceptance run exposed that the RTC parser ignored Date Range
+headings and could relabel a report with a different job date. It now validates
+the single-day heading and transaction scanned dates, rejects inconsistent or
+missing scanned dates, excludes ordinary price overrides when a Reason column
+is present, and adds weighted RTC quantities with decimal arithmetic. The
+original RTC workbook is not committed. Wastage acceptance is still pending.
