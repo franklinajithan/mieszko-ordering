@@ -1,3 +1,4 @@
+import { isExcludedWastageReason, extractWastageReason } from "./wastage-reasons";
 import * as XLSX from "xlsx";
 import type { ParsedRow } from "@/types";
 import { IMPORT_COLUMNS } from "@/lib/import-config";
@@ -160,6 +161,7 @@ export async function parseGloposStockVarianceWastageReport(
   let varianceCol = -1;
   let nameCol = -1;
   let dateCol = -1;
+  let reasonCol = -1;
 
   for (let r = 0; r < Math.min(grid.length, 40); r += 1) {
     const row = (grid[r] ?? []).map(cellText);
@@ -174,6 +176,7 @@ export async function parseGloposStockVarianceWastageReport(
       varianceCol = varianceIdx;
       nameCol = findHeaderIndex(row, [/^product\s*name$/, /^description$/]);
       dateCol = findHeaderIndex(row, [/^date$/]);
+      reasonCol = findHeaderIndex(row, [/^(?:adjustment\s*)?reason(?:\s*description)?$/]);
       break;
     }
   }
@@ -188,9 +191,16 @@ export async function parseGloposStockVarianceWastageReport(
   let duplicateRows = 0;
   let skippedNonWastageRows = 0;
   const rowDates: string[] = [];
+  let currentReason = "";
+  let excludedRows = 0;
 
   for (let r = headerRowIndex + 1; r < grid.length; r += 1) {
     const rowValues = (grid[r] ?? []).map(cellText);
+    const marker = extractWastageReason(rowValues.join(" "));
+    if (marker !== null) { currentReason = marker; continue; }
+    if (isExcludedWastageReason((reasonCol >= 0 ? rowValues[reasonCol] : "") || currentReason)) {
+      skippedNonWastageRows += 1; excludedRows += 1; continue;
+    }
     const barcode = formatSpreadsheetBarcode(rowValues[barcodeCol] ?? "").trim();
     if (!barcode) continue;
 
@@ -243,7 +253,7 @@ export async function parseGloposStockVarianceWastageReport(
     });
   }
 
-  if (!pending.size) {
+  if (!pending.size && !excludedRows) {
     throw new Error(
       "No wastage rows found (need Barcode + negative QTY Variance).",
     );

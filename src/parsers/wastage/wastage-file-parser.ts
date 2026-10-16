@@ -5,6 +5,7 @@ import { detectWastageColumns } from "@/parsers/file-parser";
 import { tryParseGloposWastageReport } from "@/parsers/wastage/glopos-wastage-report-parser";
 import { tryParseGloposStockVarianceWastageReport } from "@/parsers/wastage/glopos-stock-variance-wastage-parser";
 import { tryParseMspStockAdjustmentReport } from "@/parsers/wastage/msp-stock-adjustment-parser";
+import { isExcludedWastageReason } from "./wastage-reasons";
 
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -182,6 +183,7 @@ export async function parseWastageFileBuffer(
       quantityColumn: msp.quantityColumn,
       wastageDate: msp.wastageDate ?? undefined,
       duplicateRows: msp.duplicateRows,
+      skippedExcludedReasonRows: msp.skippedExcludedReasonRows,
       storeProductCodeMapped: true,
       gloposMapped: false,
       barcodeMapped: false,
@@ -193,8 +195,14 @@ export async function parseWastageFileBuffer(
     ? parseFlatCsv(buffer)
     : parseFlatSpreadsheet(buffer);
   const detected = detectWastageColumns(flat.headers, erpType);
+  const reasonColumn = flat.headers.find(header => /^(?:adjustment\s*)?reason(?:\s*description)?$/i.test(header));
+  const rows = reasonColumn
+    ? flat.rows.filter(row => !isExcludedWastageReason(row[reasonColumn] ?? ""))
+    : flat.rows;
   return {
     ...flat,
+    rows,
+    skippedExcludedReasonRows: flat.rows.length - rows.length,
     referenceColumn: detected.referenceColumn ?? undefined,
     quantityColumn: detected.quantityColumn ?? undefined,
     storeProductCodeMapped: false,

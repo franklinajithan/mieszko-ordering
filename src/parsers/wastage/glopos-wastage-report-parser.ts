@@ -1,3 +1,4 @@
+import { isExcludedWastageReason as isExcludedReasonDescription } from "./wastage-reasons";
 import ExcelJS from "exceljs";
 import type { ParsedRow } from "@/types";
 import { IMPORT_COLUMNS } from "@/lib/import-config";
@@ -78,32 +79,6 @@ function parseWastageDateFromFileName(fileName: string): string | null {
     return isoFromDmy(dd, mm, yyyy);
   }
   return null;
-}
-
-/** Reasons whose line items must not be imported as wastage (mirrors Weekly_Waste_updated.py + credit note). */
-const EXCLUDED_WASTAGE_REASONS = new Set(
-  [
-    "Stock Correction (+)",
-    "Stock Correction (-)",
-    "Store Use",
-    "Store Transfers (Out)",
-    "Store Transfers (In)",
-    "Transfers",
-    "Stock take corrections +",
-    "Stock take corrections -",
-    "Consider as Credit Note",
-  ].map((s) => s.trim().toLowerCase()),
-);
-
-function isExcludedReasonDescription(description: string): boolean {
-  const norm = description.trim().toLowerCase();
-  if (!norm) return false;
-  if (EXCLUDED_WASTAGE_REASONS.has(norm)) return true;
-  if (norm.includes("consider as credit note")) return true;
-  if (/transfer\s*(in|out)/i.test(norm)) return true;
-  if (/tanfer\s*(in|out)/i.test(norm)) return true;
-  if (norm.includes("store transfer")) return true;
-  return false;
 }
 
 function extractReasonDescription(firstCol: string): string | null {
@@ -218,6 +193,7 @@ export async function parseGloposWastageReport(
   const productCodeIndex = findColumnIndex(headers, ["product code"]);
   const qtyIndex = findColumnIndex(headers, ["qty", "quantity"]);
   const descriptionIndex = findColumnIndex(headers, ["description"]);
+  const reasonIndex = headers.findIndex(header => /^(?:adjustment\s*)?reason(?:\s*description)?$/i.test(header.trim()));
   const barcodeIndex = findColumnIndex(headers, ["barcode"]);
 
   if (productCodeIndex < 0 || qtyIndex < 0) {
@@ -257,7 +233,7 @@ export async function parseGloposWastageReport(
       continue;
     }
 
-    if (isExcludedReasonDescription(currentReason)) {
+    if (isExcludedReasonDescription((reasonIndex >= 0 ? rowValues[reasonIndex] : "") || currentReason)) {
       skippedExcludedReasonRows += 1;
       continue;
     }

@@ -182,3 +182,16 @@ Regression tests cover `.xls` (including XLSX content under that extension),
 `.xlsx` and uppercase extensions. Downloader tests also require the exact
 Wastage report, a selected Date Range, and both fields equal to the requested
 day; merely having two matching but outdated date fields is insufficient.
+
+Wastage quantities exclude Store Use, positive/negative Stock Corrections or
+Stock Adjustments, stocktake corrections, and transfers in either direction.
+The same exclusion is applied before product aggregation in MSP and GloPOS
+grouped reports and in spreadsheets/CSVs with a Reason column. These movements
+are not reclassified into Normal Sales or RTC. Reports containing only excluded
+movements do not bypass the worker's empty-import protection.
+
+The populated Hayes Wastage report for 14 October was parsed without a database
+connection: 85 source lines become 84 product codes, totalling 207.863 (Damaged
+10; Out of Date 197.863). Every product quantity matches an independent source
+aggregation. Requesting 15 October for this file is rejected. Office catalogue
+matching and unattended imports remain pending.

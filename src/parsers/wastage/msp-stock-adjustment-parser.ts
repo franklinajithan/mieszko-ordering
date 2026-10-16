@@ -1,3 +1,4 @@
+import { isExcludedWastageReason, extractWastageReason } from "./wastage-reasons";
 import * as XLSX from "xlsx";
 import type { ParsedRow } from "@/types";
 import {
@@ -13,6 +14,7 @@ export type MspStockAdjustmentParseResult = {
   quantityColumn: string;
   wastageDate: string | null;
   duplicateRows: number;
+  skippedExcludedReasonRows: number;
 };
 
 function cellText(value: unknown): string {
@@ -109,6 +111,7 @@ export async function parseMspStockAdjustmentReport(
   let itemCodeCol = -1;
   let itemNameCol = -1;
   let qtyCol = -1;
+  let reasonCol = -1;
 
   for (let r = 0; r < Math.min(grid.length, 40); r += 1) {
     const row = (grid[r] ?? []).map(cellText);
@@ -118,6 +121,7 @@ export async function parseMspStockAdjustmentReport(
       headerRowIndex = r;
       itemCodeCol = codeIdx;
       qtyCol = qtyIdx;
+      reasonCol = row.findIndex(c => /^(?:adjustment\s*)?reason(?:\s*description)?$/i.test(c));
       itemNameCol = row.findIndex((c) => /item\s*name/i.test(c));
       break;
     }
@@ -161,11 +165,19 @@ export async function parseMspStockAdjustmentReport(
     { qty: ReturnType<typeof toDecimal>; name: string; rowNumber: number }
   >();
   let duplicateRows = 0;
+  let currentReason = "";
+  let skippedExcludedReasonRows = 0;
 
   for (let r = headerRowIndex + 1; r < grid.length; r += 1) {
     const row = grid[r] ?? [];
+    const marker = extractWastageReason(row.map(cellText).join(" "));
+    if (marker !== null) { currentReason = marker; continue; }
     const code = cellText(row[itemCodeCol] ?? "");
     if (!looksLikeItemCode(code)) continue;
+    if (isExcludedWastageReason((reasonCol >= 0 ? cellText(row[reasonCol]) : "") || currentReason)) {
+      skippedExcludedReasonRows += 1;
+      continue;
+    }
 
     const qtyRaw = cellText(row[qtyCol] ?? "");
     let qty;
@@ -187,7 +199,7 @@ export async function parseMspStockAdjustmentReport(
     pending.set(code, { qty, name, rowNumber: r + 1 });
   }
 
-  if (!pending.size) {
+  if (!pending.size && !skippedExcludedReasonRows) {
     throw new Error("No wastage product rows found in the Stock Adjustment file.");
   }
 
@@ -210,5 +222,6 @@ export async function parseMspStockAdjustmentReport(
     quantityColumn: WASTAGE_QTY_COLUMN,
     wastageDate,
     duplicateRows,
+    skippedExcludedReasonRows,
   };
 }
