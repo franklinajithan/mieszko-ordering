@@ -68,7 +68,7 @@ test('offline Nebula: changed DB URL, daily exports, worker parser and independe
   await new Promise<void>((resolve,reject)=>{server.stdout.on('data',data=>{if(String(data).includes('READY'))resolve();});server.once('error',reject);});
   await request.put('/api/automation/stores/1',{headers:origin,data:{...settings,crmUrl:'http://127.0.0.1:3201/wrong-store'}});
   const folder=mkdtempSync(path.join(tmpdir(),'mieszko-nebula-'));const python='python3';
-  const command=[python,path.resolve('automation/nebula_download.py'),'--url','{crm_url}','--store-code','{store_code}','--source','{source}','--start','{start}','--end','{end}','--output','{output}'];
+  const command=[python,path.resolve('automation/nebula_download.py'),'--progress','--url','{crm_url}','--store-code','{store_code}','--source','{source}','--start','{start}','--end','{end}','--output','{output}'];
   const feeds=Object.fromEntries(['normal_sales','rtc','wastage'].map(source=>[source,{command,extension:'.xls',mapping:{code:'Item Code',quantity:'Qty'},complete_store_report:true,normalize_with_app_parsers:true,timeout_seconds:40}]));
   const config=path.join(folder,'config.json');writeFileSync(config,JSON.stringify({store_settings_source:'database',store_defaults:{feeds},download_directory:folder,app_directory:process.cwd(),node_executable:process.execPath}));
   const env={...process.env,DATABASE_URL:'postgresql://postgres:postgres@127.0.0.1:55432/postgres',MIESZKO_CRM_LOGIN_CODE:'fixture-only'};

@@ -4,6 +4,9 @@ import unittest
 import tempfile
 import json
 import os
+import io
+import threading
+from contextlib import redirect_stderr
 from unittest.mock import patch, Mock
 
 spec = importlib.util.spec_from_file_location('nebula_download', Path(__file__).resolve().parents[1] / 'nebula_download.py')
@@ -18,6 +21,45 @@ runtime_spec.loader.exec_module(runtime_module)
 
 
 class NebulaContractsTests(unittest.TestCase):
+    def test_progress_heartbeat_runs_during_blocking_work_and_stops_on_failure(self):
+        heartbeat = threading.Event()
+        class Output(io.StringIO):
+            def write(self, value):
+                result = super().write(value)
+                if 'Still working:' in value:
+                    heartbeat.set()
+                return result
+        output = Output()
+        progress = nebula.ConsoleProgress(True, interval=0.01, stream=output)
+        with self.assertRaises(ValueError):
+            with progress:
+                progress('Waiting for Excel')
+                self.assertTrue(heartbeat.wait(1))
+                raise ValueError('fixture failure')
+        self.assertIn('Waiting for Excel', output.getvalue())
+        self.assertIn('Still working: Waiting for Excel', output.getvalue())
+        self.assertFalse(progress.thread.is_alive())
+
+    def test_background_worker_stays_quiet_without_explicit_progress(self):
+        output = io.StringIO()
+        with nebula.ConsoleProgress(stream=output) as progress:
+            progress('Loading CRM')
+        self.assertEqual(output.getvalue(), '')
+        self.assertIsNone(progress.thread)
+
+    def test_progress_failure_reports_the_stage_without_raw_browser_logs(self):
+        args = ['nebula_download.py', '--progress', '--url', 'http://127.0.0.1/', '--store-code', '0665',
+                '--source', 'normal_sales', '--start', '2026-10-15', '--end', '2026-10-15', '--output', '/tmp/report.xls']
+        def fail(*args, **kwargs):
+            kwargs['progress']('Setting From Date: 15/10/2026')
+            raise RuntimeError('sensitive-browser-call-log')
+        errors = io.StringIO()
+        with patch('sys.argv', args), patch.object(nebula, 'download', side_effect=fail), \
+                patch('sys.stdout', io.StringIO()), redirect_stderr(errors):
+            self.assertEqual(nebula.main(), 1)
+        self.assertEqual(json.loads(errors.getvalue()), {'error_code':'crm_export', 'stage':'Setting From Date: 15/10/2026'})
+        self.assertNotIn('sensitive-browser-call-log', errors.getvalue())
+
     def test_date_fields_ignore_hidden_duplicates_but_reject_visible_ambiguity(self):
         for name in ('From Date', 'To Date'):
             hidden = Mock()

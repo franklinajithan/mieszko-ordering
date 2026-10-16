@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import threading
 import time
 from urllib.parse import urlsplit
 
@@ -23,6 +24,47 @@ REPORTS = {
 # Nebula versions use different labels for the product-level sales report.
 # Do not fall back to department summaries or daily item volume reports.
 NORMAL_SALES_TITLES = ('Product Sales Enquiry', 'Item Sales Enquiry')
+
+
+class ConsoleProgress:
+    """Only the main thread touches Playwright; the heartbeat prints status only."""
+    def __init__(self, enabled=False, interval=20, stream=None):
+        self.enabled = enabled
+        self.interval = interval
+        self.stream = stream if stream is not None else sys.stdout
+        self.stage = 'Starting downloader'
+        self.started = time.monotonic()
+        self.stage_started = self.started
+        self.stop = threading.Event()
+        self.lock = threading.Lock()
+        self.thread = None
+
+    def __call__(self, stage):
+        with self.lock:
+            self.stage = stage
+            self.stage_started = time.monotonic()
+            if self.enabled:
+                self.write(stage)
+
+    def write(self, message):
+        print('[' + time.strftime('%H:%M:%S') + '] ' + message, file=self.stream, flush=True)
+
+    def heartbeat(self):
+        while not self.stop.wait(self.interval):
+            with self.lock:
+                elapsed = int(time.monotonic() - self.stage_started)
+                self.write('Still working: ' + self.stage + ' (' + str(elapsed) + 's on this step)')
+
+    def __enter__(self):
+        if self.enabled:
+            self.thread = threading.Thread(target=self.heartbeat, daemon=True)
+            self.thread.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop.set()
+        if self.thread is not None:
+            self.thread.join()
 
 
 def report_title_pattern(source, title):
@@ -101,16 +143,18 @@ def open_explorer(page):
                 raise
 
 
-def select_report(page, category, title, source):
+def select_report(page, category, title, source, progress=None):
     # Category selection can replace the iframe during an ASP.NET postback.
     # Always resolve controls in the current frame rather than retaining the
     # frame from the previous screen.
     pattern = report_title_pattern(source, title)
+    progress = progress or (lambda message: None)
 
     def category_control():
         current = explorer_frame(page)
         return visible(current.get_by_text(category, exact=True)) if current is not None else None
 
+    progress('Opening report category: ' + category)
     wait_for(page, category_control, 'Report category did not become ready').click()
 
     def report_control():
@@ -125,6 +169,7 @@ def select_report(page, category, title, source):
             raise ValueError('Requested report name is ambiguous')
         return options[0] if options else None
 
+    progress('Waiting for the product-level sales report' if source == 'normal_sales' else 'Waiting for report: ' + title)
     wait_for(page, report_control, 'Requested report did not become ready').click()
 
     def selected_report():
@@ -135,6 +180,7 @@ def select_report(page, category, title, source):
         match = re.search(r'Selected Report\s*:\s*([^\n]+)', body)
         return current if match and pattern.fullmatch(match.group(1)) else None
 
+    progress('Waiting for selected report filters to load')
     return wait_for(page, selected_report, 'Selected report screen did not become ready')
 
 
@@ -155,7 +201,9 @@ def date_input(frame, label):
     return target
 
 
-def select_day(frame, day):
+def select_day(frame, day, progress=None):
+    progress = progress or (lambda message: None)
+    progress('Selecting Date Range')
     radio = frame.get_by_role('radio', name='Date Range', exact=True)
     if radio.count() != 1:
         label = frame.get_by_text('Date Range', exact=True)
@@ -166,6 +214,7 @@ def select_day(frame, day):
         raise ValueError('Date Range radio is ambiguous; verify the CRM layout')
     radio.check()
     for label in ('From Date', 'To Date'):
+        progress('Setting ' + label + ': ' + day)
         target = date_input(frame, label)
         target.fill(day)
         target.press('Tab')  # Commit the CRM date control/change handler.
@@ -175,7 +224,9 @@ def select_day(frame, day):
         raise ValueError('CRM Date Range selection was not retained')
 
 
-def export_report(context, page, frame, output, timeout):
+def export_report(context, page, frame, output, timeout, progress=None):
+    progress = progress or (lambda message: None)
+    progress('Opening report preview; CRM generation can take up to 20 minutes')
     with context.expect_page(timeout=timeout) as popup:
         frame.locator('#lnkView').click()
     report = popup.value
@@ -185,6 +236,7 @@ def export_report(context, page, frame, output, timeout):
             if target is not None:
                 return target
         return None
+    progress('Waiting for the report export control; CRM generation can take up to 20 minutes')
     wait_for(page, find_export, 'Report export control did not become ready', timeout).click()
 
     def find_excel():
@@ -196,6 +248,7 @@ def export_report(context, page, frame, output, timeout):
             if target is not None:
                 return target
         return None
+    progress('Waiting for the Excel export option')
     excel = wait_for(page, find_excel, 'Excel export option not found', timeout)
     downloads = []
     def track(new_page):
@@ -203,6 +256,7 @@ def export_report(context, page, frame, output, timeout):
     for existing in context.pages:
         track(existing)
     context.on('page', track)
+    progress('Downloading Excel; the CRM can take up to 20 minutes')
     excel.click()
     artifact = wait_for(page, lambda: downloads[0] if downloads else None,
                         'CRM Excel download did not complete', timeout)
@@ -211,13 +265,16 @@ def export_report(context, page, frame, output, timeout):
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     partial = destination.with_name(destination.name + '.part')
+    progress('Saving the downloaded Excel file')
     artifact.save_as(str(partial))
     if not partial.is_file() or not partial.stat().st_size:
         raise ValueError('CRM returned an empty report file')
     partial.replace(destination)
+    progress('Download complete: ' + str(destination.stat().st_size) + ' bytes saved')
 
 
-def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM_LOGIN_CODE', timeout=1200000):
+def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM_LOGIN_CODE', timeout=1200000, progress=None):
+    progress = progress or (lambda message: None)
     day = requested_day(start, end)
     checked_url(url)
     if source not in REPORTS or not re.fullmatch(r'\d{4}', store_code):
@@ -226,6 +283,7 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
     if not login_code:
         raise CrmExportError('login_config', 'CRM login environment variable is missing')
     from playwright.sync_api import sync_playwright
+    progress('Starting Chromium')
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'))
         context = browser.new_context(accept_downloads=True)
@@ -234,22 +292,27 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
             page.set_default_timeout(180000)
             for attempt in range(3):
                 try:
+                    progress('Loading CRM login page (attempt ' + str(attempt + 1) + '/3)')
                     page.goto(url, wait_until='domcontentloaded', timeout=60000)
                     page.get_by_placeholder('Barcode').wait_for(timeout=10000)
                     break
                 except Exception:
                     if attempt == 2:
                         raise CrmExportError('login_page', 'CRM login page unavailable; check the saved store URL') from None
+            progress('Signing in to CRM')
             page.get_by_placeholder('Barcode').fill(login_code)
             page.get_by_role('button', name='Login', exact=True).click()
             wait_for(page, lambda: visible(page.get_by_text('Reports', exact=True)), 'CRM login did not reach the reports menu')
+            progress('Verifying store identity')
             check_store_marker(page.locator('body').inner_text(), store_code)
+            progress('Opening Reports > Explorer')
             open_explorer(page)
             category, title = REPORTS[source]
-            frame = select_report(page, category, title, source)
-            select_day(frame, day)
+            frame = select_report(page, category, title, source, progress)
+            select_day(frame, day, progress)
+            progress('Verifying store identity again before export')
             check_store_marker(page.locator('body').inner_text(), store_code)
-            export_report(context, page, frame, output, timeout)
+            export_report(context, page, frame, output, timeout, progress)
         finally:
             context.close()
             browser.close()
@@ -258,16 +321,25 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--prompt-login', action='store_true', help='Prompt locally for a hidden CRM login code for a download-only test')
+    parser.add_argument('--progress', action='store_true', help='Print stages and a heartbeat every 20 seconds; enabled automatically with --prompt-login')
     for name in ('url', 'store-code', 'source', 'start', 'end', 'output'):
         parser.add_argument('--' + name, required=True)
     args = parser.parse_args()
+    progress = None
     try:
         if args.prompt_login:
             os.environ['MIESZKO_CRM_LOGIN_CODE'] = getpass.getpass('CRM login code (hidden): ')
-        download(args.url, args.store_code, args.source, args.start, args.end, args.output)
+        with ConsoleProgress(args.progress or args.prompt_login) as progress:
+            download(args.url, args.store_code, args.source, args.start, args.end, args.output, progress=progress)
+    except KeyboardInterrupt:
+        print('Download cancelled by operator.', file=sys.stderr, flush=True)
+        return 130
     except Exception as error:
         # Never print Playwright call logs, which may contain the filled login code.
-        print(json.dumps({'error_code': error.code if isinstance(error, CrmExportError) else 'crm_export'}), file=sys.stderr)
+        details = {'error_code': error.code if isinstance(error, CrmExportError) else 'crm_export'}
+        if progress is not None and progress.enabled:
+            details['stage'] = progress.stage
+        print(json.dumps(details), file=sys.stderr, flush=True)
         return 1
     return 0
 
