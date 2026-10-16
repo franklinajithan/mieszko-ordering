@@ -165,6 +165,9 @@ export async function retryFailedImportRun(runId: number): Promise<{runId:number
     if (!store.length) throw new InputError('Active store not found');
     const active=await tx.execute(sql`SELECT id FROM data_import_runs WHERE store_id=${storeId}
       AND source_type=${original.source_type} AND status IN ('queued','downloading','downloaded','importing')
+      AND (${original.source_start_date}::date IS NULL OR ${original.source_end_date}::date IS NULL
+        OR source_start_date IS NULL OR source_end_date IS NULL
+        OR (source_start_date<=${original.source_end_date}::date AND source_end_date>=${original.source_start_date}::date))
       ORDER BY id DESC LIMIT 1`);
     if (active.length) return {runId:Number(active[0].id),alreadyQueued:true};
     const created=await tx.execute(sql`INSERT INTO data_import_runs

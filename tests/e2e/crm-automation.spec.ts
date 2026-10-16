@@ -11,6 +11,31 @@ test.afterAll(async()=>{await sql.end();});
 const origin={origin:'http://127.0.0.1:3100'};
 const settings={crmUrl:'http://127.0.0.1:3201/',nightlyEnabled:false};
 
+test('failed daily report can be re-downloaded from its row without blocking on another queued date',async({page,request})=>{
+ await request.put('/api/automation/stores/1',{headers:origin,data:settings});
+ const [failed]=await sql`INSERT INTO data_import_runs(store_id,source_type,trigger_type,status,source_start_date,source_end_date,error_message)
+ VALUES(1,'wastage','manual','failed','2026-10-14','2026-10-14','Fixture report parsing failed') RETURNING id`;
+ await sql`INSERT INTO data_import_runs(store_id,source_type,trigger_type,status,source_start_date,source_end_date)
+ VALUES(1,'wastage','manual','queued','2026-10-15','2026-10-15')`;
+ await page.goto('/automation');
+ await page.getByRole('checkbox',{name:'Hounslow',exact:true}).check();
+ await page.getByLabel('From date',{exact:true}).fill('2026-10-14');
+ await page.getByLabel('To date',{exact:true}).fill('2026-10-15');
+ const retry=page.getByRole('button',{name:'Re-download Hounslow Wastage 2026-10-14',exact:true});
+ await expect(retry).toBeVisible();await retry.click();
+ await expect(page.getByRole('status').filter({hasText:'queued for a fresh download and import'})).toBeVisible();
+ await expect(retry).toHaveCount(0);
+ const runs=await sql`SELECT id,status,source_start_date::text AS day,details FROM data_import_runs WHERE store_id=1 AND source_type='wastage' ORDER BY id`;
+ expect(runs).toHaveLength(3);expect(runs[0].status).toBe('failed');expect(runs[2]).toMatchObject({status:'queued',day:'2026-10-14',details:{retry_of:Number(failed.id)}});
+ // Repeated clicks/API submissions return the same active retry, preserving its history.
+ const repeated=await request.post('/api/data-operations/retry',{headers:origin,data:{runId:Number(failed.id)}});
+ expect(repeated.status()).toBe(200);expect((await repeated.json()).data).toMatchObject({alreadyQueued:true,runId:Number(runs[2].id)});
+ expect((await sql`SELECT id FROM data_import_runs`)).toHaveLength(3);
+ expect((await request.post('/api/data-operations/retry',{headers:{origin:'https://foreign.example'},data:{runId:Number(failed.id)}})).status()).toBe(403);
+ expect((await request.post('/api/data-operations/retry',{headers:origin,data:{runId:Number(runs[2].id)}})).status()).toBe(400);
+ expect((await sql`SELECT book_stock_qty::text AS qty FROM book_stock WHERE store_product_id=11`)[0].qty).toBe('20.0000');
+});
+
 test('CRM UI saves changed store URLs and splits a range into three independent daily feeds',async({page,request})=>{
  await page.goto('/automation');
  await page.getByRole('textbox',{name:'Hounslow CRM URL'}).fill(settings.crmUrl);

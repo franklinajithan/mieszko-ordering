@@ -27,7 +27,8 @@ export async function getDailyImportProgress(input: z.infer<typeof historicalMov
       WHEN 'importing' THEN 2 WHEN 'failed' THEN 3 WHEN 'queued' THEN 4 ELSE 5 END, id DESC`);
   const counts: Record<string, number> = { queued: 0, downloading: 0, downloaded: 0, importing: 0, success: 0, failed: 0 };
   for (const row of rows) counts[String(row.status)] = (counts[String(row.status)] ?? 0) + 1;
-  return { total: rows.length, counts, recent: rows.slice(0, 50), checkedAt: new Date().toISOString() };
+  // PostgreSQL bigint run IDs arrive as strings; UI actions submit numeric IDs.
+  return { total: rows.length, counts, recent: rows.slice(0, 50).map(row => ({...row,id:Number(row.id)})), checkedAt: new Date().toISOString() };
 }
 
 export async function saveCrmStore(storeId: number, input: z.infer<typeof crmStoreSettingsSchema>) {

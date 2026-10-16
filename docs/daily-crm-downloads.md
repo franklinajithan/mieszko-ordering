@@ -274,3 +274,23 @@ now writes the absolute path directly, while retaining required ExecStart argume
 quoting. Regression tests run the real systemd-analyze verify command for all three
 units, including a directory with spaces. Activation verifies the generated units
 before installing any service; a verification failure cannot start the worker/timer.
+
+## Manually re-download a failed daily report
+
+Open **CRM Downloads**, select the store, feed and date range, then use
+**Re-download** beside a failed row in **Daily import progress**. This creates a
+new queued attempt linked to the failed attempt; the original error remains in
+history. The worker performs a fresh CRM download using the current saved store
+URL, validates it and imports it. Existing saved data is retained if validation
+fails again. No SSH login is needed from the UI.
+
+An already queued or processing attempt for the same store/feed and overlapping
+dates is reused. A different queued date no longer prevents retrying a failed day.
+The UI refreshes progress immediately after queueing, then polls normally.
+
+For several dates, use the existing range form and explicitly check
+**Re-download previously completed or failed dates**. This also includes successful
+dates in that range, so narrow the range and feeds first. Active jobs are skipped.
+Resolve missing product mappings or changed URLs before retrying. An empty CRM
+report is not automatically treated as zero sales or zero wastage. The Ubuntu
+worker and the chosen feed must be enabled for queued retries to execute.

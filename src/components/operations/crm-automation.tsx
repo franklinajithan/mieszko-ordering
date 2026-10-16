@@ -28,6 +28,8 @@ export function CrmAutomation() {
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState<number | null>(null);
   const [queueing, setQueueing] = useState(false);
+  const [retrying, setRetrying] = useState<number | null>(null);
+  const [progressVersion, setProgressVersion] = useState(0);
   const [progress, setProgress] = useState<{query: string; data: ImportProgress} | null>(null);
   const [progressError, setProgressError] = useState("");
   const [selected, setSelected] = useState<number[]>([]);
@@ -75,6 +77,17 @@ export function CrmAutomation() {
       setError(e instanceof Error ? e.message : "Unable to queue imports.");
     } finally { setQueueing(false); }
   }
+  async function redownload(row: ImportProgress['recent'][number]) {
+    setRetrying(row.id); setError(''); setMessage('');
+    try {
+      const result = await requestJson('/api/data-operations/retry', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({runId: row.id}),
+      });
+      setMessage(`${row.store_name}: ${labels[row.source_type]} for ${row.day} ${result.alreadyQueued ? 'is already queued or processing' : 'queued for a fresh download and import'} (job #${result.runId}). The Ubuntu worker will process it using the saved CRM URL. Previous saved data stays until validation succeeds.`);
+      setProgressVersion(version => version + 1);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to queue a fresh download.'); }
+    finally { setRetrying(null); }
+  }
   let estimate = 0, dateError = "", progressQuery = "";
   try {
     estimate = historicalImportDates(from, to).length * selected.length * feeds.length;
@@ -98,7 +111,7 @@ export function CrmAutomation() {
     void refresh();
     const timer = setInterval(() => void refresh(), 5000);
     return () => { controller.abort(); clearInterval(timer); };
-  }, [progressQuery, queueing]);
+  }, [progressQuery, queueing, progressVersion]);
   const currentProgress = progress?.query === progressQuery ? progress.data : null;
   return <div className="space-y-6">
     <p>Download yesterday automatically, or choose completed dates to fill gaps. Each store, date and feed has a separate job. Book Stock remains manual.</p>
@@ -142,9 +155,10 @@ export function CrmAutomation() {
         {!progressQuery ? <p>Select stores, feeds and valid dates to view progress.</p> : !currentProgress ? <p>Loading import progress…</p> : <>
           <p role="status" aria-live="polite">{currentProgress.counts.success} completed · {currentProgress.counts.failed} failed · {currentProgress.counts.queued} queued · {(currentProgress.counts.downloading ?? 0) + (currentProgress.counts.downloaded ?? 0) + (currentProgress.counts.importing ?? 0)} processing</p>
           <p className="text-sm text-zinc-600">Updated {new Date(currentProgress.checkedAt).toLocaleTimeString('en-GB')}. Completion means saved to PostgreSQL. Queued jobs need the Ubuntu worker running and the selected report feed enabled.</p>
+          {currentProgress.counts.failed > 0 && <p className="text-sm">Use Re-download on a failed report to fetch that store, feed and date again. Correct changed CRM URLs or missing product mappings first. A retry cannot resolve an unchanged source error.</p>}
           {currentProgress.counts.queued > 0 && currentProgress.counts.downloading + currentProgress.counts.downloaded + currentProgress.counts.importing === 0 && <p className="text-amber-800">Waiting for the server worker to pick up these reports. If this persists, check the worker service and enabled feeds.</p>}
-          <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Store</th><th className="p-2">Date</th><th className="p-2">Feed</th><th className="p-2">Status</th><th className="p-2">Products saved</th><th className="p-2">Details</th></tr></thead>
-          <tbody>{currentProgress.recent.map(row => <tr key={row.id} className="border-t"><td className="p-2">{row.store_name}</td><td className="p-2">{row.day}</td><td className="p-2">{labels[row.source_type]}</td><td className="p-2">{row.status}</td><td className="p-2">{row.imported_row_count ?? '—'}</td><td className="p-2">{row.error_message ?? (row.status === 'success' ? 'Saved; open the feed page to view data.' : '')}</td></tr>)}</tbody></table></div>
+          <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Store</th><th className="p-2">Date</th><th className="p-2">Feed</th><th className="p-2">Status</th><th className="p-2">Products saved</th><th className="p-2">Details</th><th className="p-2">Action</th></tr></thead>
+          <tbody>{currentProgress.recent.map(row => <tr key={row.id} className="border-t"><td className="p-2">{row.store_name}</td><td className="p-2">{row.day}</td><td className="p-2">{labels[row.source_type]}</td><td className="p-2">{row.status}</td><td className="p-2">{row.imported_row_count ?? '—'}</td><td className="p-2">{row.error_message ?? (row.status === 'success' ? 'Saved; open the feed page to view data.' : '')}</td><td className="p-2">{row.status === 'failed' && <Button onClick={() => void redownload(row)} disabled={retrying !== null || queueing} aria-label={`Re-download ${row.store_name} ${labels[row.source_type]} ${row.day}`}>{retrying === row.id ? 'Queueing…' : 'Re-download'}</Button>}</td></tr>)}</tbody></table></div>
           {currentProgress.total > 50 && <p className="text-sm">Showing 50 attempts; active and failed reports appear first. Narrow the date range to inspect older completed dates.</p>}
           <p className="flex gap-4"><Link href="/wastage" className="text-blue-700 underline">View saved Wastage</Link><Link href="/daily-sales" className="text-blue-700 underline">View Normal Sales</Link><Link href="/rtc" className="text-blue-700 underline">View RTC</Link></p>
         </>}
