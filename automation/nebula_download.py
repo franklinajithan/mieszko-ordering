@@ -54,7 +54,7 @@ def visible(locator):
     return None
 
 
-def wait_for(page, find, message, timeout=60000):
+def wait_for(page, find, message, timeout=180000):
     deadline = time.monotonic() + timeout / 1000
     while time.monotonic() < deadline:
         result = find()
@@ -85,10 +85,45 @@ def open_explorer(page):
         explorer = wait_for(page, lambda: visible(page.get_by_text('Explorer', exact=True)), 'Explorer menu not found')
         explorer.click()
         try:
-            return wait_for(page, lambda: explorer_frame(page), 'Explorer frame did not load', timeout=20000)
+            return wait_for(page, lambda: explorer_frame(page), 'Explorer frame did not load', timeout=120000)
         except ValueError:
             if attempt == 2:
                 raise
+
+
+def select_report(page, category, title, source):
+    # Category selection can replace the iframe during an ASP.NET postback.
+    # Always resolve controls in the current frame rather than retaining the
+    # frame from the previous screen.
+    def category_control():
+        current = explorer_frame(page)
+        return visible(current.get_by_text(category, exact=True)) if current is not None else None
+
+    wait_for(page, category_control, 'Report category did not become ready').click()
+
+    def report_control():
+        current = explorer_frame(page)
+        if current is None:
+            return None
+        matches = current.get_by_text(title, exact=False)
+        options = [matches.nth(i) for i in range(matches.count()) if matches.nth(i).is_visible()]
+        if source == 'wastage' and len(options) > 1:
+            options = [item for item in options if re.match(r'^9\s*\.', item.inner_text().strip())]
+        if len(options) > 1:
+            raise ValueError('Requested report name is ambiguous')
+        return options[0] if options else None
+
+    wait_for(page, report_control, 'Requested report did not become ready').click()
+
+    def selected_report():
+        current = explorer_frame(page)
+        if current is None:
+            return None
+        body = current.locator('body').inner_text()
+        match = re.search(r'Selected Report\s*:\s*([^\n]+)', body)
+        return current if match and title in match.group(1) else None
+
+    return wait_for(page, selected_report, 'Selected report screen did not become ready')
 
 
 def date_input(frame, label):
@@ -180,7 +215,7 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
         context = browser.new_context(accept_downloads=True)
         try:
             page = context.new_page()
-            page.set_default_timeout(60000)
+            page.set_default_timeout(180000)
             for attempt in range(3):
                 try:
                     page.goto(url, wait_until='domcontentloaded', timeout=60000)
@@ -193,26 +228,9 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
             page.get_by_role('button', name='Login', exact=True).click()
             wait_for(page, lambda: visible(page.get_by_text('Reports', exact=True)), 'CRM login did not reach the reports menu')
             check_store_marker(page.locator('body').inner_text(), store_code)
-            frame = open_explorer(page)
+            open_explorer(page)
             category, title = REPORTS[source]
-            wait_for(page, lambda: visible(frame.get_by_text(category, exact=True)), 'Report category not found').click()
-            target = wait_for(page, lambda: visible(frame.get_by_text(title, exact=False)), 'Requested report not found')
-            # Wastage is report 9 in the supplied working flow. Fail if multiple
-            # visible report names are ambiguous rather than exporting another feed.
-            matches = frame.get_by_text(title, exact=False)
-            options = [matches.nth(i) for i in range(matches.count()) if matches.nth(i).is_visible()]
-            if source == 'wastage' and len(options) > 1:
-                options = [item for item in options if re.match(r'^9\s*\.', item.inner_text().strip())]
-            if len(options) != 1:
-                raise ValueError('Requested report name is ambiguous')
-            target = options[0]
-            target.click()
-            def selected_report_matches():
-                body = frame.locator('body').inner_text()
-                # CRM renders the caption and orange report title in separate spans.
-                match = re.search(r'Selected Report\s*:\s*([^\n]+)', body)
-                return True if match and title in match.group(1) else None
-            wait_for(page, selected_report_matches, 'CRM selected a different report')
+            frame = select_report(page, category, title, source)
             select_day(frame, day)
             check_store_marker(page.locator('body').inner_text(), store_code)
             export_report(context, page, frame, output, timeout)

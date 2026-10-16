@@ -22,14 +22,14 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname==='/explorer'){
   res.end(`<div>Report List</div><h2 id="selected">Selected Report: none</h2>
-  <button>Sales</button><button>History</button><button>Stock</button>
-  ${Object.entries(labels).map(([key,value])=>`<button onclick="choose('${key}')">${value}</button>`).join('')}
+  ${['Sales','History','Stock'].map(category=>`<button onclick="setTimeout(()=>location.href='/explorer?category=${category}',300)">${category}</button>`).join('')}
+  <div id="reports" hidden>${Object.entries(labels).map(([key,value])=>`<button onclick="choose('${key}')">${value}</button>`).join('')}</div>
   <input type="radio" id="range" name="period" onchange="document.querySelectorAll('.date').forEach(e=>e.disabled=false)"><label for="range">Date Range</label>
   <input type="radio" id="week" name="period" checked><label for="week">Week</label>
   <label for="from">From Date*</label><input class="date" id="from" disabled>
   <label for="to">To Date*</label><input class="date" id="to" disabled>
   <a href="#" id="lnkView" onclick="window.open('/report?source='+source+'&from='+encodeURIComponent(document.querySelector('#from').value)+'&to='+encodeURIComponent(document.querySelector('#to').value));return false">View Report</a>
-  <script>let source;const labels=${JSON.stringify(labels)};function choose(key){source=key;document.querySelector('#selected').textContent='Selected Report: '+labels[key];}</script>`);return;
+  <script>let source;const labels=${JSON.stringify(labels)};if(location.search)setTimeout(()=>document.querySelector('#reports').hidden=false,400);function choose(key){source=key;setTimeout(()=>document.querySelector('#selected').textContent='Selected Report: '+labels[key],400);}</script>`);return;
  }
  const marker=url.pathname==='/wrong-store'?'0665':'0365';
  res.end(`<input placeholder="Barcode"><button onclick="document.querySelector('#main').hidden=false">Login</button>
