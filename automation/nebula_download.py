@@ -234,22 +234,42 @@ def export_report(context, page, frame, output, timeout, progress=None):
         for scope in report.frames:
             target = visible(scope.locator('[title*="Export"], [alt*="Export"]'))
             if target is not None:
+                # ReportViewer may put the tooltip on an image inside the
+                # actual clickable toolbar control.
+                control = target.locator('xpath=ancestor-or-self::*[self::a or self::button or @role="button" or @onclick][1]')
+                if control.count() == 1 and control.is_visible():
+                    return control
                 return target
         return None
     progress('Waiting for the report export control; CRM generation can take up to 20 minutes')
-    wait_for(page, find_export, 'Report export control did not become ready', timeout).click()
+    wait_for(page, find_export, 'Report export control did not become ready', timeout)
 
     def find_excel():
         for scope in report.frames:
             # Prefer the real anchor, avoiding an outer container with the same text.
-            target = visible(scope.get_by_role('link', name='Excel', exact=True))
+            excel_name = re.compile(r'^Excel(?:\s*\((?:97[-–]2003|\.xlsx?|Open XML)\)|\s+97[-–]2003)?\s*$', re.I)
+            target = visible(scope.get_by_role('link', name=excel_name))
             if target is None:
-                target = visible(scope.get_by_text('Excel', exact=True))
+                target = visible(scope.get_by_text(excel_name))
             if target is not None:
                 return target
         return None
-    progress('Waiting for the Excel export option')
-    excel = wait_for(page, find_excel, 'Excel export option not found', timeout)
+    # A visible ReportViewer toolbar can precede its menu initialization.
+    # Confirm the menu actually opened instead of waiting a report-generation
+    # timeout for an option that was never displayed.
+    excel = None
+    for attempt in range(3):
+        progress('Opening export menu (attempt ' + str(attempt + 1) + '/3)')
+        excel = find_excel()
+        if excel is not None:
+            break
+        wait_for(page, find_export, 'Report export control not ready', min(timeout, 10000)).click()
+        try:
+            excel = wait_for(page, find_excel, 'Excel export menu did not open', min(timeout, 5000))
+            break
+        except ValueError:
+            if attempt == 2:
+                raise CrmExportError('crm_export', 'Excel export menu did not open after three attempts') from None
     downloads = []
     def track(new_page):
         new_page.on('download', lambda artifact: downloads.append(artifact))
