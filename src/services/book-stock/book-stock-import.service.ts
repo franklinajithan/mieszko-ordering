@@ -1,3 +1,4 @@
+import {recordUnmatchedIdentifiers} from '@/services/operations/import-observations.service';
 import { InputError } from "@/utils/input-error";
 import { db } from "@/db";
 import { bookStock, notPostedDeliveries, storeProducts } from "@/db/schema";
@@ -148,10 +149,12 @@ async function processBookStockRowBatch(input: {
     bookStockQty: string;
   }> = [];
 
+  const unmatchedIdentifiers:string[]=[];
   for (const entry of parsed) {
     const storeProduct = resolveStoreProduct(productByCode, entry.reference);
     if (!storeProduct) {
       result.unmatchedRows += 1;
+      unmatchedIdentifiers.push(entry.reference);
       result.errors.push({
         rowNumber: entry.rowNumber,
         reference: entry.reference,
@@ -168,6 +171,7 @@ async function processBookStockRowBatch(input: {
     result.matchedRows += 1;
   }
 
+  await recordUnmatchedIdentifiers(input.storeId,'book_stock','unknown_product_code',unmatchedIdentifiers);
   return { result, validRows };
 }
 

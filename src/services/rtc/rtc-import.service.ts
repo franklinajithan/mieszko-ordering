@@ -1,3 +1,4 @@
+import {recordUnmatchedIdentifiers} from '@/services/operations/import-observations.service';
 import type { FilePreview, ImportResult, ParsedRow, SalesMappingType } from "@/types";
 import { decimalToDb } from "@/utils/decimal";
 import { formatSpreadsheetBarcode } from "@/utils/barcode";
@@ -124,6 +125,7 @@ export async function buildGloposRtcPreviewWithStoreProductCodes(
   const unmatchedBarcodes = uniqueFileBarcodes.filter(
     (b) => !matchedBarcodes.has(b),
   );
+  await recordUnmatchedIdentifiers(storeId,'rtc','unmatched_barcode',unmatchedBarcodes);
 
   return {
     headers: [RTC_ITEM_CODE_COLUMN, barcodeColumn, quantityColumn],
@@ -162,10 +164,12 @@ export async function importRtcQuantityBatch(input: {
     rtcQty: string;
   }> = [];
 
+  const unmatchedIdentifiers:string[]=[];
   for (const row of input.rows) {
     const storeProductId = storeProductByReference.get(row.reference);
     if (!storeProductId) {
       input.result.unmatchedRows += 1;
+      unmatchedIdentifiers.push(row.reference);
       if (input.result.errors.length < 25) {
         input.result.errors.push({
           rowNumber: row.rowNumber,
@@ -185,6 +189,7 @@ export async function importRtcQuantityBatch(input: {
     });
   }
 
+  await recordUnmatchedIdentifiers(input.storeId,'rtc','unknown_product_code',unmatchedIdentifiers);
   if (toUpsert.length) {
     await rtcSalesRepository.upsertBatch(toUpsert);
     input.result.matchedRows += toUpsert.length;

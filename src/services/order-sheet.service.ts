@@ -508,6 +508,9 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
       "orderSheet" in row.item.calculationBreakdown
         ? (row.item.calculationBreakdown as {
             orderSheet?: {
+              requiredForShortfall?:string;
+              stockAnchorDate?:string;
+              soldQtyMethod?:string;
               wastageQty?: string;
               rtcQty?: string;
               calculatedSoldQty?: string;
@@ -562,6 +565,13 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
       wastageQty: breakdown?.wastageQty ?? "0",
       rtcQty: breakdown?.rtcQty ?? "0",
       shortfallDays: breakdown?.shortfallDays ?? 0,
+      bookStockQty:row.item.bookStockQty,
+      receivedNotPostedQty:row.item.receivedNotPostedQty,
+      futureDeliveryQty:row.item.futureDeliveryTotalQty,
+      coverageDemandQty:breakdown?.requiredForShortfall,
+      stockAnchorDate:breakdown?.stockAnchorDate,
+      calculationMethod:breakdown?.soldQtyMethod,
+      stockStages:(row.item.calculationBreakdown as {stages?:OrderSheetItem['stockStages']}|null)?.stages??[],
       forecastMovementQty: row.item.forecastSalesQty,
       projectedStockQty: row.item.projectedFinalStockQty,
       shortageQty: row.item.shortageQty,
@@ -718,18 +728,22 @@ export async function saveOrderSheetDraft(input: {
 
   if (new Set(input.items.map(item => item.orderItemId)).size !== input.items.length) throw new InputError("Duplicate order item");
   await db.transaction(async tx => {
-    await tx.execute(sql`SELECT id FROM orders WHERE id=${input.orderId} FOR UPDATE`);
+    const [locked]=await tx.select().from(orders).where(eq(orders.id,input.orderId)).for('update');
+    if(!locked)throw new InputError('Order not found');
+    const current=await tx.select().from(orderItems).where(eq(orderItems.orderId,input.orderId));
+    const byId=new Map(current.map(row=>[row.id,row]));
+    const nextComment=input.comment===undefined?locked.comment:input.comment.trim()||null;
+    let changed=nextComment!==locked.comment;
     for (const item of input.items) {
       if (!/^\d{1,14}(\.\d{1,4})?$/.test(item.orderQty)) throw new InputError("Quantity must be a non-negative decimal with at most 4 decimal places");
       const qty = parseDbDecimal(item.selected ? item.orderQty : "0");
       if (!qty.isFinite() || qty.isNegative() || qty.gte("100000000000000")) throw new InputError("Invalid order quantity");
-      const updated = await tx.update(orderItems).set({
-        quantityOverridden: sql`${orderItems.quantityOverridden} OR ${orderItems.finalOrderQty} IS DISTINCT FROM ${decimalToDb(qty)}::numeric`,
-        finalOrderQty: decimalToDb(qty),
-        estimatedLineCost: sql`${decimalToDb(qty)}::numeric * ${orderItems.cheapestNetPrice}`,
-      }).where(and(eq(orderItems.id, item.orderItemId), eq(orderItems.orderId, input.orderId))).returning({id:orderItems.id});
-      if (!updated.length) throw new InputError("Order item does not belong to this order");
+      const existing=byId.get(item.orderItemId);if(!existing)throw new InputError('Order item does not belong to this order');
+      if(qty.eq(parseDbDecimal(existing.finalOrderQty)))continue;
+      changed=true;
+      await tx.update(orderItems).set({quantityOverridden:true,finalOrderQty:decimalToDb(qty),estimatedLineCost:sql`${decimalToDb(qty)}::numeric * ${orderItems.cheapestNetPrice}`})
+        .where(and(eq(orderItems.id,item.orderItemId),eq(orderItems.orderId,input.orderId)));
     }
-    await tx.update(orders).set({comment: input.comment?.trim() || null, status: "draft", updatedAt: new Date(), revision:sql`${orders.revision}+1`}).where(eq(orders.id,input.orderId));
+    if(changed)await tx.update(orders).set({comment:nextComment,status:'draft',updatedAt:new Date(),revision:sql`${orders.revision}+1`}).where(eq(orders.id,input.orderId));
   });
 }

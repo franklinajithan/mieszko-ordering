@@ -1,3 +1,4 @@
+import {recordUnmatchedIdentifiers} from '@/services/operations/import-observations.service';
 import type { FilePreview, ImportResult, ParsedRow, SalesMappingType } from "@/types";
 import { decimalToDb } from "@/utils/decimal";
 import { dailySalesRepository, productRepository } from "@/repositories";
@@ -76,10 +77,12 @@ export async function importDailySalesBatch(input: {
     soldQty: string;
   }> = [];
 
+  const unmatchedIdentifiers:string[]=[];
   for (const sale of input.sales) {
     const storeProductId = storeProductByReference.get(sale.reference);
     if (!storeProductId) {
       input.result.unmatchedRows += 1;
+      unmatchedIdentifiers.push(sale.reference);
       if (input.result.errors.length < 25) {
         input.result.errors.push({
           rowNumber: sale.rowNumber,
@@ -97,6 +100,7 @@ export async function importDailySalesBatch(input: {
     });
   }
 
+  await recordUnmatchedIdentifiers(input.storeId,'normal_sales',input.mappingType === 'barcode' ? 'unmatched_barcode' : 'unknown_product_code',unmatchedIdentifiers);
   await dailySalesRepository.upsertSalesBatch(rowsToUpsert);
   input.result.matchedRows += rowsToUpsert.length;
 }

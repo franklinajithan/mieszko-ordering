@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
+import {useTablePreferences} from "./hooks/use-table-preferences";
 import { Input } from "@/components/ui/input";
 import type {
   OrderItemSupplierQuote,
@@ -37,15 +38,22 @@ export function OrderSheetResultsTable({
   onOrderQtyChange: (orderItemId: number, orderQty: string) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [onlySuggested, setOnlySuggested] = useState(false);
-  const [onlySelected, setOnlySelected] = useState(false);
+  const [preferences,setPreferences]=useTablePreferences();
+  const {onlySuggested,onlySelected}=preferences;
+  const [page,setPage]=useState(1);
+  const deferredSearch=useDeferredValue(search);
   const [explainedItemId, setExplainedItemId] = useState<number | null>(null);
 
   const allSelected = items.length > 0 && items.every((item) => item.selected);
+  const storeOptions=useMemo(()=>[...new Map(items.filter(i=>i.storeCode).map(i=>[i.storeCode!,i.storeName??i.storeCode!])).entries()],[items]);
+  const storeFilter=storeOptions.some(([code])=>code===preferences.store)?preferences.store:'';
+  const supplierFilter=supplierColumns.some(s=>String(s.supplierId)===preferences.supplier)?preferences.supplier:'';
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     return items.filter((item) => {
+      if(storeFilter && item.storeCode!==storeFilter)return false;
+      if(supplierFilter && !item.supplierQuotes.some(q=>String(q.supplierId)===supplierFilter))return false;
       if (onlySuggested && !parseQty(item.suggestedOrderQty).gt(0)) return false;
       if (onlySelected && !item.selected) return false;
       if (!q) return true;
@@ -58,8 +66,10 @@ export function OrderSheetResultsTable({
         )
       );
     });
-  }, [items, search, onlySuggested, onlySelected]);
+  }, [items, deferredSearch, onlySuggested, onlySelected,storeFilter,supplierFilter]);
 
+  const currentPage=Math.min(page,Math.max(1,Math.ceil(filtered.length/preferences.pageSize)));
+  const visible=filtered.slice((currentPage-1)*preferences.pageSize,currentPage*preferences.pageSize);
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -67,7 +77,8 @@ export function OrderSheetResultsTable({
           <label className="text-sm font-medium text-zinc-700">Search Product</label>
           <Input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {setSearch(event.target.value);setPage(1);}}
+            aria-label="Search order products"
             placeholder="Item code, barcode, or product name"
             className="mt-1"
           />
@@ -77,7 +88,7 @@ export function OrderSheetResultsTable({
             <input
               type="checkbox"
               checked={onlySuggested}
-              onChange={(event) => setOnlySuggested(event.target.checked)}
+              onChange={(event) => {setPreferences({onlySuggested:event.target.checked});setPage(1);}}
             />
             Only Suggested Qty &gt; 0
           </label>
@@ -85,13 +96,21 @@ export function OrderSheetResultsTable({
             <input
               type="checkbox"
               checked={onlySelected}
-              onChange={(event) => setOnlySelected(event.target.checked)}
+              onChange={(event) => {setPreferences({onlySelected:event.target.checked});setPage(1);}}
             />
             Only selected products
           </label>
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <label>Store <select aria-label="Order table store" value={storeFilter} onChange={e=>{setPreferences({store:e.target.value});setPage(1);}} className="rounded border p-2"><option value="">All stores</option>{storeOptions.map(([code,name])=><option key={code} value={code}>{name}</option>)}</select></label>
+        <label>Supplier <select aria-label="Order table supplier" value={supplierFilter} onChange={e=>{setPreferences({supplier:e.target.value});setPage(1);}} className="rounded border p-2"><option value="">All suppliers</option>{supplierColumns.map(s=><option key={s.supplierId} value={s.supplierId}>{s.name}</option>)}</select></label>
+        <label>Rows <select aria-label="Order table page size" value={preferences.pageSize} onChange={e=>{setPreferences({pageSize:Number(e.target.value)});setPage(1);}} className="rounded border p-2">{[50,100,200].map(n=><option key={n}>{n}</option>)}</select></label>
+        <button onClick={()=>{setPreferences({store:'',supplier:'',onlySuggested:false,onlySelected:false,pageSize:100});setSearch('');setPage(1);}} className="rounded border p-2">Reset table preferences</button>
+        <span>{filtered.length} matching products · Page {currentPage}</span><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)} className="rounded border p-2">Previous products</button><button disabled={currentPage*preferences.pageSize>=filtered.length} onClick={()=>setPage(currentPage+1)} className="rounded border p-2">Next products</button>
+        <span className="text-xs text-zinc-500">Enter / ↓ next quantity · Shift+Enter / ↑ previous. Select all applies to the whole order.</span>
+      </div>
       {explainedItemId !== null ? (() => {
         const item = items.find((row) => row.orderItemId === explainedItemId);
         if (!item) return null;
@@ -112,6 +131,10 @@ export function OrderSheetResultsTable({
               <p><span className="text-zinc-600">Coverage:</span> <strong>{item.shortfallDays} days</strong></p>
               <p><span className="text-zinc-600">Suggested quantity:</span> <strong>{item.suggestedOrderQty}</strong></p>
             </div>
+            <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[['Book Stock',item.bookStockQty],['Received but not posted',item.receivedNotPostedQty],['Future deliveries in horizon',item.futureDeliveryQty],['Coverage forecast demand',item.coverageDemandQty],['Final manually adjusted quantity',item.orderQty],['Cheapest supplier',item.supplierName],['Net unit price',item.cheapestNetPrice],['Estimated order cost',item.estimatedLineCost]].map(([label,value])=><div key={label}><dt className="text-xs text-zinc-600">{label}</dt><dd className="font-semibold">{value??'Not recorded'}</dd></div>)}</dl>
+            <p className="mt-3">Stock anchor: {item.stockAnchorDate??'Not recorded'} · Calculation method: {item.calculationMethod??'Not recorded'}</p>
+            <ul className="mt-2 list-inside list-disc">{comparisonPeriods.map((period,index)=><li key={period.periodKey}>{period.startDate} to {period.endDate}: Normal Sales {item.periodSales[index]??'0'} units</li>)}</ul>
+            {item.stockStages?.length?<div className="mt-3 overflow-auto"><table className="min-w-full text-xs"><caption className="text-left font-medium">Saved stock movement timeline</caption><thead><tr>{['Stage / date','Stock before','Forecast','Shortage','Delivery added','Stock after'].map(h=><th key={h} className="p-2 text-left">{h}</th>)}</tr></thead><tbody>{item.stockStages.map((stage,index)=><tr key={index}><td className="p-2">{stage.stage} · {stage.eventDate}</td><td>{stage.stockBefore}</td><td>{stage.forecastSales}</td><td>{stage.shortage}</td><td>{stage.deliveryAdded}</td><td>{stage.stockAfter}</td></tr>)}</tbody></table></div>:null}
             <p className="mt-3 font-medium">Supplier price comparison</p>
             <div className="mt-1 flex flex-wrap gap-2">
               {item.supplierQuotes.length ? item.supplierQuotes.map((quote) => (
@@ -202,7 +225,7 @@ export function OrderSheetResultsTable({
                 </td>
               </tr>
             ) : (
-              filtered.map((item) => (
+              visible.map((item) => (
                 <tr key={item.orderItemId} className="border-t border-zinc-100 hover:bg-zinc-50/60">
                   <td className="px-3 py-2">
                     <input
@@ -267,8 +290,6 @@ export function OrderSheetResultsTable({
                       title="Explain suggested quantity"
                       aria-label={`Explain suggested quantity for ${item.productName}`}
                       aria-expanded={explainedItemId === item.orderItemId}
-                      onMouseEnter={() => setExplainedItemId(item.orderItemId)}
-                      onFocus={() => setExplainedItemId(item.orderItemId)}
                       onClick={() => setExplainedItemId(explainedItemId === item.orderItemId ? null : item.orderItemId)}
                       className="rounded px-2 py-1 underline decoration-dotted underline-offset-4 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600"
                     >
@@ -279,6 +300,8 @@ export function OrderSheetResultsTable({
                     <Input
                       value={item.orderQty}
                       inputMode="decimal"
+                      data-order-quantity
+                      onKeyDown={event=>{if(!['Enter','ArrowDown','ArrowUp'].includes(event.key))return;event.preventDefault();const inputs=Array.from(event.currentTarget.closest('table')!.querySelectorAll<HTMLInputElement>('input[data-order-quantity]'));const index=inputs.indexOf(event.currentTarget);const next=inputs[index+(event.key==='ArrowUp'||(event.key==='Enter'&&event.shiftKey)?-1:1)];next?.focus();next?.select();}}
                       aria-label={`Order quantity for ${item.productName} at ${item.storeName ?? item.storeCode}`}
                       onChange={(event) =>
                         onOrderQtyChange(item.orderItemId, event.target.value)

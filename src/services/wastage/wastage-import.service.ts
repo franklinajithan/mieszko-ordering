@@ -1,3 +1,4 @@
+import {recordUnmatchedIdentifiers} from '@/services/operations/import-observations.service';
 import type {
   FilePreview,
   ImportResult,
@@ -90,6 +91,7 @@ export async function buildStockVarianceWastagePreviewWithStoreProductCodes(
   const unmatchedBarcodes = uniqueFileBarcodes.filter(
     (b) => !matchedBarcodes.has(b),
   );
+  await recordUnmatchedIdentifiers(storeId,'wastage','unmatched_barcode',unmatchedBarcodes);
 
   const previewRows = remapped.rows.slice(0, 10).map((row) => {
     const code = row[WASTAGE_ITEM_CODE_COLUMN] ?? "";
@@ -449,10 +451,12 @@ export async function importWastageQuantityBatch(input: {
     wastageQty: string;
   }> = [];
 
+  const unmatchedIdentifiers:string[]=[];
   for (const row of input.rows) {
     const storeProductId = storeProductByReference.get(row.reference);
     if (!storeProductId) {
       input.result.unmatchedRows += 1;
+      unmatchedIdentifiers.push(row.reference);
       if (input.result.errors.length < 25) {
         input.result.errors.push({
           rowNumber: row.rowNumber,
@@ -472,6 +476,7 @@ export async function importWastageQuantityBatch(input: {
     });
   }
 
+  await recordUnmatchedIdentifiers(input.storeId,'wastage','unknown_product_code',unmatchedIdentifiers);
   if (toUpsert.length) {
     await wastageRepository.upsertBatch(toUpsert);
     input.result.matchedRows += toUpsert.length;

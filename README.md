@@ -183,3 +183,22 @@ retaining the original failure. An office worker must be running to process it;
 clicking Retry does not mark data as updated. Repeated clicks reuse active work.
 Inactive stores/products/suppliers are excluded from new orders, and changing a
 supplier product code requires a matching price for the new code.
+
+
+## Head Office daily operations
+
+Open **Office Operations** (`/operations`) for the seven-store control centre and
+**Data Quality** (`/data-quality`) for unresolved findings with store, supplier and
+problem filters and Excel export. The order table has saved filter/page-size
+preferences, keyboard quantity navigation and a complete saved calculation trace.
+
+Supplier Excel preparation now requires **Pre-order validation**. Correct blocking
+mapping/price/quantity problems and explicitly acknowledge accepted warnings.
+API clients send `{ "acknowledgeWarnings": true }` only after that review to
+supplier generation/export endpoints. This flag never bypasses blocking issues.
+General calculation workbooks remain available for analysis; no files are emailed.
+
+Review the prepared `migrations/manual/2026-10-16-office-operations.sql` before
+using these features with an existing office database. It has only been exercised
+in disposable databases. See `docs/office-operations-report.md` for completed
+features, exact results, workflow definitions, changed files and office blockers.

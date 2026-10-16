@@ -135,7 +135,7 @@ export const orderRepository = {
         await tx.insert(orderItemSupplierPrices).values(batch);
       }
       await tx.update(orders)
-        .set({ ...header, status: "calculated", updatedAt: new Date(), revision:sql`${orders.revision}+1` })
+        .set({ ...header, status: "calculated", calculatedAt:new Date(), updatedAt: new Date(), revision:sql`${orders.revision}+1` })
         .where(eq(orders.id, orderId));
       return inserted;
     });

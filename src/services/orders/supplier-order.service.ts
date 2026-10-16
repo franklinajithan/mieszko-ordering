@@ -1,3 +1,4 @@
+import {assertOrderReadyForExport} from './order-validation.service';
 import { InputError } from "@/utils/input-error";
 import 'server-only';
 import ExcelJS from 'exceljs';
@@ -7,10 +8,12 @@ import { orders, orderItems, products, storeProducts, stores, suppliers, supplie
 import { Decimal, decimalToDb, parseDbDecimal } from '@/utils/decimal';
 
 /** Build downloadable supplier drafts only; never emails or submits an order. */
-export async function generateSupplierOrders(orderId: number) {
+export async function generateSupplierOrders(orderId: number,options:{acknowledgeWarnings?:boolean}={}) {
+  const validation=await assertOrderReadyForExport(orderId,options.acknowledgeWarnings);
   return db.transaction(async tx => {
     const [order] = await tx.select().from(orders).where(eq(orders.id,orderId)).for('update');
     if (!order) throw new InputError('Order not found');
+    if(order.revision!==validation.revision)throw new InputError('Order changed during validation. Review it again.');
     const items = await tx.select({item:orderItems,storeProduct:storeProducts,product:products})
       .from(orderItems).innerJoin(storeProducts,eq(storeProducts.id,orderItems.storeProductId))
       .innerJoin(products,eq(products.id,storeProducts.productId)).where(eq(orderItems.orderId,orderId));
@@ -41,7 +44,7 @@ export async function generateSupplierOrders(orderId: number) {
     }
     const results: Array<typeof supplierOrders.$inferSelect> = [];
     for (const group of groups.values()) {
-      const value={orderId,storeId:group.storeId,supplierId:group.supplierId,deliveryDate:order.deliveryDate,totalNetCost:decimalToDb(group.total),lines:group.lines,sourceRevision:order.revision,sourceUpdatedAt:order.updatedAt,generatedAt:new Date()};
+      const value={orderId,storeId:group.storeId,supplierId:group.supplierId,deliveryDate:order.deliveryDate,totalNetCost:decimalToDb(group.total),lines:group.lines,sourceRevision:order.revision,sourceUpdatedAt:order.updatedAt,generatedAt:new Date(),exportedAt:null};
       const [saved]=await tx.insert(supplierOrders).values(value).onConflictDoUpdate({target:[supplierOrders.orderId,supplierOrders.storeId,supplierOrders.supplierId],set:value}).returning();
       results.push(saved);
     }
@@ -59,11 +62,16 @@ export async function listSupplierOrders(orderId: number) {
   return rows.map(({draft,...names})=>({...draft,...names,stale:draft.sourceRevision!==order.revision}));
 }
 
-export async function exportSupplierOrder(orderId: number, supplierOrderId: number) {
-  const [row]=await db.select({draft:supplierOrders,order:orders,storeName:stores.name,supplierName:suppliers.name}).from(supplierOrders)
+export async function exportSupplierOrder(orderId: number, supplierOrderId: number,options:{acknowledgeWarnings?:boolean}={}) {
+  const validation=await assertOrderReadyForExport(orderId,options.acknowledgeWarnings);
+  return db.transaction(async tx=>{
+  const [locked]=await tx.select().from(orders).where(eq(orders.id,orderId)).for('update');
+  if(!locked||locked.revision!==validation.revision)throw new InputError('Order changed during validation. Review it again.');
+  const [row]=await tx.select({draft:supplierOrders,order:orders,storeName:stores.name,supplierName:suppliers.name}).from(supplierOrders)
     .innerJoin(orders,eq(orders.id,supplierOrders.orderId)).innerJoin(stores,eq(stores.id,supplierOrders.storeId))
     .innerJoin(suppliers,eq(suppliers.id,supplierOrders.supplierId)).where(and(eq(supplierOrders.id,supplierOrderId),eq(supplierOrders.orderId,orderId)));
   if (!row) throw new InputError('Supplier order not found');
+  if(row.order.revision!==validation.revision)throw new InputError('Order changed during validation. Review it again.');
   if (row.draft.sourceRevision!==row.order.revision) throw new InputError('Order quantities or settings changed. Regenerate supplier orders before exporting.');
   const book=new ExcelJS.Workbook();
   const sheet=book.addWorksheet('Supplier Order');
@@ -77,5 +85,8 @@ export async function exportSupplierOrder(orderId: number, supplierOrderId: numb
   sheet.autoFilter={from:{row:4,column:1},to:{row:4,column:7}};
   sheet.columns.forEach((column,index)=>{column.width=index===2?45:22;});
   for (const index of [4,5,6]) sheet.getColumn(index).numFmt='#,##0.0000';
-  return {base64:Buffer.from(await book.xlsx.writeBuffer()).toString('base64'),fileName:`Mieszko-order-${orderId}-store-${row.draft.storeId}-supplier-${row.draft.supplierId}.xlsx`};
+  const buffer=await book.xlsx.writeBuffer();
+  await tx.update(supplierOrders).set({exportedAt:new Date()}).where(and(eq(supplierOrders.id,supplierOrderId),eq(supplierOrders.sourceRevision,validation.revision)));
+  return {base64:Buffer.from(buffer).toString('base64'),fileName:`Mieszko-order-${orderId}-store-${row.draft.storeId}-supplier-${row.draft.supplierId}.xlsx`};
+  });
 }

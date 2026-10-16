@@ -544,6 +544,7 @@ export const orders = pgTable("orders", {
     .default(sql`'[]'::jsonb`),
   comment: text("comment"),
   status: varchar("status", { length: 50 }).notNull().default("draft"),
+  calculatedAt: timestamp("calculated_at", {withTimezone:true}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -916,5 +917,14 @@ export const supplierOrders = pgTable("supplier_orders", {
   sourceRevision: integer("source_revision").notNull(),
   sourceUpdatedAt: timestamp("source_updated_at", {withTimezone:true}).notNull(),
   generatedAt: timestamp("generated_at", {withTimezone:true}).notNull().defaultNow(),
+  exportedAt: timestamp("exported_at", {withTimezone:true}),
 }, table => [unique("supplier_orders_order_store_supplier_unique").on(table.orderId,table.storeId,table.supplierId),
   index("supplier_orders_order_idx").on(table.orderId)]);
+
+export const importQualityObservations=pgTable('import_quality_observations',{
+ id:integer('id').primaryKey().generatedByDefaultAsIdentity(),
+ storeId:integer('store_id').notNull().references(()=>stores.id,{onDelete:'cascade'}),
+ sourceType:text('source_type').notNull(),problemType:text('problem_type').notNull(),reference:text('reference').notNull(),
+ firstSeenAt:timestamp('first_seen_at',{withTimezone:true}).notNull().defaultNow(),
+ lastSeenAt:timestamp('last_seen_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[unique('import_quality_observations_identity_unique').on(t.storeId,t.sourceType,t.problemType,t.reference),check('import_quality_observations_problem_type_check',sql`${t.problemType} IN ('unknown_product_code','unmatched_barcode')`)]);

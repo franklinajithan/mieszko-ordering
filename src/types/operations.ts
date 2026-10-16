@@ -1,0 +1,7 @@
+export const problemTypes=['duplicate_product','unknown_product_code','unmatched_barcode','missing_supplier_code','missing_price','invalid_case_size','missing_sales_date','negative_stock','no_recent_sales','inconsistent_import','import_failure'] as const;
+export type ProblemType=typeof problemTypes[number];
+export type QualityIssue={id:string;type:ProblemType;severity:'warning'|'error';storeId:number|null;storeName:string;supplierId:number|null;supplierName:string|null;productId:number|null;itemCode:string|null;productName:string|null;message:string;action:string;href:string};
+export type QualityFilters={storeId?:number;supplierId?:number;type?:ProblemType};
+export type ImportStatusRow={store_id:number;store_code:string;store_name:string;source_type:'normal_sales'|'rtc'|'wastage'|'book_stock';latest_data_date:string|null;latest_data_updated_at:string|null;latest_run_id:string|number|null;status:string|null;started_at:string|null;completed_at:string|null;imported_at:string|null;imported_row_count:number|null;error_message:string|null;duplicate_of:string|null;last_successful_import_at:string|null;last_successful_row_count:number|null};
+export type ValidationIssue={code:string;severity:'blocking'|'warning'|'info';message:string;action:string;itemCode?:string;storeId?:number;href:string};
+export type OrderValidation={orderId:number;revision:number;issues:ValidationIssue[];blockingCount:number;warningCount:number;canExport:boolean;checkedAt:string};

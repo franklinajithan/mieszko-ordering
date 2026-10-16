@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 
 type StatusRow = {
+  downloaded_row_count?:number|null;
+  source_start_date?:string|null;
+  source_end_date?:string|null;
   latest_run_id: number | string | null;
   latest_data_date: string | null;
   latest_data_updated_at: string | null;
@@ -31,6 +34,7 @@ export function DataOperationsStatus() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const [recoveryConfirmed,setRecoveryConfirmed]=useState<string|null>(null);
   const [queueingStore, setQueueingStore] = useState<number | null>(null);
   async function requestBookStock(storeId: number) {
     setQueueingStore(storeId);
@@ -65,6 +69,15 @@ export function DataOperationsStatus() {
       await refresh();
     }catch(cause){setError(cause instanceof Error ? cause.message : 'Unable to queue retry');}
     finally{setQueueingStore(null);}
+  }
+  async function recoverImport(runId:number|string,storeId:number){
+    setQueueingStore(storeId);setQueueMessage(null);setError(null);
+    try{
+      const response=await fetch('/api/data-operations/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:Number(runId),workerStopped:true})});
+      const result=await response.json() as {success?:boolean;error?:string};
+      if(!response.ok||!result.success)throw new Error(result.error??'Unable to recover attempt');
+      setQueueMessage('Interrupted attempt marked failed. Retained data is unchanged. Retry after the office worker is ready.');await refresh();
+    }catch(cause){setError(cause instanceof Error?cause.message:'Unable to recover attempt');}finally{setQueueingStore(null);}
   }
   async function refresh() {
     setLoading(true);
@@ -112,8 +125,14 @@ export function DataOperationsStatus() {
                     : null;
                   const stale = ageHours !== null && ageHours > (key === "book_stock" ? 24 : 36);
                   const statusLabel = failed ? "Latest attempt failed" : item?.duplicate_of ? "Duplicate report retained" : item?.status === "success" ? "Last attempt succeeded" : item?.status ?? "No automated runs recorded";
+                  const phase=['queued','downloading','downloaded','importing','success'].indexOf(item?.status??'');
+                  const interrupted=phase>0&&phase<4&&!!item?.started_at&&(Date.now()-Date.parse(item.started_at))>2*3600000;
                   return <td key={key} className="p-3">
                     <p className={`font-medium ${failed ? "text-red-700" : item?.status === "success" ? "text-emerald-700" : "text-amber-700"}`}>{statusLabel}</p>
+                    {phase>=0?<progress aria-label={`${store.name} ${key} import progress`} max={4} value={phase} className="mt-1 h-2 w-full" />:null}
+                    {phase>=0&&phase<4?<p className="text-xs text-zinc-500">Downloaded rows: {item?.downloaded_row_count??'Waiting for report'}</p>:null}
+                    {interrupted?<p role="status" className="text-xs text-red-800">Worker may be interrupted (over 2 hours). Check the office worker and diagnostic log before marking the attempt failed and retrying.</p>:null}
+                    {interrupted&&item?.latest_run_id?<details className="mt-2 text-xs"><summary className="cursor-pointer">Recover interrupted import</summary><p>Stop/check the office worker first. Recovery retains the previous data and marks this attempt failed; it does not run the CRM.</p><label className="mt-2 flex items-start gap-1"><input type="checkbox" checked={recoveryConfirmed===String(item.latest_run_id)} onChange={e=>setRecoveryConfirmed(e.target.checked?String(item.latest_run_id):null)} />I have checked that the office worker is stopped</label><button className="mt-2 rounded border p-1" disabled={queueingStore!==null||loading||recoveryConfirmed!==String(item.latest_run_id)} onClick={()=>void recoverImport(item.latest_run_id!,store.id)}>Mark interrupted attempt failed</button></details>:null}
                     <p className="mt-1 text-xs text-zinc-600">Latest data date: {item?.latest_data_date ?? "No data"}</p>
                     <p className="text-xs text-zinc-500">Data updated: {dateLabel(item?.latest_data_updated_at ?? null)}</p>
                     <p className="mt-1 text-xs text-zinc-600">Last worker success: {dateLabel(item?.last_successful_import_at ?? null)}</p>
@@ -121,6 +140,7 @@ export function DataOperationsStatus() {
                     {stale ? <p className="mt-1 text-xs font-medium text-amber-700">Last success older than {key === "book_stock" ? "24" : "36"} hours</p> : null}
                     {!item?.last_successful_import_at ? <p className="mt-1 text-xs text-amber-700">No successful worker import recorded</p> : null}
                     {failed ? <p className="mt-1 max-w-56 break-words text-xs text-red-700">{item?.error_message ?? "Import failed"}</p> : null}
+                    {failed?<details className="mt-2 text-xs"><summary className="cursor-pointer">Import error details</summary><p>Attempt #{item?.latest_run_id} · {item?.source_start_date??'Date not captured'} to {item?.source_end_date??'Date not captured'}</p><a className="text-blue-700 underline" href={`/api/data-operations/diagnostics?storeId=${store.id}`}>Download safe diagnostic log</a></details>:null}
                     {failed && item?.latest_run_id ? <button type="button" disabled={queueingStore!==null || loading} onClick={()=>void retryImport(item.latest_run_id!,store.id)} aria-label={`Retry ${key==='book_stock'?'book stock':key==='normal_sales'?'normal sales':key==='rtc'?'RTC sales':'wastage'} import for ${store.name}`} className="mt-2 rounded border px-2 py-1 text-xs disabled:opacity-50">Retry import</button> : null}
                   </td>;
                 })}</tr>

@@ -34,7 +34,7 @@ beforeAll(async () => {
   `);
   for (const name of ['data-import-runs', 'book-stock-staging']) await client.exec(readFileSync(`migrations/manual/2026-10-15-${name}.sql`, 'utf8'));
 }, 30000);
-beforeEach(async () => { await client.exec('TRUNCATE data_import_runs, book_stock, book_stock_import_stage, not_posted_deliveries, daily_sales, rtc_sales, wastage, orders RESTART IDENTITY CASCADE'); });
+beforeEach(async () => { await client.exec('TRUNCATE import_quality_observations, data_import_runs, book_stock, book_stock_import_stage, not_posted_deliveries, daily_sales, rtc_sales, wastage, orders RESTART IDENTITY CASCADE'); });
 afterAll(async () => { await client.close(); });
 
 describe('queue PostgreSQL persistence', () => {
@@ -126,16 +126,16 @@ describe('supplier orders and retained manual quantities',()=>{
     const recalculated=await generateOrderSheet({...generateInput,orderId:first.orderId});
     const milk=recalculated.items.find(item=>item.itemCode==='A')!;
     expect(milk.orderQty).toBe('18.0000');expect(milk.suggestedOrderQty).toBe('30.0000');expect(milk.estimatedLineCost).toBe('36.0000');
-    const drafts=await generateSupplierOrders(first.orderId);
+    const drafts=await generateSupplierOrders(first.orderId,{acknowledgeWarnings:true});
     expect(drafts).toHaveLength(1);expect(drafts[0].lines[0].quantity).toBe('18.0000');expect(drafts[0].totalNetCost).toBe('36.0000');
-    const download=await exportSupplierOrder(first.orderId,drafts[0].id);
+    const download=await exportSupplierOrder(first.orderId,drafts[0].id,{acknowledgeWarnings:true});
     const ExcelJS=(await import('exceljs')).default;const book=new ExcelJS.Workbook();
     await book.xlsx.load(Buffer.from(download.base64,'base64') as unknown as import('exceljs').Buffer);
     expect(book.worksheets[0].getRow(5).getCell(4).value).toBe(18);
-    expect((await generateSupplierOrders(first.orderId))[0].id).toBe(drafts[0].id);
+    expect((await generateSupplierOrders(first.orderId,{acknowledgeWarnings:true}))[0].id).toBe(drafts[0].id);
     await saveOrderSheetDraft({orderId:first.orderId,items:[{orderItemId:milk.orderItemId,orderQty:'19',selected:true}]});
     expect((await listSupplierOrders(first.orderId))[0].stale).toBe(true);
-    await expect(exportSupplierOrder(first.orderId,drafts[0].id)).rejects.toThrow('Regenerate');
+    await expect(exportSupplierOrder(first.orderId,drafts[0].id,{acknowledgeWarnings:true})).rejects.toThrow('Regenerate');
   });
   it('blocks supplier generation if any selected line lacks a valid price',async()=>{
     const {generateOrderSheet,saveOrderSheetDraft}=await import('./order-sheet.service');
@@ -143,7 +143,7 @@ describe('supplier orders and retained manual quantities',()=>{
     await saveOrderSheetDraft({orderId:result.orderId,items:[{orderItemId:result.items[0].orderItemId,orderQty:'1',selected:true}]});
     await client.exec("UPDATE order_items SET price_status='check_missing_price', cheapest_supplier_id=NULL,cheapest_net_price=NULL");
     const {generateSupplierOrders}=await import('./orders/supplier-order.service');
-    await expect(generateSupplierOrders(result.orderId)).rejects.toThrow('Resolve supplier prices');
+    await expect(generateSupplierOrders(result.orderId,{acknowledgeWarnings:true})).rejects.toThrow('Pre-order validation');
     expect((await client.query('SELECT * FROM supplier_orders')).rows).toHaveLength(0);
   });
   it('reports separate coverage and recognizes verified zero-row imports',async()=>{
@@ -169,7 +169,7 @@ describe('store-specific stock dates and order grouping',()=>{
     expect(other.calculatedSoldQty).toBe('4.0000');expect(other.suggestedOrderQty).toBe('3.0000');
     await saveOrderSheetDraft({orderId:result.orderId,items:[{orderItemId:first.orderItemId,orderQty:'2',selected:true}]});
     const {generateSupplierOrders}=await import('./orders/supplier-order.service');
-    expect((await generateSupplierOrders(result.orderId)).map(row=>[row.storeId,row.supplierId,row.lines[0].quantity]).sort()).toEqual([[1,1,'2.0000'],[3,1,'3.0000']]);
+    expect((await generateSupplierOrders(result.orderId,{acknowledgeWarnings:true})).map(row=>[row.storeId,row.supplierId,row.lines[0].quantity]).sort()).toEqual([[1,1,'2.0000'],[3,1,'3.0000']]);
   });
   it('shows actual manual data separately from worker audit status',async()=>{
     await client.exec("INSERT INTO daily_sales(store_product_id,sales_date,sold_qty) VALUES(1,'2026-10-15',8)");
@@ -262,4 +262,23 @@ describe('operator import retry',()=>{
     await expect(queue.retryFailedImportRun(2)).rejects.toThrow('Active store');
     expect((await client.query('SELECT id FROM data_import_runs')).rows).toHaveLength(2);
   });
+});
+
+it.each([['6',true],['6 x 1L',true],['1kg',true],['24pcs',true],['0',false],['0x12',false],['unknown',false],[null,false]] as const)('validates case-size reference %s without changing unit-price rules',async(value,expected)=>{
+ const {validCaseSize}=await import('./operations/data-quality.service');expect(validCaseSize(value)).toBe(expected);
+});
+
+it.each([['normal_sales','2026-10-15',false],['normal_sales','2026-10-14',true],['book_stock','2026-10-15',true],['book_stock','2026-10-16',false]] as const)('uses consistent operational freshness for %s on %s',async(source,date,expected)=>{
+ const {reportNeedsReview}=await import('@/utils/operations-freshness');expect(reportNeedsReview(source,date,'2026-10-16')).toBe(expected);
+});
+
+it('keeps supplier drafts current on an unchanged review and preserves omitted order notes',async()=>{
+ const {generateOrderSheet,saveOrderSheetDraft}=await import('./order-sheet.service');
+ const {orderRepository}=await import('@/repositories');
+ const result=await generateOrderSheet({storeIds:[1],supplierIds:[1],departmentIds:[1],orderDate:'2026-10-15',deliveryDate:'2026-10-16',includeBookStock:false,includeFutureDeliveries:false,includeRtc:false,includeWastage:false,soldQtyMethod:'average',comparisonPeriods:[{startDate:'2026-10-08',endDate:'2026-10-08'}],shortfallPeriods:[{startDate:'2026-10-16',endDate:'2026-10-16'}],comment:'Keep these office notes'});
+ const before=await orderRepository.getById(result.orderId);
+ await saveOrderSheetDraft({orderId:result.orderId,items:result.items.map(i=>({orderItemId:i.orderItemId,orderQty:i.orderQty,selected:i.selected}))});
+ const after=await orderRepository.getById(result.orderId);expect(after?.revision).toBe(before?.revision);expect(after?.comment).toBe('Keep these office notes');
+ await saveOrderSheetDraft({orderId:result.orderId,items:[{orderItemId:result.items[0].orderItemId,orderQty:'3',selected:true}]});
+ expect((await orderRepository.getById(result.orderId))?.revision).toBe(before!.revision+1);expect((await orderRepository.getById(result.orderId))?.comment).toBe('Keep these office notes');
 });

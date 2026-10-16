@@ -18,6 +18,12 @@ FEEDS = {
 }
 
 
+class ImportValidationError(ValueError):
+    def __init__(self, message, details):
+        super().__init__(message)
+        self.details = details
+
+
 def prepare_rows(rows, mapping, source, start, end, allow_empty=False):
     """Strict file validation before any writes; repeated product/date lines sum."""
     if source not in FEEDS:
@@ -116,7 +122,9 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
             raise ValueError('Unsupported product mapping')
         unknown = sorted({code for code, _ in rows if code not in products})
         if unknown:
-            raise ValueError(f'{len(unknown)} unmatched product codes; import cancelled')
+            raise ImportValidationError(f'{len(unknown)} unmatched product identifiers; import cancelled', {
+                'unmatched_barcodes' if mapping_type == 'barcode' else 'unknown_product_codes': unknown,
+                'unmatched_identifier_count': len(unknown)})
         resolved = {}
         for (code, day), quantity in rows.items():
             key = (products[code], day)
@@ -227,7 +235,7 @@ def process_job(conn, config, job):
     except Exception as exc:
         # Keep credentials/command arguments out of logs and dashboard errors.
         message = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
-        conn.execute("UPDATE data_import_runs SET status='failed', completed_at=now(), error_message=%s WHERE id=%s AND status NOT IN ('success','failed')", (message[:2000], run_id))
+        conn.execute("UPDATE data_import_runs SET status='failed', completed_at=now(), error_message=%s, details=details || %s::jsonb WHERE id=%s AND status NOT IN ('success','failed')", (message[:2000], json.dumps(exc.details if isinstance(exc, ImportValidationError) else {}), run_id))
         print(f'Job {run_id}: failed ({message})', flush=True)
 
 

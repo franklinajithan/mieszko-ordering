@@ -174,3 +174,13 @@ export async function retryFailedImportRun(runId: number): Promise<{runId:number
     return {runId:Number(created[0].id),alreadyQueued:false};
   });
 }
+
+/** Operator confirms the worker is stopped; a live/successful import is never force-requeued. */
+export async function recoverInterruptedImport(runId:number,workerStopped:boolean){
+ positiveId(runId);if(!workerStopped)throw new InputError('Confirm the office worker is stopped before recovery.');
+ const updated=await db.execute(sql`UPDATE data_import_runs SET status='failed',completed_at=now(),
+  error_message='Operator marked an interrupted worker attempt failed; previous data retained.',details=details||'{"recovered_manually":true}'::jsonb
+  WHERE id=${runId} AND status IN ('downloading','downloaded','importing') AND started_at<now()-interval '2 hours' RETURNING id`);
+ if(!updated.length)throw new InputError('Attempt is not interrupted, is too recent, or has already finished. Refresh status.');
+ return {runId,status:'failed' as const};
+}

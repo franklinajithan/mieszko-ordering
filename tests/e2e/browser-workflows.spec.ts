@@ -22,6 +22,8 @@ test('browser: dashboard, live editing, supplier Excel and history',async({page,
   const row=quantity.locator('xpath=ancestor::tr');await expect(row.getByText('£14.30',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Save changes',exact:true}).click();await expect(page.getByRole('status')).toContainText('Changes saved.');
   await page.getByRole('button',{name:'Generate supplier orders',exact:true}).click();
+  await page.getByRole('checkbox',{name:'I have reviewed the warnings',exact:false}).check();
+  await page.getByRole('button',{name:'Generate supplier orders',exact:true}).click();
   const panel=page.getByRole('region',{name:'Supplier orders'}); // section gets a region role from aria-label
   await expect(panel.getByText('Spizarnia',{exact:true})).toBeVisible();
   const downloadEvent=page.waitForEvent('download');await panel.getByRole('button',{name:'Download',exact:true}).click();const download=await downloadEvent;

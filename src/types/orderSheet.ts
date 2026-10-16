@@ -98,6 +98,13 @@ export type OrderSheetItem = {
   supplierQuotes: OrderItemSupplierQuote[];
   departmentName: string | null;
   currentStock: string;
+  bookStockQty?:string;
+  receivedNotPostedQty?:string;
+  futureDeliveryQty?:string;
+  coverageDemandQty?:string;
+  stockAnchorDate?:string;
+  calculationMethod?:string;
+  stockStages?:Array<{stage:string;eventDate:string;stockBefore:string;forecastSales:string;shortage:string;deliveryAdded:string;stockAfter:string}>;
   periodSales: string[];
   dailySales: string[];
   calculatedSoldQty: string;

@@ -28,8 +28,8 @@ test('worker: seven-store scheduled Excel imports through dashboard, order and f
  expect(generated.status()).toBe(200);const order=(await generated.json()).data;
  const milk=order.items.find((row:{storeProductId:number})=>row.storeProductId===11);expect(Number(milk.suggestedOrderQty)).toBe(7.5);
  expect((await request.put(`/api/order-sheet/${order.orderId}/draft`,{data:{items:[{orderItemId:milk.orderItemId,orderQty:'13',selected:true}]}})).status()).toBe(200);
- const grouped=await request.post(`/api/orders/${order.orderId}/supplier-orders`);expect(grouped.status()).toBe(200);const groups=(await grouped.json()).data;expect(groups).toHaveLength(7);
- const group=groups.find((row:{storeId:number})=>row.storeId===1);const exported=await request.post(`/api/orders/${order.orderId}/supplier-orders/${group.id}/export`);expect(exported.status()).toBe(200);
+ const grouped=await request.post(`/api/orders/${order.orderId}/supplier-orders`,{data:{acknowledgeWarnings:true}});expect(grouped.status()).toBe(200);const groups=(await grouped.json()).data;expect(groups).toHaveLength(7);
+ const group=groups.find((row:{storeId:number})=>row.storeId===1);const exported=await request.post(`/api/orders/${order.orderId}/supplier-orders/${group.id}/export`,{data:{acknowledgeWarnings:true}});expect(exported.status()).toBe(200);
  const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(Buffer.from((await exported.json()).data.base64,'base64'));expect(workbook.worksheets[0].getRow(5).getCell(4).value).toBe(13);
  const history=await request.get('/api/orders');expect((await history.json()).data.some((row:{id:number})=>row.id===order.orderId)).toBe(true);
  await page.goto(`/orders/${order.orderId}`);await expect(page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Hounslow'})).toHaveValue('13.0000');

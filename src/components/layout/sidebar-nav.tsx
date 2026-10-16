@@ -37,6 +37,8 @@ export const navGroups: NavGroup[] = [
     title: "Overview",
     items: [
       { href: "/", label: "Home", icon: Home, match: (p) => p === "/" },
+      { href:"/operations",label:"Office Operations",icon:LayoutDashboard },
+      { href:"/data-quality",label:"Data Quality",icon:Layers },
     ],
   },
   {

@@ -45,6 +45,7 @@ export function HomePageView({ overview }: { overview?: ReactNode }) {
           </div>
         </section>
 
+        <div className="flex flex-wrap gap-3"><Link href="/operations" className="rounded-lg bg-emerald-700 px-4 py-3 font-medium text-white">Office Operations Control Centre</Link><Link href="/data-quality" className="rounded-lg border bg-white px-4 py-3 font-medium">Data Quality Centre</Link></div>
         {overview}
         <DataOperationsStatus />
 
