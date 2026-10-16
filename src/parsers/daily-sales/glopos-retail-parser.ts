@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import type { ParsedRow } from "@/types";
+import { Decimal } from "@/utils/decimal";
 
 export type GloposRetailParseResult = {
   headers: string[];
@@ -156,11 +157,11 @@ function findColumnIndex(headers: string[], patterns: string[]): number {
   return -1;
 }
 
-function parsePlainNumber(value: string): number | null {
+function parsePlainNumber(value: string): Decimal | null {
   const trimmed = value.trim();
   if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
+  const parsed = new Decimal(trimmed);
+  return parsed.isFinite() ? parsed : null;
 }
 
 export function isGloposRetailReport(headers: string[], fileName: string): boolean {
@@ -241,7 +242,7 @@ export async function parseGloposRetailReport(
       parseDateFromFilename(fileName);
   }
 
-  const aggregated = new Map<string, { qty: number; productName: string }>();
+  const aggregated = new Map<string, { qty: Decimal; productName: string }>();
   let sourceRows = 0;
 
   for (
@@ -267,7 +268,7 @@ export async function parseGloposRetailReport(
     sourceRows += 1;
     const existing = aggregated.get(itemCode);
     aggregated.set(itemCode, {
-      qty: (existing?.qty ?? 0) + qty,
+      qty: (existing?.qty ?? new Decimal(0)).plus(qty),
       productName: existing?.productName || description,
     });
   }

@@ -134,3 +134,25 @@ acceptance remain office checks.
 * `tests/e2e/crm-automation.spec.ts`
 * `tests/support/fixture-nebula-server.mjs`
 * `tests/support/test-database.mjs`
+# Office acceptance checkpoint — 16 October 2026
+
+The operator ran the headless downloader on Ubuntu and supplied the resulting
+Hayes Normal Sales report for 15 October 2026. The download completed in about
+32 seconds. The supplied file contains XLSX data under an `.xls` filename.
+
+The application normalizer was executed against this file without opening a
+database. All 937 product lines aggregate to 932 product codes and exactly
+1,959.195 in the report's quantity units. Every product quantity was compared
+independently with the source rows, and the sum reconciles to the report's
+Normal Sales and grand totals. The report contains only Normal Sales.
+
+This acceptance run exposed binary floating-point addition in weighted sales
+aggregation (4.675 + 0.805). The parser now uses decimal arithmetic and returns
+5.48 exactly. A synthetic regression covers weighted quantities, repeated
+product codes, excluded summary rows and rejection of a different report date.
+The original office workbook is not committed to the repository.
+
+This checkpoint verifies downloading and parsing one office report. Actual
+RTC and Wastage downloads, store-product matching against the office catalogue,
+atomic office imports and unattended scheduling still require acceptance.
+No office sales import or timer was started by this verification.
