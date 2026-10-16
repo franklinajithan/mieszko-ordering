@@ -4,7 +4,7 @@ import unittest
 import tempfile
 import json
 import os
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 spec = importlib.util.spec_from_file_location('nebula_download', Path(__file__).resolve().parents[1] / 'nebula_download.py')
 nebula = importlib.util.module_from_spec(spec)
@@ -18,6 +18,24 @@ runtime_spec.loader.exec_module(runtime_module)
 
 
 class NebulaContractsTests(unittest.TestCase):
+    def test_date_fields_ignore_hidden_duplicates_but_reject_visible_ambiguity(self):
+        for name in ('From Date', 'To Date'):
+            hidden = Mock()
+            hidden.is_visible.return_value = False
+            field = Mock()
+            field.is_visible.return_value = True
+            matches = Mock()
+            matches.count.return_value = 3
+            matches.nth.side_effect = lambda index: [hidden, field, hidden][index]
+            frame = Mock()
+            frame.get_by_label.return_value = matches
+            self.assertIs(nebula.date_input(frame, name), field)
+            frame.get_by_text.assert_not_called()
+            matches.nth.side_effect = lambda index: [hidden, field, field][index]
+            with self.assertRaises(nebula.CrmExportError) as error:
+                nebula.date_input(frame, name)
+            self.assertEqual(error.exception.code, 'date_controls')
+
     def test_interactive_test_keeps_login_out_of_command_arguments(self):
         args = ['nebula_download.py', '--prompt-login', '--url', 'http://127.0.0.1/', '--store-code', '0665',
                 '--source', 'normal_sales', '--start', '2026-10-15', '--end', '2026-10-15', '--output', '/tmp/report.xls']

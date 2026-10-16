@@ -28,6 +28,7 @@ const server=http.createServer(async(req,res)=>{
   <input type="radio" id="week" name="period" checked><label for="week">Week</label>
   <label for="from">From Date*</label><input class="date" id="from" disabled>
   <label for="to">To Date*</label><input class="date" id="to" disabled>
+  ${[1,2].map(i=>`<div hidden><label for="from-hidden-${i}">From Date*</label><input id="from-hidden-${i}"><label for="to-hidden-${i}">To Date*</label><input id="to-hidden-${i}"></div>`).join('')}
   <a href="#" id="lnkView" onclick="window.open('/report?source='+source+'&from='+encodeURIComponent(document.querySelector('#from').value)+'&to='+encodeURIComponent(document.querySelector('#to').value));return false">View Report</a>
   <script>let source;const labels=${JSON.stringify(labels)};if(location.search)setTimeout(()=>document.querySelector('#reports').hidden=false,400);function choose(key){source=key;setTimeout(()=>document.querySelector('#selected').textContent='Selected Report: '+labels[key],400);}</script>`);return;
  }

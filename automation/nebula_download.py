@@ -140,13 +140,17 @@ def select_report(page, category, title, source):
 
 def date_input(frame, label):
     associated = frame.get_by_label(re.compile(r'^' + label + r'\s*\*?$'))
-    if associated.count() == 1:
-        return associated
-    text = frame.get_by_text(re.compile(r'^' + label + r'\s*\*?$'))
-    if text.count() != 1:
+    fields = [associated.nth(i) for i in range(associated.count()) if associated.nth(i).is_visible()]
+    if len(fields) > 1:
         raise CrmExportError('date_controls', 'Report date controls are ambiguous; verify the CRM layout')
-    target = text.locator('xpath=following::input[not(@type="hidden")][1]')
-    if target.count() != 1:
+    if len(fields) == 1:
+        return fields[0]
+    matches = frame.get_by_text(re.compile(r'^' + label + r'\s*\*?$'))
+    captions = [matches.nth(i) for i in range(matches.count()) if matches.nth(i).is_visible()]
+    if len(captions) != 1:
+        raise CrmExportError('date_controls', 'Report date controls are ambiguous; verify the CRM layout')
+    target = captions[0].locator('xpath=following::input[not(@type="hidden")][1]')
+    if target.count() != 1 or not target.is_visible():
         raise ValueError('Report date input not found')
     return target
 
