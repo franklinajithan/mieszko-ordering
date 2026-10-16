@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import {withReadTimeout} from '@/utils/read-timeout';
 
 type StatusRow = {
   downloaded_row_count?:number|null;
@@ -30,6 +31,7 @@ function dateLabel(value: string | null) {
   return value ? new Date(value).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "Never";
 }
 export function DataOperationsStatus() {
+  const reading = useRef(false);
   const [data, setData] = useState<Response | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,16 +82,21 @@ export function DataOperationsStatus() {
     }catch(cause){setError(cause instanceof Error?cause.message:'Unable to recover attempt');}finally{setQueueingStore(null);}
   }
   async function refresh() {
+    if (reading.current) return;
+    reading.current = true;
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/data-operations/status", { cache: "no-store" });
+      await withReadTimeout(async signal => {
+      const response = await fetch("/api/data-operations/status", { cache: "no-store", signal });
       const json = await response.json() as Response;
       if (!response.ok || !json.success) throw new Error(json.error ?? "Status unavailable");
       setData(json);
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Status unavailable");
     } finally {
+      reading.current = false;
       setLoading(false);
     }
   }

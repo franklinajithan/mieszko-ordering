@@ -57,6 +57,28 @@ test('quality: manual imports retain unmatched codes and barcodes without creati
  expect(Number((await sql`SELECT count(*) FROM products`)[0].count)).toBe(3);
 });
 
+test('quality: grouped lookups preserve store snapshots and dated supplier price selection',async({request})=>{
+ await sql.unsafe(`INSERT INTO book_stock(store_product_id,book_stock_date,book_stock_qty,imported_at) VALUES
+ (11,'2026-10-07',-99,'2026-10-07T08:00:00Z'),
+ (21,'2026-10-09',-7,'2026-10-09T08:00:00Z');
+ UPDATE supplier_prices SET net_price=0 WHERE supplier_product_id=11 AND supplier_id=1;
+ INSERT INTO supplier_prices(supplier_id,supplier_product_id,supplier_code,net_price,case_size,effective_date,valid_until)
+ SELECT supplier_id,supplier_product_id,supplier_code,2,'12',current_date+1,NULL FROM supplier_prices WHERE supplier_product_id=11 AND supplier_id=1 LIMIT 1;
+ INSERT INTO supplier_prices(supplier_id,supplier_product_id,supplier_code,net_price,case_size,effective_date,valid_until)
+ SELECT supplier_id,supplier_product_id,supplier_code,2,'12',current_date-2,current_date-1 FROM supplier_prices WHERE supplier_product_id=11 AND supplier_id=1 LIMIT 1;`);
+ const quality=async(query:string)=>(await (await request.get(`/api/data-quality?${query}`)).json()).data;
+ expect((await quality('storeId=1&type=negative_stock')).total).toBe(0);
+ const stock=await quality('storeId=2&type=negative_stock');expect(stock.total).toBe(1);expect(stock.issues[0].message).toContain('-7');
+ const missing=await quality('storeId=1&supplierId=1&type=missing_price');expect(missing.total).toBe(1);expect(missing.issues[0].productId).toBe(1);
+ expect((await quality('storeId=1&supplierId=2&type=missing_price')).total).toBe(0);
+ // A correction must be visible immediately after the completed read, without a stale response cache.
+ await sql`UPDATE supplier_prices SET net_price=2 WHERE supplier_product_id=11 AND supplier_id=1`;
+ expect((await quality('storeId=1&supplierId=1&type=missing_price')).total).toBe(0);
+ const summary=(await (await request.get('/api/operations')).json()).data;
+ expect(summary.stores[0].feeds.find((f:{source_type:string})=>f.source_type==='book_stock').latest_data_date).toBe('2026-10-08');
+ expect(summary.stores[1].feeds.find((f:{source_type:string})=>f.source_type==='book_stock').latest_data_date).toBe('2026-10-09');
+});
+
 test('diagnostics: credential-bearing errors, paths, filenames and arbitrary details are excluded',async({request,page})=>{
  await sql`INSERT INTO data_import_runs(store_id,source_type,trigger_type,status,source_file_path,source_file_name,error_message,details) VALUES(1,'normal_sales','manual','failed','C:/password-SECRET','token-SECRET.xlsx','password=SECRET https://user:SECRET@example.test/?token=SECRET','{"token":"SECRET","retry_of":"password=SECRET","duplicate_of":"token=SECRET"}')`;
  const response=await request.get('/api/data-operations/diagnostics?storeId=1');expect(response.status()).toBe(200);expect(await response.text()).not.toContain('SECRET');expect((await response.json()).runs).toHaveLength(1);

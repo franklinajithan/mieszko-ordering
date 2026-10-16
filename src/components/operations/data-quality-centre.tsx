@@ -8,9 +8,9 @@ export function DataQualityCentre({stores,suppliers,initialStoreId=''}:{stores:O
  const [storeId,setStore]=useState(initialStoreId),[supplierId,setSupplier]=useState(''),[type,setType]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(1);
  const [result,setResult]=useState<{issues:QualityIssue[];total:number;pageSize:number}|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[refresh,setRefresh]=useState(0);
  const query=new URLSearchParams({...storeId?{storeId}:{},...supplierId?{supplierId}:{},...type?{type}:{},...search?{search}:{},page:String(page)}).toString();
- useEffect(()=>{let alive=true;const timer=setTimeout(()=>{
-  setLoading(true);setError('');void apiRequest<{issues:QualityIssue[];total:number;pageSize:number}>(`/data-quality?${query}`).then(r=>{if(!alive)return;if(r.success)setResult(r.data);else setError(r.error);setLoading(false);});
- },200);return()=>{alive=false;clearTimeout(timer);};},[query,refresh]);
+ useEffect(()=>{const controller=new AbortController();const timer=setTimeout(()=>{
+  setLoading(true);setError('');void apiRequest<{issues:QualityIssue[];total:number;pageSize:number}>(`/data-quality?${query}`,{signal:controller.signal}).then(r=>{if(controller.signal.aborted)return;if(r.success)setResult(r.data);else setError(r.error);setLoading(false);});
+ },200);return()=>{controller.abort();clearTimeout(timer);};},[query,refresh]);
  function resetPage(){setPage(1);}
  return <div className="space-y-4">
   <div className="flex flex-wrap items-end gap-3">

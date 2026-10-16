@@ -1,3 +1,4 @@
+import {shareInFlight} from '@/utils/in-flight';
 import 'server-only';
 import {sql} from 'drizzle-orm';
 import {db} from '@/db';
@@ -9,8 +10,27 @@ export function validCaseSize(value:string|null):boolean {
 }
 /** Read-only findings; possible duplicates are never merged or assigned invented prices. */
 export async function getQualityIssues(filters:QualityFilters={},day=todayIso()):Promise<QualityIssue[]> {
+ return shareInFlight(`quality:${day}:${filters.storeId??'all'}:${filters.supplierId??'all'}:${filters.type??'all'}`, () => loadQualityIssues(filters,day));
+}
+async function loadQualityIssues(filters:QualityFilters,day:string):Promise<QualityIssue[]> {
  const rows=await db.execute(sql`
- WITH catalogue AS (
+ WITH normalized_products AS MATERIALIZED (
+   SELECT id,lower(regexp_replace(trim(name),'\\s+',' ','g')) AS normalized_name FROM products WHERE is_active
+ ), duplicate_names AS (
+   SELECT normalized_name FROM normalized_products GROUP BY normalized_name HAVING count(*)>1
+ ), duplicate_products AS (
+   SELECT p.id FROM normalized_products p JOIN duplicate_names d USING(normalized_name)
+ ), current_prices AS MATERIALIZED (
+   SELECT DISTINCT ON (supplier_product_id,supplier_id,supplier_code)
+     supplier_product_id,supplier_id,supplier_code,net_price,case_size
+   FROM supplier_prices WHERE effective_date<=${day}::date
+     AND (valid_until IS NULL OR valid_until>=${day}::date)
+     AND (${filters.supplierId??null}::integer IS NULL OR supplier_id=${filters.supplierId??null})
+   ORDER BY supplier_product_id,supplier_id,supplier_code,effective_date DESC,imported_at DESC,id DESC
+ ), snapshot_dates AS MATERIALIZED (
+   SELECT sp.store_id,max(b.imported_at) AS imported_at FROM book_stock b JOIN store_products sp ON sp.id=b.store_product_id
+   WHERE (${filters.storeId??null}::integer IS NULL OR sp.store_id=${filters.storeId??null}) GROUP BY sp.store_id
+ ), catalogue AS (
    SELECT sp.id AS spid,sp.store_id,s.name AS store_name,sp.store_product_code AS item_code,p.id AS product_id,p.name AS product_name
    FROM store_products sp JOIN stores s ON s.id=sp.store_id JOIN products p ON p.id=sp.product_id
    WHERE sp.is_active AND p.is_active AND s.is_active AND (${filters.storeId??null}::integer IS NULL OR s.id=${filters.storeId??null})
@@ -18,18 +38,15 @@ export async function getQualityIssues(filters:QualityFilters={},day=todayIso())
    SELECT c.*,su.id AS supplier_id,su.name AS supplier_name,m.id AS mapping_id,m.supplier_code,m.is_active AS mapping_active,q.net_price,q.case_size
    FROM catalogue c CROSS JOIN suppliers su
    LEFT JOIN supplier_products m ON m.product_id=c.product_id AND m.supplier_id=su.id
-   LEFT JOIN LATERAL (SELECT net_price,case_size FROM supplier_prices pr WHERE pr.supplier_product_id=m.id
-     AND pr.supplier_id=su.id AND pr.supplier_code=m.supplier_code AND pr.effective_date<=${day}::date
-     AND (pr.valid_until IS NULL OR pr.valid_until>=${day}::date)
-     ORDER BY pr.effective_date DESC,pr.imported_at DESC,pr.id DESC LIMIT 1) q ON TRUE
+   LEFT JOIN current_prices q ON q.supplier_product_id=m.id AND q.supplier_id=su.id AND q.supplier_code=m.supplier_code
    WHERE su.is_active AND (${filters.supplierId??null}::integer IS NULL OR su.id=${filters.supplierId??null})
  ), latest_stock AS (
    SELECT c.*,b.book_stock_qty,b.book_stock_date FROM catalogue c JOIN book_stock b ON b.store_product_id=c.spid
-   WHERE b.imported_at=(SELECT max(b2.imported_at) FROM book_stock b2 JOIN store_products sp2 ON sp2.id=b2.store_product_id WHERE sp2.store_id=c.store_id)
+   JOIN snapshot_dates snapshot ON snapshot.store_id=c.store_id AND snapshot.imported_at=b.imported_at
  ), findings AS (
  SELECT 'duplicate_product' AS type,c.store_id,c.store_name,NULL::integer AS supplier_id,NULL::text AS supplier_name,c.product_id,c.item_code,c.product_name,
    'Possible duplicate name; review identities without automatically merging.'::text AS detail,NULL::text AS case_size
- FROM catalogue c WHERE EXISTS(SELECT 1 FROM products other WHERE other.is_active AND other.id<>c.product_id AND lower(regexp_replace(trim(other.name),'\\s+',' ','g'))=lower(regexp_replace(trim(c.product_name),'\\s+',' ','g')))
+ FROM catalogue c WHERE EXISTS(SELECT 1 FROM duplicate_products d WHERE d.id=c.product_id)
  UNION ALL SELECT 'missing_supplier_code',store_id,store_name,supplier_id,supplier_name,product_id,item_code,product_name,'No active supplier product code is mapped.',NULL FROM offers WHERE mapping_id IS NULL OR (mapping_active AND trim(supplier_code)='')
  UNION ALL SELECT 'missing_price',store_id,store_name,supplier_id,supplier_name,product_id,item_code,product_name,'No positive current unit price for this supplier code.',NULL FROM offers WHERE mapping_active AND trim(supplier_code)<>'' AND (net_price IS NULL OR net_price<=0 OR net_price::text IN ('NaN','Infinity','-Infinity'))
  UNION ALL SELECT 'invalid_case_size',store_id,store_name,supplier_id,supplier_name,product_id,item_code,product_name,'Case size needs review; unit-price selection is unchanged.',case_size FROM offers WHERE mapping_active AND net_price>0

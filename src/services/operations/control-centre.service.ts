@@ -1,3 +1,4 @@
+import {shareInFlight} from '@/utils/in-flight';
 import 'server-only';
 import {db} from '@/db';
 import {sql} from 'drizzle-orm';
@@ -6,6 +7,9 @@ import {getImportStatusRows} from './import-status.service';
 import {getQualityIssues} from './data-quality.service';
 export const officeStores=[['0365','Hounslow'],['0766','Perivale'],['0650','East Ham'],['0665','Hayes'],['0566','Gravesend'],['0602','Watford'],['0388','Streatham']] as const;
 export async function getControlCentre(){
+ return shareInFlight('control-centre', loadControlCentre);
+}
+async function loadControlCentre(){
  const day=todayIso();
  const [feeds,quality,stores,counts]=await Promise.all([getImportStatusRows(),getQualityIssues(),db.execute(sql`SELECT id,code,name,is_active FROM stores ORDER BY name`),db.execute(sql`SELECT s.id,
    (SELECT count(DISTINCT i.order_id)::int FROM order_items i JOIN store_products sp ON sp.id=i.store_product_id JOIN orders o ON o.id=i.order_id WHERE sp.store_id=s.id AND (o.calculated_at AT TIME ZONE 'Europe/London')::date=${day}::date) AS orders_today,

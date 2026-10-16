@@ -1,4 +1,5 @@
 import type { ActionResult } from "@/types";
+import {withReadTimeout} from '@/utils/read-timeout';
 
 /**
  * Base URL for the API. Defaults to the same-origin Next route handlers under
@@ -46,18 +47,22 @@ async function parseEnvelope<T>(response: Response): Promise<ActionResult<T>> {
 
 export async function apiRequest<T>(
   path: string,
-  options: { method?: Method; body?: unknown } = {},
+  options: { method?: Method; body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<ActionResult<T>> {
   const { method = "GET", body } = options;
   try {
+    const perform = async (signal?: AbortSignal) => {
     const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
       method,
       headers:
         body !== undefined ? { "Content-Type": "application/json; charset=utf-8" } : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
       cache: method === "GET" ? "no-store" : undefined,
+      signal,
     });
     return parseEnvelope<T>(response);
+    };
+    return method === 'GET' ? await withReadTimeout(perform, options) : await perform(options.signal);
   } catch (error) {
     return {
       success: false,

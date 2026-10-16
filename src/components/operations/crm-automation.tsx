@@ -5,16 +5,20 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { historicalImportDates, historicalImportBatches, londonToday, movementFeeds } from "@/validators/crm-automation";
+import {withReadTimeout} from '@/utils/read-timeout';
 
 type CrmStore = { id: number; code: string; name: string; erp_type: string; is_active: boolean; crm_url: string | null; nightly_enabled: boolean };
 type ImportProgress = { total: number; counts: Record<string, number>; recent: { id: number; store_name: string; source_type: keyof typeof labels; day: string; status: string; imported_row_count: number | null; error_message: string | null }[]; checkedAt: string };
 const labels = { normal_sales: "Normal Sales", rtc: "RTC Sales", wastage: "Wastage" };
 
 async function requestJson(url: string, options?: RequestInit) {
-  const response = await fetch(url, { cache: "no-store", ...options });
+  const perform = async (signal?: AbortSignal) => {
+  const response = await fetch(url, { cache: "no-store", ...options, signal });
   const body = await response.json();
   if (!response.ok || !body.success) throw new Error(body.error || "The request failed. Try again.");
   return body.data;
+  };
+  return !options?.method || options.method === 'GET' ? withReadTimeout(perform, {signal: options?.signal ?? undefined}) : perform(options.signal ?? undefined);
 }
 
 export function CrmAutomation() {
@@ -82,7 +86,7 @@ export function CrmAutomation() {
     const controller = new AbortController();
     let busy = false;
     async function refresh() {
-      if (busy) return;
+      if (busy || document.visibilityState !== 'visible') return;
       busy = true;
       try {
         const data = await requestJson(`/api/automation/imports?${progressQuery}`, {signal: controller.signal});

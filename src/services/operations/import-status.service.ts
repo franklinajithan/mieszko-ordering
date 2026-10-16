@@ -1,9 +1,23 @@
+import {shareInFlight} from '@/utils/in-flight';
 import 'server-only';
 import {db} from '@/db';
 import {sql} from 'drizzle-orm';
 import type {ImportStatusRow} from '@/types/operations';
 export async function getImportStatusRows():Promise<ImportStatusRow[]>{
+    return shareInFlight('import-status', loadImportStatusRows);
+}
+async function loadImportStatusRows():Promise<ImportStatusRow[]>{
     const result = await db.execute(sql`
+      WITH actual_feed AS (
+        SELECT sp.store_id,'normal_sales' AS source_type,max(d.sales_date)::text AS business_date,max(d.updated_at) AS updated_at
+        FROM daily_sales d JOIN store_products sp ON sp.id=d.store_product_id GROUP BY sp.store_id
+        UNION ALL SELECT sp.store_id,'rtc',max(d.rtc_date)::text,max(d.updated_at)
+        FROM rtc_sales d JOIN store_products sp ON sp.id=d.store_product_id GROUP BY sp.store_id
+        UNION ALL SELECT sp.store_id,'wastage',max(d.wastage_date)::text,max(d.updated_at)
+        FROM wastage d JOIN store_products sp ON sp.id=d.store_product_id GROUP BY sp.store_id
+        UNION ALL SELECT sp.store_id,'book_stock',max(d.book_stock_date)::text,max(d.imported_at)
+        FROM book_stock d JOIN store_products sp ON sp.id=d.store_product_id GROUP BY sp.store_id
+      )
       SELECT s.id AS store_id, s.code AS store_code, s.name AS store_name,
              source.source_type, CASE WHEN source.source_type<>'book_stock' AND last_success.imported_row_count=0 AND (actual.business_date IS NULL OR last_success.source_end_date>=actual.business_date::date) THEN last_success.source_end_date::text ELSE actual.business_date END AS latest_data_date, actual.updated_at AS latest_data_updated_at,
              r.id AS latest_run_id, r.status, r.started_at, r.completed_at, r.imported_at,
@@ -26,14 +40,7 @@ export async function getImportStatusRows():Promise<ImportStatusRow[]>{
           AND status = 'success' AND NOT (details ? 'duplicate_of')
         ORDER BY imported_at DESC NULLS LAST, id DESC LIMIT 1
       ) last_success ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT max(feed.business_date)::text AS business_date, max(feed.updated_at) AS updated_at FROM (
-          SELECT d.sales_date AS business_date,d.updated_at FROM daily_sales d JOIN store_products sp ON sp.id=d.store_product_id WHERE sp.store_id=s.id AND source.source_type='normal_sales'
-          UNION ALL SELECT d.rtc_date,d.updated_at FROM rtc_sales d JOIN store_products sp ON sp.id=d.store_product_id WHERE sp.store_id=s.id AND source.source_type='rtc'
-          UNION ALL SELECT d.wastage_date,d.updated_at FROM wastage d JOIN store_products sp ON sp.id=d.store_product_id WHERE sp.store_id=s.id AND source.source_type='wastage'
-          UNION ALL SELECT d.book_stock_date,d.imported_at FROM book_stock d JOIN store_products sp ON sp.id=d.store_product_id WHERE sp.store_id=s.id AND source.source_type='book_stock'
-        ) feed
-      ) actual ON TRUE
+      LEFT JOIN actual_feed actual ON actual.store_id=s.id AND actual.source_type=source.source_type
       WHERE s.is_active = true
       ORDER BY s.name, source.source_type
     `);

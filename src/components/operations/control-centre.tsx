@@ -1,5 +1,5 @@
 'use client';
-import {useCallback,useEffect,useState} from 'react';
+import {useCallback,useEffect,useState,useRef} from 'react';
 import Link from 'next/link';
 import {DataOperationsStatus} from '@/components/layout/data-operations-status';
 import type {ControlCentre} from '@/services/operations/control-centre.service';
@@ -8,8 +8,18 @@ import {apiRequest} from '@/lib/api/client';
 const labels={normal_sales:'Normal Sales',rtc:'RTC Sales',wastage:'Wastage',book_stock:'Book Stock'};
 export function ControlCentreView(){
  const [data,setData]=useState<ControlCentre|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
- const refresh=useCallback(async()=>{setLoading(true);setError('');const r=await apiRequest<ControlCentre>('/operations');if(r.success)setData(r.data);else setError(r.error);setLoading(false);},[]);
- useEffect(()=>{let alive=true;void apiRequest<ControlCentre>('/operations').then(r=>{if(!alive)return;if(r.success)setData(r.data);else setError(r.error);setLoading(false);});const timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh();},60000);return()=>{alive=false;clearInterval(timer);};},[refresh]);
+ const current=useRef<AbortController|null>(null);
+ const refresh=useCallback(async()=>{
+  if(current.current&&!current.current.signal.aborted)return;
+  const controller=new AbortController();current.current=controller;setLoading(true);setError('');
+  try{const r=await apiRequest<ControlCentre>('/operations',{signal:controller.signal});if(controller.signal.aborted)return;if(r.success)setData(r.data);else setError(r.error);}
+  finally{if(current.current===controller)current.current=null;if(!controller.signal.aborted)setLoading(false);}
+ },[]);
+ useEffect(()=>{
+  void refresh();
+  const timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh();},60000);
+  return()=>{current.current?.abort();current.current=null;clearInterval(timer);};
+ },[refresh]);
  return <div className="space-y-6">
   <div className="flex flex-wrap gap-3"><button onClick={()=>void refresh()} disabled={loading} className="rounded border bg-white px-4 py-2">{loading?'Checking stores…':'Refresh store overview'}</button><Link href="/data-quality" className="rounded bg-emerald-700 px-4 py-2 text-white">Review data quality</Link><Link href="/orders" className="rounded border bg-white px-4 py-2">Order history</Link><a href="/api/data-operations/diagnostics" className="rounded border bg-white px-4 py-2">Download diagnostic log</a></div>
   {error?<p role="alert">Unable to load store overview: {error} Check the PostgreSQL connection and prepared office migrations.</p>:null}
