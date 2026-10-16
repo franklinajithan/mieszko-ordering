@@ -1,0 +1,2 @@
+# Bash must retain Unix line endings in Windows checkouts and git archives.
+*.sh text eol=lf

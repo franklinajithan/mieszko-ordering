@@ -28,7 +28,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Server directory preparation failed.' }
     & scp $bundle "${target}:mieszko-worker/uploads/$release.tar"
     if ($LASTEXITCODE -ne 0) { throw 'Source transfer failed.' }
-    $remote = 'set -e; umask 077; dest="$HOME/mieszko-worker/releases/{0}"; mkdir "$dest"; tar -xf "$HOME/mieszko-worker/uploads/{0}.tar" -C "$dest"; bash "$dest/automation/setup-linux-worker.sh"' -f $release
+    # Normalize again on Ubuntu, including archives created with older Git attributes.
+    $remote = 'set -e; umask 077; dest="$HOME/mieszko-worker/releases/{0}"; mkdir "$dest"; tar -xf "$HOME/mieszko-worker/uploads/{0}.tar" -C "$dest"; sed -i ''s/\r$//'' "$dest/automation/setup-linux-worker.sh"; bash "$dest/automation/setup-linux-worker.sh"' -f $release
     & ssh -t $target $remote
     if ($LASTEXITCODE -ne 0) { throw 'Server preparation failed. Review the output; no imports or schedule were started.' }
     Write-Host "Worker dependencies prepared from commit $sha. CRM configuration and controlled verification remain."

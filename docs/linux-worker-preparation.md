@@ -17,6 +17,12 @@ normal interactive authentication; no passwords are stored in the script. Each
 invocation gets a new release directory under `~/mieszko-worker/releases`.
 Existing applications, system Node and login profiles remain unchanged.
 
+Shell scripts have an explicit LF Git attribute, including when Windows Git uses
+`core.autocrlf=true`. The launcher also strips trailing CR characters from the
+transferred bootstrap before Bash executes it. This prevents `set: invalid option
+name` failures caused by Windows line endings. An already transferred release can
+be repaired with `sed -i 's/\r$//' automation/setup-linux-worker.sh` in its directory.
+
 The Linux script downloads an isolated Node 22 from nodejs.org, verifies it against
 the official HTTPS SHA-256 manifest, installs locked npm dependencies without
 install scripts, creates a Python virtual environment and installs worker/browser

@@ -122,6 +122,27 @@ fi
         self.assertEqual(self.run_setup().returncode, 0)
         self.assertEqual(self.calls().count('download\n'), before)
 
+    def test_windows_line_endings_are_repaired_before_execution(self):
+        script = self.app / 'automation/setup-linux-worker.sh'
+        script.write_bytes(script.read_bytes().replace(b'\n', b'\r\n'))
+        failed = self.run_setup()
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual(self.calls(), '')
+        # Same server-side conversion used by the Windows launcher.
+        subprocess.run(['sed', '-i', r's/\r$//', str(script)], check=True)
+        repaired = self.run_setup()
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        self.assertIn('PREPARED ONLY', repaired.stdout)
+
+    def test_windows_git_archive_preserves_unix_shell_line_endings(self):
+        archive = subprocess.check_output([
+            'git', '-c', 'core.autocrlf=true', 'archive', '--worktree-attributes',
+            'HEAD', 'automation/setup-linux-worker.sh',
+        ], cwd=SETUP.parents[1])
+        with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+            body = tar.extractfile('automation/setup-linux-worker.sh').read()
+        self.assertNotIn(b'\r\n', body)
+
 
 if __name__ == '__main__':
     unittest.main()
