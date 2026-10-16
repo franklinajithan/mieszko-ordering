@@ -4,10 +4,14 @@ param(
     [string]$ServerUser = 'backend',
     [switch]$ApplyCrmSettingsMigration,
     [switch]$ActivateWastage,
-    [switch]$EnableNightly
+    [switch]$EnableNightly,
+    [string]$ResumeRelease
 )
 $ErrorActionPreference = 'Stop'
 if ($EnableNightly -and -not $ActivateWastage) { throw '-EnableNightly requires -ActivateWastage.' }
+if ($ResumeRelease -and ($ResumeRelease -notmatch '^\d{8}-\d{6}-[0-9a-f]{8}-[0-9a-f]{8}$' -or -not $ActivateWastage -or $ApplyCrmSettingsMigration)) {
+    throw 'ResumeRelease requires a valid prepared release name and -ActivateWastage, without migrations.'
+}
 if ($Server -notmatch '^[A-Za-z0-9][A-Za-z0-9.-]*$' -or $ServerUser -notmatch '^[a-z_][a-z0-9_-]*$') {
     throw 'Invalid SSH host or Linux username.'
 }
@@ -22,23 +26,33 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the project commit.' }
     & git cat-file -e 'HEAD:automation/setup-linux-worker.sh'
     if ($LASTEXITCODE -ne 0) { throw 'Pull the latest main before running this script.' }
-    $release = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $sha.Substring(0, 8) + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
-    $bundle = Join-Path ([IO.Path]::GetTempPath()) "mieszko-worker-$release.tar"
-    # Allowlist worker/parser sources: excludes .env, local CRM settings, downloads and database backups.
-    & git archive --format=tar "--output=$bundle" HEAD automation src package.json package-lock.json tsconfig.json migrations/manual/2026-10-16-crm-store-settings.sql
-    if ($LASTEXITCODE -ne 0) { throw 'Source packaging failed.' }
     $target = "$ServerUser@$Server"
-    & ssh $target 'umask 077; mkdir -p "$HOME/mieszko-worker/uploads" "$HOME/mieszko-worker/releases"'
-    if ($LASTEXITCODE -ne 0) { throw 'Server directory preparation failed.' }
-    & scp $bundle "${target}:mieszko-worker/uploads/$release.tar"
-    if ($LASTEXITCODE -ne 0) { throw 'Source transfer failed.' }
-    # Normalize again on Ubuntu, including archives created with older Git attributes.
-    $remote = 'set -e; umask 077; dest="$HOME/mieszko-worker/releases/{0}"; mkdir "$dest"; tar -xf "$HOME/mieszko-worker/uploads/{0}.tar" -C "$dest"; sed -i ''s/\r$//'' "$dest/automation/setup-linux-worker.sh"; bash "$dest/automation/setup-linux-worker.sh"' -f $release
-    if ($ApplyCrmSettingsMigration) {
-        $remote += '; sed -i ''s/\r$//'' "$dest/automation/apply-crm-settings-upgrade.sh"; bash "$dest/automation/apply-crm-settings-upgrade.sh"'
+    if ($ResumeRelease) {
+        $release = $ResumeRelease
+        $check = 'test -x $HOME/mieszko-worker/releases/{0}/.worker-runtime/venv/bin/python && test -f $HOME/mieszko-worker/releases/{0}/automation/activate-linux-worker.py && if systemctl is-active --quiet mieszko-import-worker.service; then echo Worker_already_active_resume_cancelled; exit 1; fi' -f $release
+        & ssh $target $check
+        if ($LASTEXITCODE -ne 0) { throw 'Prepared release not found or worker already active. Resume stopped.' }
+        & scp (Join-Path $PSScriptRoot 'store-worker-environment.py') "${target}:mieszko-worker/releases/$release/automation/store-worker-environment.py"
+        if ($LASTEXITCODE -ne 0) { throw 'Environment receiver transfer failed.' }
+        Write-Host "Resuming prepared release $release; dependency installation skipped."
+    } else {
+        $release = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $sha.Substring(0, 8) + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+        $bundle = Join-Path ([IO.Path]::GetTempPath()) "mieszko-worker-$release.tar"
+        # Allowlist worker/parser sources: excludes .env, local CRM settings, downloads and database backups.
+        & git archive --format=tar "--output=$bundle" HEAD automation src package.json package-lock.json tsconfig.json migrations/manual/2026-10-16-crm-store-settings.sql
+        if ($LASTEXITCODE -ne 0) { throw 'Source packaging failed.' }
+        & ssh $target 'umask 077; mkdir -p "$HOME/mieszko-worker/uploads" "$HOME/mieszko-worker/releases"'
+        if ($LASTEXITCODE -ne 0) { throw 'Server directory preparation failed.' }
+        & scp $bundle "${target}:mieszko-worker/uploads/$release.tar"
+        if ($LASTEXITCODE -ne 0) { throw 'Source transfer failed.' }
+        # Normalize again on Ubuntu, including archives created with older Git attributes.
+        $remote = 'set -e; umask 077; dest="$HOME/mieszko-worker/releases/{0}"; mkdir "$dest"; tar -xf "$HOME/mieszko-worker/uploads/{0}.tar" -C "$dest"; sed -i ''s/\r$//'' "$dest/automation/setup-linux-worker.sh"; bash "$dest/automation/setup-linux-worker.sh"' -f $release
+        if ($ApplyCrmSettingsMigration) {
+            $remote += '; sed -i ''s/\r$//'' "$dest/automation/apply-crm-settings-upgrade.sh"; bash "$dest/automation/apply-crm-settings-upgrade.sh"'
+        }
+        & ssh -t $target $remote
+        if ($LASTEXITCODE -ne 0) { throw 'Server preparation failed. Review the output; no imports or schedule were started.' }
     }
-    & ssh -t $target $remote
-    if ($LASTEXITCODE -ne 0) { throw 'Server preparation failed. Review the output; no imports or schedule were started.' }
     if ($ActivateWastage) {
         # Capture the existing connection locally; never print or package credentials.
         $databaseJson = @'
@@ -54,30 +68,16 @@ if (!config.DATABASE_URL) {
 process.stdout.write(JSON.stringify({DATABASE_URL: config.DATABASE_URL}));
 '@ | & node
         if ($LASTEXITCODE -ne 0) { throw 'Cannot load the existing office database configuration.' }
-        $receiver = @'
-import json, os, sys, tempfile
-from pathlib import Path
-path = Path(sys.argv[1])
-value = json.load(sys.stdin)
-if set(value) != {'DATABASE_URL'} or not isinstance(value['DATABASE_URL'], str) or not value['DATABASE_URL'].strip():
-    raise SystemExit('Invalid database configuration payload')
-descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix='.worker-env-')
-with os.fdopen(descriptor, 'w') as handle:
-    json.dump(value, handle)
-os.chmod(temporary, 0o600)
-os.replace(temporary, path)
-print('Existing database configuration transferred to the protected worker environment.')
-'@
-        $encodedReceiver = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($receiver))
-        $remoteReceiver = 'python3 -c "import base64;exec(base64.b64decode(''{0}''))" "$HOME/mieszko-worker/releases/{1}/automation/env.local.json"' -f $encodedReceiver, $release
+        # A script filename needs no nested shell quotes (Windows PowerShell 5.1 strips them).
+        $remoteReceiver = '$HOME/mieszko-worker/releases/{0}/.worker-runtime/venv/bin/python $HOME/mieszko-worker/releases/{0}/automation/store-worker-environment.py' -f $release
         ($databaseJson -join "`n") | & ssh $target $remoteReceiver
         $databaseJson = $null
         if ($LASTEXITCODE -ne 0) { throw 'Protected configuration transfer failed; activation stopped.' }
-        $activate = '"$HOME/mieszko-worker/releases/{0}/.worker-runtime/venv/bin/python" "$HOME/mieszko-worker/releases/{0}/automation/activate-linux-worker.py" --feeds wastage --start-worker' -f $release
+        $activate = '$HOME/mieszko-worker/releases/{0}/.worker-runtime/venv/bin/python $HOME/mieszko-worker/releases/{0}/automation/activate-linux-worker.py --feeds wastage --start-worker' -f $release
         if ($EnableNightly) { $activate += ' --enable-nightly' }
         & ssh -t $target $activate
         if ($LASTEXITCODE -ne 0) { throw 'Worker activation did not finish. Review the output and service status before retrying.' }
-        Write-Host "Wastage worker activated from $sha. Existing Wastage jobs can now be downloaded and imported."
+        Write-Host "Wastage worker activated in release $release. Existing Wastage jobs can now be downloaded and imported."
     } else {
         Write-Host "Worker dependencies prepared from commit $sha. CRM configuration and controlled verification remain."
     }

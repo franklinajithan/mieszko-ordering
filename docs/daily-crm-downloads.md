@@ -254,3 +254,15 @@ batch recovery, latest-attempt progress, store isolation, application store-code
 translation, one-job limits, feed gating, and mock-CRM download/parser/atomic
 database imports. Activation tests mock PostgreSQL and systemd and ensure a failed
 database preflight cannot install/start services or enable the worker profile.
+
+If Windows PowerShell strips quotes from an inline SSH Python command, preparation
+can succeed while credential transfer fails before activation. Credential reception
+now executes a Python file directly and reads JSON on stdin, without `python -c`
+or nested shell quotes. The receiver writes mode 600 atomically, preserves an
+existing hidden CRM login, and never prints the connection string.
+
+To resume that failed setup without package reinstallation, pass the exact prepared
+release directory name to `prepare-linux-worker.ps1 -ResumeRelease NAME
+-ActivateWastage -EnableNightly`. Resume verifies the runtime and activation script
+exist, refuses to modify an already active worker, and copies only the repaired
+environment receiver before continuing activation. It never applies migrations.
