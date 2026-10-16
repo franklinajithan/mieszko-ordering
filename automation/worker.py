@@ -9,6 +9,7 @@ import time
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 FEEDS = {
     'normal_sales': ('daily_sales', 'sales_date', 'sold_qty'),
@@ -16,6 +17,36 @@ FEEDS = {
     'wastage': ('wastage', 'wastage_date', 'wastage_qty'),
     'book_stock': ('book_stock', 'book_stock_date', 'book_stock_qty'),
 }
+
+
+def london_today():
+    return datetime.now(ZoneInfo('Europe/London')).date()
+
+
+def get_store_config(conn, config, store_id):
+    if config.get('store_settings_source') != 'database':
+        return config['stores'][str(store_id)]
+    row = conn.execute('''SELECT s.code,s.erp_type,c.crm_url FROM stores s
+        JOIN store_crm_settings c ON c.store_id=s.id
+        WHERE s.id=%s AND s.is_active=true''', (store_id,)).fetchone()
+    if not row:
+        raise ValueError('Active store CRM settings not found; save the URL in CRM Downloads')
+    store = {**config['store_defaults'], **config.get('stores', {}).get(str(store_id), {})}
+    # Never cache URLs in the worker: operator edits apply to the next claimed job.
+    from urllib.parse import urlsplit
+    url = urlsplit(row[2])
+    if url.scheme not in ('http', 'https') or not url.hostname or url.username or url.password or url.query or url.fragment:
+        raise ValueError('Invalid saved store CRM URL')
+    return {**store, 'code': row[0], 'erp': row[1], 'crm_url': row[2]}
+
+
+def nightly_store_ids(conn, config):
+    if config.get('store_settings_source') == 'database':
+        return [row[0] for row in conn.execute('''SELECT s.id FROM stores s
+            JOIN store_crm_settings c ON c.store_id=s.id
+            WHERE s.is_active=true AND s.erp_type='msp' AND c.nightly_enabled=true
+            ORDER BY s.id''').fetchall()]
+    return [int(key) for key in config['stores']]
 
 
 class ImportValidationError(ValueError):
@@ -80,7 +111,7 @@ def enqueue_nightly(conn, store_ids, day):
     """Only the three movement feeds are nightly. Retrying a failed day is explicit."""
     date.fromisoformat(day)
     with conn.transaction():
-        for store_id in store_ids:
+        for store_id in sorted(set(store_ids)):
             for source in ('normal_sales', 'rtc', 'wastage'):
                 conn.execute('SELECT pg_advisory_xact_lock(73501, %s)', (store_id,))
                 conn.execute('''INSERT INTO data_import_runs
@@ -88,13 +119,24 @@ def enqueue_nightly(conn, store_ids, day):
                     SELECT %s, %s, 'nightly', %s, %s
                     WHERE EXISTS (SELECT 1 FROM stores WHERE id=%s AND is_active=true)
                     AND NOT EXISTS (SELECT 1 FROM data_import_runs WHERE store_id=%s
-                      AND source_type=%s AND source_start_date=%s AND trigger_type='nightly')''',
-                    (store_id, source, day, day, store_id, store_id, source, day))
+                      AND source_type=%s AND source_start_date<=%s AND source_end_date>=%s)''',
+                    (store_id, source, day, day, store_id, store_id, source, day, day))
 
 
-def claim(conn):
+def claim(conn, config=None):
     # Advisory locking during imports serializes writes for a store/source.
     with conn.transaction():
+        if config and config.get('store_settings_source') == 'database':
+            # This Nebula profile supports the three movement reports only.
+            # Leave manual Book Stock requests for a configured stock downloader.
+            return conn.execute('''UPDATE data_import_runs SET status='downloading', started_at=now()
+                WHERE id=(SELECT r.id FROM data_import_runs r
+                  JOIN stores s ON s.id=r.store_id
+                  JOIN store_crm_settings c ON c.store_id=s.id
+                  WHERE r.status='queued' AND s.is_active=true AND s.erp_type='msp'
+                    AND r.source_type IN ('normal_sales','rtc','wastage')
+                  ORDER BY r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1)
+                RETURNING id,store_id,source_type,source_start_date,source_end_date''').fetchone()
         return conn.execute('''UPDATE data_import_runs SET status='downloading', started_at=now()
             WHERE id=(SELECT id FROM data_import_runs WHERE status='queued'
                 ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1)
@@ -180,7 +222,7 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
 def process_job(conn, config, job):
     run_id, store_id, source, start, end = job
     try:
-        store = config['stores'][str(store_id)]
+        store = get_store_config(conn, config, store_id)
         identity = conn.execute('SELECT code FROM stores WHERE id=%s AND is_active=true', (store_id,)).fetchone()
         if not identity or (store.get('code') and store['code'] != identity[0]):
             raise ValueError('Configured store identity does not match the database')
@@ -189,18 +231,32 @@ def process_job(conn, config, job):
             raise ValueError('Movement imports require complete_store_report=true')
         if source == 'book_stock' and feed.get('includes_negative_stock') is not True:
             raise ValueError('Book Stock report must include negative stock')
-        start = str(start or date.today())
+        start = str(start or london_today())
         end = str(end or start)
         folder = Path(config['download_directory']).resolve() / str(run_id)
         folder.mkdir(parents=True, exist_ok=False)  # Never reuse an old download.
         extension = feed.get('extension', '.xlsx')
-        if extension not in ('.csv', '.xlsx'):
+        if extension not in ('.csv', '.xlsx', '.xls') or (extension == '.xls' and not feed.get('normalize_with_app_parsers')):
             raise ValueError('Invalid file extension')
         output = folder / ('report' + extension)
-        values = dict(store_id=str(store_id), source=source, start=start, end=end, output=str(output))
+        values = dict(store_id=str(store_id), store_code=identity[0], source=source, start=start, end=end, output=str(output), crm_url=store.get('crm_url', ''))
         command = [part.format(**values) for part in feed['command']]
-        subprocess.run(command, check=True, timeout=feed.get('timeout_seconds', 2400), shell=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        downloaded = subprocess.run(command, check=False, timeout=feed.get('timeout_seconds', 2400), shell=False,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if downloaded.returncode:
+            safe_errors = {
+                'wrong_store': 'CRM displayed another or missing store code. Check the saved store URL before retrying.',
+                'date_controls': 'CRM daily date controls changed. Verify Date Range, From Date and To Date before retrying.',
+                'login_config': 'CRM login code is missing from the server environment.',
+                'login_page': 'CRM login page is unavailable. Check the saved store URL and server connectivity.',
+                'crm_export': 'CRM report export failed. Verify login, report selection, daily date controls and Excel export.',
+            }
+            try:
+                code = json.loads(downloaded.stderr).get('error_code')
+            except (ValueError, TypeError, AttributeError):
+                code = None
+            # Never put arbitrary stderr or credential-bearing command arguments into audit logs.
+            raise ValueError(safe_errors.get(code, 'Report downloader failed. Verify the saved CRM URL and server report configuration.'))
         if not output.is_file() or output.stat().st_size == 0:
             raise ValueError('Downloader did not produce the requested report')
         conn.execute("UPDATE data_import_runs SET status='downloaded', downloaded_at=now(), source_file_path=%s, source_start_date=%s, source_end_date=%s WHERE id=%s AND status='downloading'", (str(output), start, end, run_id))
@@ -216,10 +272,12 @@ def process_job(conn, config, job):
         if feed.get('normalize_with_app_parsers'):
             normalized = folder / 'normalized.json'
             app_dir = Path(config['app_directory']).resolve()
-            subprocess.run([config.get('node_executable', 'node'), '--import', 'tsx',
+            normalized_result = subprocess.run([config.get('node_executable', 'node'), '--import', 'tsx',
                 str(app_dir / 'automation/normalize-report.ts'), '--input', str(output), '--output', str(normalized),
                 '--source', source, '--start', start, '--end', end, '--erp', store.get('erp', 'msp')],
-                cwd=app_dir, check=True, timeout=600, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cwd=app_dir, check=False, timeout=600, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if normalized_result.returncode:
+                raise ValueError('Report parsing failed. Verify the exported columns, daily date and ERP format; previous data retained.')
             envelope = json.loads(normalized.read_text(encoding='utf-8'))
             if envelope.get('source') != source:
                 raise ValueError('Normalizer returned the wrong feed')
@@ -247,7 +305,10 @@ def main():
     parser.add_argument('--fail-stalled-minutes', type=int, help='Explicitly fail abandoned runs after stopping other workers')
     parser.add_argument('--enqueue-date', help='Queue all three movement feeds for YYYY-MM-DD')
     parser.add_argument('--enqueue-yesterday', action='store_true')
+    parser.add_argument('--enqueue-only', action='store_true', help='Queue daily reports without consuming any jobs')
     args = parser.parse_args()
+    if args.enqueue_only and not (args.enqueue_date or args.enqueue_yesterday):
+        parser.error('--enqueue-only requires --enqueue-date or --enqueue-yesterday')
     config = json.loads(Path(args.config).read_text(encoding='utf-8-sig'))
     import psycopg
     with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True, prepare_threshold=None) as conn:
@@ -267,10 +328,12 @@ def main():
                     raise ValueError('A run for this store/feed is already active')
                 conn.execute("INSERT INTO data_import_runs(store_id,source_type,source_start_date,source_end_date,trigger_type,details) VALUES(%s,%s,%s,%s,'retry',%s::jsonb)", (store_id,source,start,end,json.dumps({'retry_of':args.retry_run})))
         if args.enqueue_date or args.enqueue_yesterday:
-            day = args.enqueue_date or str(date.today() - timedelta(days=1))
-            enqueue_nightly(conn, [int(key) for key in config['stores']], day)
+            day = args.enqueue_date or str(london_today() - timedelta(days=1))
+            enqueue_nightly(conn, nightly_store_ids(conn, config), day)
+        if args.enqueue_only:
+            return
         while True:
-            job = claim(conn)
+            job = claim(conn, config)
             if job:
                 process_job(conn, config, job)
             elif args.once:

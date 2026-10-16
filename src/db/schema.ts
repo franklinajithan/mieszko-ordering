@@ -31,6 +31,13 @@ export const stores = pgTable("stores", {
 
 
 
+export const storeCrmSettings = pgTable("store_crm_settings", {
+  storeId: integer("store_id").primaryKey().references(() => stores.id, { onDelete: "cascade" }),
+  crmUrl: text("crm_url").notNull(),
+  nightlyEnabled: boolean("nightly_enabled").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [check("store_crm_settings_url", sql`${table.crmUrl} ~ '^https?://' AND length(${table.crmUrl}) <= 2048`)]);
+
 export const suppliers = pgTable("suppliers", {
 
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),

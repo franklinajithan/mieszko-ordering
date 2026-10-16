@@ -45,6 +45,8 @@ next-env.d.ts
 /.worker-runtime/
 /automation/config.local.json
 /automation/crm.local.json
+/automation/env.local.json
+/automation/systemd.local/
 /automation/downloads/
 __pycache__/
 /test-results/

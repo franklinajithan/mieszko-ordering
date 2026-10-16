@@ -39,6 +39,7 @@ export const navGroups: NavGroup[] = [
       { href: "/", label: "Home", icon: Home, match: (p) => p === "/" },
       { href:"/operations",label:"Office Operations",icon:LayoutDashboard },
       { href:"/data-quality",label:"Data Quality",icon:Layers },
+      { href: "/automation", label: "CRM Downloads", icon: FileSpreadsheet },
     ],
   },
   {

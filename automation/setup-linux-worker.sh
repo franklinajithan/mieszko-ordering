@@ -67,6 +67,10 @@ with sync_playwright() as p:
 print('PASS: Chromium launched headlessly; local HTML checked without accessing CRM.')
 PY
 
+if test -f "$app_dir/automation/configure-linux-worker.py" && ! test -f "$app_dir/automation/config.local.json"; then
+  "$venv/bin/python" "$app_dir/automation/configure-linux-worker.py" --user "$(id -un)"
+fi
+
 printf '\nPREPARED ONLY: %s\n' "$app_dir"
 node --version
 "$venv/bin/python" --version
