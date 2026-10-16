@@ -195,3 +195,62 @@ connection: 85 source lines become 84 product codes, totalling 207.863 (Damaged
 10; Out of Date 197.863). Every product quantity matches an independent source
 aggregation. Requesting 15 October for this file is rejected. Office catalogue
 matching and unattended imports remain pending.
+
+## Historical Wastage download and import
+
+The CRM Downloads page accepts up to 366 completed days and submits sequential
+transactions of at most 31 days each. Every store/day/feed remains a separate
+job. Select Wastage alone for a Wastage backfill. For example, 3 June–15 October
+is 135 daily jobs per store, rather than a single period total. If a batch fails,
+accepted batches remain queued; retry the same range with re-download unchecked
+to resume without duplicating active, successful or failed attempts. Use Retry
+in Office Operations, or explicitly re-download, to retry a failed day.
+
+Progress refreshes every five seconds for the selected stores, feeds and dates.
+It reports the latest attempt for each store/day/feed and shows active/failed
+reports first. A queued report is not an imported report. Success means the
+worker committed that file to the corresponding PostgreSQL feed. The links to
+Wastage, Normal Sales and RTC show saved data. Changing filters does not cancel
+jobs; closing the page does not cancel already accepted requests.
+
+The worker resolves the application's HNS/PVL/EAS/HYS/GRV/WTF/STR identities to
+the verified CRM markers 0365/0766/0650/0665/0566/0602/0388. Existing four-digit
+store codes are preserved. Unknown identities fail rather than guessing a store.
+Only feeds with complete_store_report=true can be claimed or queued nightly by
+the database-backed profile; other feeds stay queued for a verified worker.
+
+### Explicit office activation
+
+After the operator has verified the real report contracts and authorized imports,
+run the following in the Windows project folder. This is an explicit operational
+action: it prepares a new isolated worker release, privately transfers DATABASE_URL
+from the existing .env/.env.local, prompts for the hidden CRM login code, checks
+the existing office database read-only, enables Wastage only, and starts the worker.
+It also enables the 02:00 Europe/London timer for the stores marked Include in the
+UI. It does not run migrations or deploy the web application.
+
+```powershell
+git pull --ff-only https://github.com/franklinajithan/mieszko-ordering.git main
+if ($LASTEXITCODE -ne 0) { throw 'Git update failed' }
+powershell -NoProfile -ExecutionPolicy Bypass -File .\automation\prepare-linux-worker.ps1 -ActivateWastage -EnableNightly
+```
+
+Existing queued Wastage jobs become eligible immediately when the worker starts.
+Normal Sales and RTC remain disabled in this first activation profile. Book Stock
+is never enabled by this tool. Nightly eligibility does not restrict explicitly
+queued manual backfills. No credentials are printed or committed. The setup
+requires office SSH/sudo access and package-download connectivity. Its native
+Windows PowerShell execution and live systemd activation require office verification.
+
+For a bounded check, the Linux wrapper accepts `--once --max-jobs 1 --store-id ID`.
+Without a job limit, `--once` drains eligible queued jobs, not just one job. A
+service stop lets the current job finish before claiming another; systemd waits
+up to 2500 seconds before terminating the remaining process group. Empty reports
+remain blocked and existing data retained. No automatic zero-wastage assumption
+is made for No Records Available.
+
+The repository regression tests exercise the historical UI/API queue, partial
+batch recovery, latest-attempt progress, store isolation, application store-code
+translation, one-job limits, feed gating, and mock-CRM download/parser/atomic
+database imports. Activation tests mock PostgreSQL and systemd and ensure a failed
+database preflight cannot install/start services or enable the worker profile.

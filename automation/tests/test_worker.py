@@ -1,12 +1,48 @@
 import sys
 import unittest
+import tempfile
+import json
+from unittest.mock import patch, MagicMock
 from pathlib import Path
 from decimal import Decimal
 from datetime import date
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from worker import prepare_rows, FEEDS
+from worker import prepare_rows, FEEDS, crm_store_code, enabled_movement_sources
+import worker
 
 class ValidationTests(unittest.TestCase):
+    def test_service_stop_finishes_current_job_and_leaves_the_next_queued(self):
+        database = MagicMock()
+        signals = {}
+        with tempfile.TemporaryDirectory() as folder:
+            config = Path(folder) / 'config.json'
+            config.write_text(json.dumps({'stores':{}}))
+            with patch.dict(sys.modules, {'psycopg': database}), \
+                    patch.dict(worker.os.environ, {'DATABASE_URL':'fixture-only'}), \
+                    patch('sys.argv', ['worker', '--config', str(config)]), \
+                    patch.object(worker.signal, 'signal', side_effect=lambda number, handler: signals.update({number:handler})), \
+                    patch.object(worker, 'claim', return_value=(1,1,'wastage','2026-10-14','2026-10-14')) as claim, \
+                    patch.object(worker, 'process_job', side_effect=lambda *_: signals[worker.signal.SIGTERM](None,None)) as process:
+                worker.main()
+            self.assertEqual(process.call_count, 1)
+            self.assertEqual(claim.call_count, 1)
+
+    def test_office_application_codes_resolve_to_exact_crm_markers(self):
+        for code, marker in {'HNS':'0365','PVL':'0766','EAS':'0650','HYS':'0665','GRV':'0566','WTF':'0602','STR':'0388'}.items():
+            with self.subTest(code=code):
+                self.assertEqual(crm_store_code(code), marker)
+                self.assertEqual(crm_store_code(marker), marker)
+        for unknown in ['MIT', 'SBH', '665', 'unknown', '']:
+            with self.assertRaises(ValueError): crm_store_code(unknown)
+
+    def test_only_verified_movement_feeds_can_be_claimed_or_scheduled(self):
+        config = {'store_settings_source':'database','store_defaults':{'feeds':{
+            'wastage':{'complete_store_report':True},'rtc':{'complete_store_report':False},
+            'book_stock':{'complete_store_report':True}}}}
+        self.assertEqual(enabled_movement_sources(config), ['wastage'])
+        config['store_defaults']['feeds']['wastage']['complete_store_report'] = False
+        self.assertEqual(enabled_movement_sources(config), [])
+
     mapping = {'code': 'Code', 'quantity': 'Qty', 'date': 'Date'}
     def prepare(self, rows, source='normal_sales', start='2026-10-14', end='2026-10-14'):
         return prepare_rows(rows, self.mapping, source, start, end)

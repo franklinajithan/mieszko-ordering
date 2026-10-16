@@ -15,17 +15,17 @@ test('CRM UI saves changed store URLs and splits a range into three independent 
  await page.goto('/automation');
  await page.getByRole('textbox',{name:'Hounslow CRM URL'}).fill(settings.crmUrl);
  await page.getByRole('button',{name:'Save Hounslow CRM settings'}).click();
- await expect(page.getByRole('status')).toContainText('CRM settings saved');
+ await expect(page.getByRole('status').filter({hasText:'CRM settings saved'})).toContainText('CRM settings saved');
  await page.reload();await expect(page.getByRole('textbox',{name:'Hounslow CRM URL'})).toHaveValue(settings.crmUrl);
  await page.getByRole('textbox',{name:'Hounslow CRM URL'}).fill('http://127.0.0.1:3201/changed');
  await page.getByRole('button',{name:'Save Hounslow CRM settings'}).click();
- await expect(page.getByRole('status')).toContainText('CRM settings saved');
+ await expect(page.getByRole('status').filter({hasText:'CRM settings saved'})).toContainText('CRM settings saved');
  expect((await sql`SELECT crm_url FROM store_crm_settings WHERE store_id=1`)[0].crm_url).toBe('http://127.0.0.1:3201/changed');
  await page.getByRole('checkbox',{name:'Hounslow',exact:true}).check();
  await page.getByLabel('From date',{exact:true}).fill('2026-10-01');
  await page.getByLabel('To date',{exact:true}).fill('2026-10-03');
- await page.getByRole('button',{name:'Queue daily downloads'}).click();
- await expect(page.getByRole('status')).toContainText('9 daily report jobs queued');
+ await page.getByRole('button',{name:'Download and import daily reports'}).click();
+ await expect(page.getByRole('status').filter({hasText:'daily report jobs queued'})).toContainText('9 daily report jobs queued');
  const rows=await sql`SELECT store_id,source_type,source_start_date::text AS day,source_end_date::text AS last FROM data_import_runs`;
  expect(rows).toHaveLength(9);expect(new Set(rows.map(r=>r.source_type))).toEqual(new Set(['normal_sales','rtc','wastage']));
  expect(rows.every(r=>r.store_id===1&&r.day===r.last)).toBe(true);
@@ -47,6 +47,45 @@ test('CRM API rejects invalid addresses, Book Stock, invalid dates, disabled sto
  await sql`UPDATE stores SET is_active=false WHERE id=1`;
  expect((await request.post('/api/automation/imports',{headers:origin,data:input})).status()).toBe(400);
  expect((await request.put('/api/automation/stores/1',{headers:origin,data:{...settings,nightlyEnabled:true}})).status()).toBe(400);
+});
+
+test('historical Wastage button resumes partial batches and reports actual import progress',async({page,request})=>{
+ await request.put('/api/automation/stores/1',{headers:origin,data:settings});
+ await page.goto('/automation');
+ await page.getByRole('checkbox',{name:'Hounslow',exact:true}).check();
+ await page.getByRole('checkbox',{name:'Normal Sales',exact:true}).uncheck();
+ await page.getByRole('checkbox',{name:'RTC Sales',exact:true}).uncheck();
+ await page.getByLabel('From date',{exact:true}).fill('2026-06-03');
+ await page.getByLabel('To date',{exact:true}).fill('2026-10-15');
+ await expect(page.getByText('135 possible daily jobs', {exact:false})).toBeVisible();
+ let calls=0;
+ await page.route('**/api/automation/imports',async route=>{
+  if(route.request().method()==='POST' && ++calls===2) return route.fulfill({status:503,json:{success:false,error:'Fixture temporary connection failure'}});
+  return route.continue();
+ });
+ await page.getByRole('button',{name:'Download and import daily reports'}).click();
+ await expect(page.getByText('Fixture temporary connection failure',{exact:true})).toBeVisible();
+ await expect(page.getByText('31 jobs accepted in 1 completed date batches', {exact:false})).toBeVisible();
+ expect((await sql`SELECT count(*)::int AS n FROM data_import_runs`)[0].n).toBe(31);
+ await page.unroute('**/api/automation/imports');
+ await page.getByRole('button',{name:'Download and import daily reports'}).click();
+ await expect(page.getByText('104 daily report jobs queued; 31 existing attempts skipped.',{exact:false})).toBeVisible();
+ const rows=await sql`SELECT store_id,source_type,source_start_date::text AS day,source_end_date::text AS last FROM data_import_runs`;
+ expect(rows).toHaveLength(135);expect(rows.every(row=>row.store_id===1&&row.source_type==='wastage'&&row.day===row.last)).toBe(true);
+ await sql`UPDATE data_import_runs SET status='success',imported_row_count=84 WHERE source_start_date='2026-06-03'`;
+ await sql`UPDATE data_import_runs SET status='failed',error_message='Fixture report missing' WHERE source_start_date='2026-06-04'`;
+ const progress=await request.get('/api/automation/imports?stores=1&feeds=wastage&from=2026-06-03&to=2026-10-15');
+ expect(progress.status()).toBe(200);
+ const data=(await progress.json()).data;
+ expect(data.counts).toMatchObject({success:1,failed:1,queued:133});expect(data.total).toBe(135);
+ await expect(page.getByLabel('Daily import progress').getByRole('status')).toContainText('1 completed · 1 failed · 133 queued');
+ await expect(page.getByText('Fixture report missing',{exact:true})).toBeVisible();
+ await request.post('/api/automation/imports',{headers:origin,data:{storeIds:[1],feeds:['wastage'],startDate:'2026-06-04',endDate:'2026-06-04',replaceCompleted:true}});
+ const retry=(await (await request.get('/api/automation/imports?stores=1&feeds=wastage&from=2026-06-03&to=2026-10-15')).json()).data;
+ expect(retry.total).toBe(135);expect(retry.counts).toMatchObject({success:1,failed:0,queued:134});
+ const otherStore=(await (await request.get('/api/automation/imports?stores=2&feeds=wastage&from=2026-06-03&to=2026-10-15')).json()).data;
+ expect(otherStore.total).toBe(0);
+ expect((await request.get('/api/automation/imports?stores=1&feeds=book_stock&from=2026-06-03&to=2026-10-15')).status()).toBe(400);
 });
 
 test('queue transaction avoids partial requests and only explicitly re-downloads completed dates',async({request})=>{
@@ -72,13 +111,17 @@ test('offline Nebula: changed DB URL, daily exports, worker parser and independe
   const feeds=Object.fromEntries(['normal_sales','rtc','wastage'].map(source=>[source,{command,extension:'.xls',mapping:{code:'Item Code',quantity:'Qty'},complete_store_report:true,normalize_with_app_parsers:true,timeout_seconds:40}]));
   const config=path.join(folder,'config.json');writeFileSync(config,JSON.stringify({store_settings_source:'database',store_defaults:{feeds},download_directory:folder,app_directory:process.cwd(),node_executable:process.execPath}));
   const env={...process.env,DATABASE_URL:'postgresql://postgres:postgres@127.0.0.1:55432/postgres',MIESZKO_CRM_LOGIN_CODE:'fixture-only'};
-  const worker=()=>execFileSync(python,['tests/support/simple-query-worker.py','--config',config,'--once'],{env,timeout:95000}).toString();
+  const worker=(extra:string[]=[])=>execFileSync(python,['tests/support/simple-query-worker.py','--config',config,'--once',...extra],{env,timeout:95000}).toString();
   await request.post('/api/automation/imports',{headers:origin,data:{storeIds:[1],feeds:['normal_sales'],startDate:'2026-10-01',endDate:'2026-10-01'}});
   expect(worker()).toContain('failed');expect((await sql`SELECT status FROM data_import_runs`)[0].status).toBe('failed');
   // URL is changed through the API, without restarting/rebuilding/reconfiguring the worker.
   await request.put('/api/automation/stores/1',{headers:origin,data:settings});
   await request.post('/api/automation/imports',{headers:origin,data:{storeIds:[1],feeds:['normal_sales','rtc','wastage'],startDate:'2026-10-01',endDate:'2026-10-02',replaceCompleted:true}});
-  const log=worker();expect(log,log).not.toContain('failed');
+  await sql`UPDATE stores SET code='HNS' WHERE id=1`;
+ const first=worker(['--max-jobs','1','--store-id','1']);expect(first,first).not.toContain('failed');
+ expect((await sql`SELECT count(*)::int AS n FROM data_import_runs WHERE status='success'`)[0].n).toBe(1);
+ expect((await sql`SELECT count(*)::int AS n FROM data_import_runs WHERE status='queued'`)[0].n).toBe(5);
+ const log=worker();expect(log,log).not.toContain('failed');
   expect((await sql`SELECT count(*)::int AS n FROM data_import_runs WHERE status='success'`)[0].n).toBe(6);
   for(const [table,column,qty] of [['daily_sales','sold_qty','4.0000'],['rtc_sales','rtc_qty','1.0000'],['wastage','wastage_qty','0.5000']]){
    const rows=await sql.unsafe(`SELECT ${column}::text AS qty FROM ${table} WHERE store_product_id=11 ORDER BY 1`);expect(rows.some(row=>row.qty===qty)).toBe(true);
@@ -89,5 +132,11 @@ test('offline Nebula: changed DB URL, daily exports, worker parser and independe
   const queued=await sql`SELECT source_type FROM data_import_runs WHERE status='queued'`;expect(queued).toHaveLength(3);expect(queued.every(row=>row.source_type!=='book_stock')).toBe(true);
   execFileSync(python,['tests/support/simple-query-worker.py','--config',config,'--enqueue-date','2026-10-01','--enqueue-only'],{env,timeout:10000});
   expect((await sql`SELECT count(*)::int AS n FROM data_import_runs WHERE status='queued'`)[0].n).toBe(3);
+  for (const source of ['normal_sales','rtc']) feeds[source].complete_store_report=false;
+  writeFileSync(config,JSON.stringify({store_settings_source:'database',store_defaults:{feeds},download_directory:folder,app_directory:process.cwd(),node_executable:process.execPath}));
+  const wastageOnly=worker(['--max-jobs','1']);expect(wastageOnly,wastageOnly).not.toContain('failed');
+  const remaining=await sql`SELECT source_type FROM data_import_runs WHERE status='queued'`;
+  expect(remaining.map(row=>row.source_type).sort()).toEqual(['normal_sales','rtc']);
+  expect((await sql`SELECT count(*)::int AS n FROM wastage WHERE wastage_date='2026-10-03' AND store_product_id=11`)[0].n).toBe(1);
  }finally{server.kill('SIGTERM');}
 });

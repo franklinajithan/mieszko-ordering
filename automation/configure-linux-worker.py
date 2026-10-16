@@ -45,7 +45,8 @@ UMask=0077
 ExecStart="{app}/.worker-runtime/venv/bin/python" "{app}/automation/linux_worker.py"
 Restart=on-failure
 RestartSec=15
-TimeoutStopSec=90
+KillMode=mixed
+TimeoutStopSec=2500
 
 [Install]
 WantedBy=multi-user.target

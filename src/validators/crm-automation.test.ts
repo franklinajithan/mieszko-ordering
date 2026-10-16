@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { crmStoreSettingsSchema, dailyImportDates, londonToday, queueMovementSchema } from './crm-automation';
+import { crmStoreSettingsSchema, dailyImportDates, historicalImportDates, historicalImportBatches, londonToday, queueMovementSchema } from './crm-automation';
 
 describe('daily CRM report contracts', () => {
+  it('splits the office June to October backfill into bounded daily batches without gaps', () => {
+    const days = historicalImportDates('2026-06-03', '2026-10-15');
+    expect(days).toHaveLength(135);
+    const batches = historicalImportBatches('2026-06-03', '2026-10-15');
+    expect(batches).toHaveLength(5);
+    expect(batches.flatMap(batch => dailyImportDates(batch.startDate, batch.endDate))).toEqual(days);
+    expect(new Set(days).size).toBe(days.length);
+    expect(() => historicalImportDates('2025-01-01', '2026-10-15')).toThrow(/366/);
+  });
   it.each([
     ['2026-10-25', '2026-10-25', ['2026-10-25']],
     ['2026-10-24', '2026-10-26', ['2026-10-24', '2026-10-25', '2026-10-26']],

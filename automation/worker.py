@@ -6,6 +6,8 @@ import json
 import os
 import subprocess
 import time
+import signal
+import threading
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -17,6 +19,28 @@ FEEDS = {
     'wastage': ('wastage', 'wastage_date', 'wastage_qty'),
     'book_stock': ('book_stock', 'book_stock_date', 'book_stock_qty'),
 }
+
+CRM_STORE_CODES = {'HNS': '0365', 'PVL': '0766', 'EAS': '0650', 'HYS': '0665',
+                   'GRV': '0566', 'WTF': '0602', 'STR': '0388'}
+
+
+def crm_store_code(code):
+    """Translate the application's store identity to its known CRM login marker."""
+    import re
+    value = str(code).strip()
+    if re.fullmatch(r'\d{4}', value):
+        return value
+    if value.upper() in CRM_STORE_CODES:
+        return CRM_STORE_CODES[value.upper()]
+    raise ValueError('Unknown CRM store code; configure a verified store identity before downloading')
+
+
+def enabled_movement_sources(config):
+    if config.get('store_settings_source') != 'database':
+        return ['normal_sales', 'rtc', 'wastage']
+    feeds = config.get('store_defaults', {}).get('feeds', {})
+    return [source for source in ('normal_sales', 'rtc', 'wastage')
+            if feeds.get(source, {}).get('complete_store_report') is True]
 
 
 def london_today():
@@ -107,12 +131,14 @@ def read_rows(path, mapping):
         book.close()
 
 
-def enqueue_nightly(conn, store_ids, day):
+def enqueue_nightly(conn, store_ids, day, sources=None):
     """Only the three movement feeds are nightly. Retrying a failed day is explicit."""
     date.fromisoformat(day)
     with conn.transaction():
         for store_id in sorted(set(store_ids)):
-            for source in ('normal_sales', 'rtc', 'wastage'):
+            for source in (sources if sources is not None else ('normal_sales', 'rtc', 'wastage')):
+                if source not in ('normal_sales', 'rtc', 'wastage'):
+                    raise ValueError('Nightly imports support movement feeds only')
                 conn.execute('SELECT pg_advisory_xact_lock(73501, %s)', (store_id,))
                 conn.execute('''INSERT INTO data_import_runs
                     (store_id, source_type, trigger_type, source_start_date, source_end_date)
@@ -134,9 +160,11 @@ def claim(conn, config=None):
                   JOIN stores s ON s.id=r.store_id
                   JOIN store_crm_settings c ON c.store_id=s.id
                   WHERE r.status='queued' AND s.is_active=true AND s.erp_type='msp'
-                    AND r.source_type IN ('normal_sales','rtc','wastage')
+                    AND r.source_type = ANY(%s)
+                    AND (%s::int IS NULL OR r.store_id=%s)
                   ORDER BY r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1)
-                RETURNING id,store_id,source_type,source_start_date,source_end_date''').fetchone()
+                RETURNING id,store_id,source_type,source_start_date,source_end_date''',
+                (enabled_movement_sources(config), config.get('only_store_id'), config.get('only_store_id'))).fetchone()
         return conn.execute('''UPDATE data_import_runs SET status='downloading', started_at=now()
             WHERE id=(SELECT id FROM data_import_runs WHERE status='queued'
                 ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1)
@@ -239,7 +267,7 @@ def process_job(conn, config, job):
         if extension not in ('.csv', '.xlsx', '.xls') or (extension == '.xls' and not feed.get('normalize_with_app_parsers')):
             raise ValueError('Invalid file extension')
         output = folder / ('report' + extension)
-        values = dict(store_id=str(store_id), store_code=identity[0], source=source, start=start, end=end, output=str(output), crm_url=store.get('crm_url', ''))
+        values = dict(store_id=str(store_id), store_code=crm_store_code(identity[0]) if config.get('store_settings_source') == 'database' else identity[0], source=source, start=start, end=end, output=str(output), crm_url=store.get('crm_url', ''))
         command = [part.format(**values) for part in feed['command']]
         downloaded = subprocess.run(command, check=False, timeout=feed.get('timeout_seconds', 2400), shell=False,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -250,6 +278,8 @@ def process_job(conn, config, job):
                 'login_config': 'CRM login code is missing from the server environment.',
                 'login_page': 'CRM login page is unavailable. Check the saved store URL and server connectivity.',
                 'crm_export': 'CRM report export failed. Verify login, report selection, daily date controls and Excel export.',
+                'wastage_report': 'The CRM did not retain the Wastage report selection. Check the report screen before retrying.',
+                'wastage_filters': 'The CRM did not retain the requested Wastage day. Check Date Range, From Date and To Date before retrying.',
             }
             try:
                 code = json.loads(downloaded.stderr).get('error_code')
@@ -301,15 +331,25 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True)
     parser.add_argument('--once', action='store_true')
+    parser.add_argument('--max-jobs', type=int, help='Stop after this many queued jobs (successes or failures)')
+    parser.add_argument('--store-id', type=int, help='Restrict a controlled database-backed run to one store')
     parser.add_argument('--retry-run', type=int, help='Create a new attempt for a failed run')
     parser.add_argument('--fail-stalled-minutes', type=int, help='Explicitly fail abandoned runs after stopping other workers')
     parser.add_argument('--enqueue-date', help='Queue all three movement feeds for YYYY-MM-DD')
     parser.add_argument('--enqueue-yesterday', action='store_true')
     parser.add_argument('--enqueue-only', action='store_true', help='Queue daily reports without consuming any jobs')
     args = parser.parse_args()
+    if args.max_jobs is not None and args.max_jobs < 1:
+        parser.error('--max-jobs must be positive')
+    if args.store_id is not None and args.store_id < 1:
+        parser.error('--store-id must be positive')
     if args.enqueue_only and not (args.enqueue_date or args.enqueue_yesterday):
         parser.error('--enqueue-only requires --enqueue-date or --enqueue-yesterday')
     config = json.loads(Path(args.config).read_text(encoding='utf-8-sig'))
+    if args.store_id is not None:
+        if config.get('store_settings_source') != 'database':
+            parser.error('--store-id requires the database-backed profile')
+        config['only_store_id'] = args.store_id
     import psycopg
     with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True, prepare_threshold=None) as conn:
         if args.fail_stalled_minutes:
@@ -329,17 +369,26 @@ def main():
                 conn.execute("INSERT INTO data_import_runs(store_id,source_type,source_start_date,source_end_date,trigger_type,details) VALUES(%s,%s,%s,%s,'retry',%s::jsonb)", (store_id,source,start,end,json.dumps({'retry_of':args.retry_run})))
         if args.enqueue_date or args.enqueue_yesterday:
             day = args.enqueue_date or str(london_today() - timedelta(days=1))
-            enqueue_nightly(conn, nightly_store_ids(conn, config), day)
+            ids = nightly_store_ids(conn, config)
+            if args.store_id is not None:
+                ids = [store_id for store_id in ids if store_id == args.store_id]
+            enqueue_nightly(conn, ids, day, enabled_movement_sources(config))
         if args.enqueue_only:
             return
-        while True:
+        processed = 0
+        stopping = threading.Event()
+        signal.signal(signal.SIGTERM, lambda *_: stopping.set())
+        while not stopping.is_set():
             job = claim(conn, config)
             if job:
                 process_job(conn, config, job)
+                processed += 1
+                if args.max_jobs is not None and processed >= args.max_jobs:
+                    break
             elif args.once:
                 break
             else:
-                time.sleep(10)
+                stopping.wait(10)
 
 
 if __name__ == '__main__':
