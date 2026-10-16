@@ -155,8 +155,11 @@ export async function failStalledImportRuns(olderThanMinutes = 120): Promise<num
 export async function retryFailedImportRun(runId: number): Promise<{runId:number;alreadyQueued:boolean}> {
   positiveId(runId);
   return db.transaction(async tx => {
+    const [identity]=await tx.execute(sql`SELECT store_id FROM data_import_runs WHERE id=${runId}`);
+    if(!identity?.store_id)throw new InputError('Failed import run not found');
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(73501, ${Number(identity.store_id)})`);
     const failed=await tx.execute(sql`SELECT store_id,source_type,source_start_date::text AS source_start_date,source_end_date::text AS source_end_date
-      FROM data_import_runs WHERE id=${runId} AND status='failed' FOR UPDATE`);
+      FROM data_import_runs WHERE id=${runId} AND status='failed' AND NOT(details ? 'queue_control') FOR UPDATE`);
     const original=failed[0];
     if (!original) throw new InputError('Failed import run not found');
     const storeId=Number(original.store_id);

@@ -115,7 +115,7 @@ export function CrmAutomation() {
   const currentProgress = progress?.query === progressQuery ? progress.data : null;
   return <div className="space-y-6">
     <p>Download yesterday automatically, or choose completed dates to fill gaps. Each store, date and feed has a separate job. Book Stock remains manual.</p>
-    <p><Link className="text-blue-700 underline" href="/operations">Open import progress and retry controls</Link></p>
+    <p className="flex flex-wrap gap-4"><Link className="text-blue-700 underline" href="/downloads">Open Download Queue — pause, cancel and re-download</Link><Link className="text-blue-700 underline" href="/operations">Open import monitoring</Link></p>
     {loading && <p role="status">Loading store CRM settings…</p>}
     {error && <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-red-800">{error}</p>}
     {message && <p role="status" className="rounded border border-green-300 bg-green-50 p-3">{message}</p>}
@@ -153,7 +153,7 @@ export function CrmAutomation() {
         <h2 className="text-xl font-semibold">Daily import progress</h2>
         {progressError && <p role="alert">{progressError}</p>}
         {!progressQuery ? <p>Select stores, feeds and valid dates to view progress.</p> : !currentProgress ? <p>Loading import progress…</p> : <>
-          <p role="status" aria-live="polite">{currentProgress.counts.success} completed · {currentProgress.counts.failed} failed · {currentProgress.counts.queued} queued · {(currentProgress.counts.downloading ?? 0) + (currentProgress.counts.downloaded ?? 0) + (currentProgress.counts.importing ?? 0)} processing</p>
+          <p role="status" aria-live="polite">{currentProgress.counts.success} completed · {currentProgress.counts.failed} failed · {currentProgress.counts.queued} queued · {currentProgress.counts.paused??0} paused · {currentProgress.counts.cancelled??0} cancelled · {(currentProgress.counts.downloading ?? 0) + (currentProgress.counts.downloaded ?? 0) + (currentProgress.counts.importing ?? 0)} processing</p>
           <p className="text-sm text-zinc-600">Updated {new Date(currentProgress.checkedAt).toLocaleTimeString('en-GB')}. Completion means saved to PostgreSQL. Queued jobs need the Ubuntu worker running and the selected report feed enabled.</p>
           {currentProgress.counts.failed > 0 && <p className="text-sm">Use Re-download on a failed report to fetch that store, feed and date again. Correct changed CRM URLs or missing product mappings first. A retry cannot resolve an unchanged source error.</p>}
           {currentProgress.counts.queued > 0 && currentProgress.counts.downloading + currentProgress.counts.downloaded + currentProgress.counts.importing === 0 && <p className="text-amber-800">Waiting for the server worker to pick up these reports. If this persists, check the worker service and enabled feeds.</p>}

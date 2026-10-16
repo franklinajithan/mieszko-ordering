@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { InputError } from "@/utils/input-error";
 import { crmStoreSettingsSchema, dailyImportDates, queueMovementSchema, historicalMovementSchema } from "@/validators/crm-automation";
 import type { z } from "zod";
+import {queueState} from "./download-queue.service";
 
 export async function listCrmStores() {
   return db.execute(sql`SELECT s.id, s.code, s.name, s.erp_type, s.is_active,
@@ -15,7 +16,7 @@ export async function getDailyImportProgress(input: z.infer<typeof historicalMov
   const value = historicalMovementSchema.parse(input);
   const rows = await db.execute(sql`SELECT * FROM (
     SELECT DISTINCT ON (r.store_id,r.source_type,r.source_start_date,r.source_end_date)
-      r.id, r.store_id, s.name AS store_name, r.source_type, r.status,
+      r.id, r.store_id, s.name AS store_name, r.source_type, ${queueState} AS status,
       r.source_start_date::text AS day, r.source_end_date::text AS end_date,
       r.imported_row_count, r.error_message, r.started_at, r.completed_at
     FROM data_import_runs r JOIN stores s ON s.id=r.store_id
@@ -25,7 +26,7 @@ export async function getDailyImportProgress(input: z.infer<typeof historicalMov
     ORDER BY r.store_id,r.source_type,r.source_start_date,r.source_end_date,r.id DESC
   ) latest ORDER BY CASE status WHEN 'downloading' THEN 0 WHEN 'downloaded' THEN 1
       WHEN 'importing' THEN 2 WHEN 'failed' THEN 3 WHEN 'queued' THEN 4 ELSE 5 END, id DESC`);
-  const counts: Record<string, number> = { queued: 0, downloading: 0, downloaded: 0, importing: 0, success: 0, failed: 0 };
+  const counts: Record<string, number> = { queued: 0, downloading: 0, downloaded: 0, importing: 0, success: 0, failed: 0, paused: 0, cancelled: 0, resumed: 0 };
   for (const row of rows) counts[String(row.status)] = (counts[String(row.status)] ?? 0) + 1;
   // PostgreSQL bigint run IDs arrive as strings; UI actions submit numeric IDs.
   return { total: rows.length, counts, recent: rows.slice(0, 50).map(row => ({...row,id:Number(row.id)})), checkedAt: new Date().toISOString() };

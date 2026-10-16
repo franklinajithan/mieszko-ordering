@@ -73,7 +73,7 @@ async function loadQualityIssues(filters:QualityFilters,day:string):Promise<Qual
 
  }
  const failures=await db.execute(sql`SELECT r.id::text,r.store_id,s.name,r.source_type,r.details FROM data_import_runs r LEFT JOIN stores s ON s.id=r.store_id
-   WHERE r.status='failed' AND (${filters.storeId??null}::integer IS NULL OR r.store_id=${filters.storeId??null})
+   WHERE r.status='failed' AND NOT(r.details ? 'queue_control') AND (${filters.storeId??null}::integer IS NULL OR r.store_id=${filters.storeId??null})
    AND NOT EXISTS(SELECT 1 FROM data_import_runs ok WHERE ok.status='success' AND ok.details->>'retry_of'=r.id::text) ORDER BY r.id DESC`);
  const [knownCodes,knownBarcodes]=failures.length?await Promise.all([db.execute(sql`SELECT store_id,store_product_code AS code FROM store_products`),db.execute(sql`SELECT store_id,barcode AS code FROM product_barcodes`)]):[[],[]];
  const identifiers={unknown_product_code:new Set(knownCodes.map(r=>`${r.store_id}:${r.code}`)),unmatched_barcode:new Set(knownBarcodes.map(r=>`${r.store_id}:${r.code}`))};

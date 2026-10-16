@@ -2,6 +2,7 @@ import {shareInFlight} from '@/utils/in-flight';
 import 'server-only';
 import {db} from '@/db';
 import {sql} from 'drizzle-orm';
+import {queueState} from '../download-queue.service';
 import type {ImportStatusRow} from '@/types/operations';
 export async function getImportStatusRows():Promise<ImportStatusRow[]>{
     return shareInFlight('import-status', loadImportStatusRows);
@@ -20,7 +21,7 @@ async function loadImportStatusRows():Promise<ImportStatusRow[]>{
       )
       SELECT s.id AS store_id, s.code AS store_code, s.name AS store_name,
              source.source_type, CASE WHEN source.source_type<>'book_stock' AND last_success.imported_row_count=0 AND (actual.business_date IS NULL OR last_success.source_end_date>=actual.business_date::date) THEN last_success.source_end_date::text ELSE actual.business_date END AS latest_data_date, actual.updated_at AS latest_data_updated_at,
-             r.id AS latest_run_id, r.status, r.started_at, r.completed_at, r.imported_at,
+             r.id AS latest_run_id, ${queueState} AS status, r.started_at, r.completed_at, r.imported_at,
              r.imported_row_count, r.downloaded_row_count,r.downloaded_at,r.source_start_date::text,r.source_end_date::text, r.error_message, r.details->>'duplicate_of' AS duplicate_of,
              last_success.id AS last_successful_run_id,
              last_success.imported_at AS last_successful_import_at,
