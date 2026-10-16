@@ -232,8 +232,16 @@ def export_report(context, page, frame, output, timeout, progress=None):
     report = popup.value
     def find_export():
         for scope in report.frames:
+            # SSRS puts the same Export tooltip on both its layout TABLE and
+            # the inner ButtonLink. Clicking the table's centre misses the link.
+            control = visible(scope.locator('a[title*="Export"], a[alt*="Export"], button[title*="Export"], input[title*="Export"]'))
+            if control is not None:
+                return control
             target = visible(scope.locator('[title*="Export"], [alt*="Export"]'))
             if target is not None:
+                control = visible(target.locator('a, button, [role="button"], input[type="button"]'))
+                if control is not None:
+                    return control
                 # ReportViewer may put the tooltip on an image inside the
                 # actual clickable toolbar control.
                 control = target.locator('xpath=ancestor-or-self::*[self::a or self::button or @role="button" or @onclick][1]')

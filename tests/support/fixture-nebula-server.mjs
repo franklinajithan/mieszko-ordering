@@ -18,7 +18,7 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname==='/report'){
   const popup=url.searchParams.get('source')==='rtc';
-  res.end(`<button onclick="openExport()"><span title="Export">Export</span></button><a id="excel" hidden href="/download${url.search}" ${popup?`onclick="window.open(this.href);return false"`:'download'}>${popup?'Excel (97-2003)':'Excel'}</a><script>let attempts=0;function openExport(){if(++attempts>1)document.querySelector('#excel').hidden=false;}</script>`);return;
+  res.end(`<table title="Export drop down menu" id="rptViewer_ctl05_ctl04_ctl00_Button" style="width:600px"><tr><td style="width:550px">Toolbar spacing</td><td><a href="#" title="Export drop down menu" id="rptViewer_ctl05_ctl04_ctl00_ButtonLink" onclick="openExport();return false">Export</a></td></tr></table><a id="excel" hidden href="/download${url.search}" ${popup?`onclick="window.open(this.href);return false"`:'download'}>${popup?'Excel (97-2003)':'Excel'}</a><script>let attempts=0;function openExport(){if(++attempts>1)document.querySelector('#excel').hidden=false;}</script>`);return;
  }
  if(url.pathname==='/explorer'){
   res.end(`<div>Report List</div><h2 id="selected">Selected Report: none</h2>
