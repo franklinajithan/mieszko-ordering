@@ -224,6 +224,25 @@ def select_day(frame, day, progress=None):
         raise ValueError('CRM Date Range selection was not retained')
 
 
+
+def verify_wastage_filters(frame):
+    """Reject a Wastage export when the active report/filter identity is unclear."""
+    body = frame.locator('body').inner_text()
+    if not re.search(r'Selected Report\\s*:\\s*(?:\\d+\\s*\\.\\s*)?Wastage\\b', body, re.I):
+        raise CrmExportError('wastage_report', 'Wastage report is not selected; export cancelled')
+    # The CRM must retain the explicitly chosen date range.
+    date_range = frame.get_by_role('radio', name='Date Range', exact=True)
+    if date_range.count() != 1 or not date_range.is_checked():
+        raise CrmExportError('wastage_filters', 'Wastage Date Range is not selected')
+    from_day = date_input(frame, 'From Date').input_value().strip()
+    to_day = date_input(frame, 'To Date').input_value().strip()
+    if not from_day or from_day != to_day:
+        raise CrmExportError('wastage_filters', 'Wastage dates are missing or inconsistent')
+    # The stock adjustment report may expose reason/group filters in
+    # different CRM versions. Require explicit review of empty exports
+    # downstream rather than assuming zero wastage.
+
+
 def export_report(context, page, frame, output, timeout, progress=None):
     progress = progress or (lambda message: None)
     progress('Opening report preview; CRM generation can take up to 20 minutes')
@@ -338,6 +357,9 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
             category, title = REPORTS[source]
             frame = select_report(page, category, title, source, progress)
             select_day(frame, day, progress)
+            if source == 'wastage':
+                progress('Verifying Wastage report and date filters')
+                verify_wastage_filters(frame)
             progress('Verifying store identity again before export')
             check_store_marker(page.locator('body').inner_text(), store_code)
             export_report(context, page, frame, output, timeout, progress)
