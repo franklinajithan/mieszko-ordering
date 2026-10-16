@@ -170,3 +170,15 @@ the single-day heading and transaction scanned dates, rejects inconsistent or
 missing scanned dates, excludes ordinary price overrides when a Reason column
 is present, and adds weighted RTC quantities with decimal arithmetic. The
 original RTC workbook is not committed. Wastage acceptance is still pending.
+
+The supplied Hayes Wastage export for 15 October contains the report title,
+store and daily date range, but only "No Records Available" instead of product
+lines. The normalizer was executed against this actual workbook and rejects
+it with an actionable filter-verification message. This does not establish
+zero business wastage and must not clear existing movements. No office data
+was imported. A populated Wastage export is still required for reconciliation.
+
+Regression tests cover `.xls` (including XLSX content under that extension),
+`.xlsx` and uppercase extensions. Downloader tests also require the exact
+Wastage report, a selected Date Range, and both fields equal to the requested
+day; merely having two matching but outdated date fields is insufficient.

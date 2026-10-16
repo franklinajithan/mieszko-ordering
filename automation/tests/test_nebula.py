@@ -21,6 +21,31 @@ runtime_spec.loader.exec_module(runtime_module)
 
 
 class NebulaContractsTests(unittest.TestCase):
+    def test_wastage_requires_exact_report_and_requested_daily_dates(self):
+        frame = Mock()
+        radio = frame.get_by_role.return_value
+        radio.count.return_value = 1
+        radio.is_checked.return_value = True
+        start, end = Mock(), Mock()
+        start.input_value.return_value = end.input_value.return_value = '15/10/2026'
+        with patch.object(nebula, 'date_input', side_effect=lambda frame, label: start if label == 'From Date' else end):
+            for title in ['Selected Report : 9. Wastage\nDate Range', 'Selected Report: Wastage']:
+                frame.locator.return_value.inner_text.return_value = title
+                nebula.verify_wastage_filters(frame, '15/10/2026')
+            for title in ['Selected Report: Wastage Summary', 'Selected Report: Item Sales Enquiry', 'Wastage']:
+                frame.locator.return_value.inner_text.return_value = title
+                with self.assertRaises(nebula.CrmExportError):
+                    nebula.verify_wastage_filters(frame, '15/10/2026')
+            frame.locator.return_value.inner_text.return_value = 'Selected Report: 9. Wastage'
+            for from_day, to_day in [('', ''), ('14/10/2026', '14/10/2026'), ('15/10/2026', '14/10/2026')]:
+                start.input_value.return_value, end.input_value.return_value = from_day, to_day
+                with self.assertRaises(nebula.CrmExportError):
+                    nebula.verify_wastage_filters(frame, '15/10/2026')
+            start.input_value.return_value = end.input_value.return_value = '15/10/2026'
+            radio.is_checked.return_value = False
+            with self.assertRaises(nebula.CrmExportError):
+                nebula.verify_wastage_filters(frame, '15/10/2026')
+
     def test_progress_heartbeat_runs_during_blocking_work_and_stops_on_failure(self):
         heartbeat = threading.Event()
         class Output(io.StringIO):

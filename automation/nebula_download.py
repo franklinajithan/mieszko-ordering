@@ -225,10 +225,10 @@ def select_day(frame, day, progress=None):
 
 
 
-def verify_wastage_filters(frame):
+def verify_wastage_filters(frame, day):
     """Reject a Wastage export when the active report/filter identity is unclear."""
     body = frame.locator('body').inner_text()
-    if not re.search(r'Selected Report\\s*:\\s*(?:\\d+\\s*\\.\\s*)?Wastage\\b', body, re.I):
+    if not re.search(r'Selected Report\s*:[ \t]*(?:\d+[ \t]*\.[ \t]*)?Wastage[ \t]*(?:\r?\n|$)', body, re.I):
         raise CrmExportError('wastage_report', 'Wastage report is not selected; export cancelled')
     # The CRM must retain the explicitly chosen date range.
     date_range = frame.get_by_role('radio', name='Date Range', exact=True)
@@ -236,7 +236,7 @@ def verify_wastage_filters(frame):
         raise CrmExportError('wastage_filters', 'Wastage Date Range is not selected')
     from_day = date_input(frame, 'From Date').input_value().strip()
     to_day = date_input(frame, 'To Date').input_value().strip()
-    if not from_day or from_day != to_day:
+    if from_day != day or to_day != day:
         raise CrmExportError('wastage_filters', 'Wastage dates are missing or inconsistent')
     # The stock adjustment report may expose reason/group filters in
     # different CRM versions. Require explicit review of empty exports
@@ -359,7 +359,7 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
             select_day(frame, day, progress)
             if source == 'wastage':
                 progress('Verifying Wastage report and date filters')
-                verify_wastage_filters(frame)
+                verify_wastage_filters(frame, day)
             progress('Verifying store identity again before export')
             check_store_marker(page.locator('body').inner_text(), store_code)
             export_report(context, page, frame, output, timeout, progress)
