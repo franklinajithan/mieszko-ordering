@@ -119,6 +119,26 @@ export async function parseWastageFileBuffer(
       ? buffer
       : Buffer.from(buffer as ArrayBuffer);
 
+  // MSP sometimes exports a valid-looking workbook containing only
+  // "No Records Available". Treat this as an unverified empty report,
+  // not a successful zero-wastage import: CRM filters still need checking.
+  if (erpType === "msp" && /\\.(?:xls|xlsx)$/i.test(fileName)) {
+    const workbook = XLSX.read(asBuffer, { type: "buffer" });
+    const first = workbook.Sheets[workbook.SheetNames[0] ?? ""];
+    if (first) {
+      const cells = XLSX.utils.sheet_to_json<unknown[]>(first, {
+        header: 1, defval: "", raw: false,
+      });
+      if (cells.some((row) => row.some((value) =>
+        /\\bNo Records Available\\b/i.test(String(value ?? ""))
+      ))) {
+        throw new Error(
+          "MSP Wastage report says No Records Available. Verify the CRM store, report type, date range and filters before confirming zero wastage; existing data was not imported or replaced.",
+        );
+      }
+    }
+  }
+
   const stockVariance = await tryParseGloposStockVarianceWastageReport(
     buffer,
     fileName,
