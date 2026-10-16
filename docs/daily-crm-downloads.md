@@ -264,5 +264,13 @@ existing hidden CRM login, and never prints the connection string.
 To resume that failed setup without package reinstallation, pass the exact prepared
 release directory name to `prepare-linux-worker.ps1 -ResumeRelease NAME
 -ActivateWastage -EnableNightly`. Resume verifies the runtime and activation script
-exist, refuses to modify an already active worker, and copies only the repaired
-environment receiver before continuing activation. It never applies migrations.
+exist, refuses to modify an already active worker, and copies the environment
+receiver, unit generator and activation script before continuing. It never applies
+migrations or reinstalls the prepared dependencies.
+
+The initial office service start exposed that systemd's WorkingDirectory value
+must not be wrapped in quotes (they become literal path characters). The generator
+now writes the absolute path directly, while retaining required ExecStart argument
+quoting. Regression tests run the real systemd-analyze verify command for all three
+units, including a directory with spaces. Activation verifies the generated units
+before installing any service; a verification failure cannot start the worker/timer.

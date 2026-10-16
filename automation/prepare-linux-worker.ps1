@@ -32,8 +32,8 @@ try {
         $check = 'test -x $HOME/mieszko-worker/releases/{0}/.worker-runtime/venv/bin/python && test -f $HOME/mieszko-worker/releases/{0}/automation/activate-linux-worker.py && if systemctl is-active --quiet mieszko-import-worker.service; then echo Worker_already_active_resume_cancelled; exit 1; fi' -f $release
         & ssh $target $check
         if ($LASTEXITCODE -ne 0) { throw 'Prepared release not found or worker already active. Resume stopped.' }
-        & scp (Join-Path $PSScriptRoot 'store-worker-environment.py') "${target}:mieszko-worker/releases/$release/automation/store-worker-environment.py"
-        if ($LASTEXITCODE -ne 0) { throw 'Environment receiver transfer failed.' }
+        & scp (Join-Path $PSScriptRoot 'store-worker-environment.py') (Join-Path $PSScriptRoot 'configure-linux-worker.py') (Join-Path $PSScriptRoot 'activate-linux-worker.py') "${target}:mieszko-worker/releases/$release/automation/"
+        if ($LASTEXITCODE -ne 0) { throw 'Activation repair transfer failed.' }
         Write-Host "Resuming prepared release $release; dependency installation skipped."
     } else {
         $release = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $sha.Substring(0, 8) + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)

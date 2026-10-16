@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import shutil
+import subprocess
 import unittest
 import io
 from contextlib import redirect_stdout
@@ -17,7 +19,21 @@ spec.loader.exec_module(activation)
 
 
 class ActivationTests(unittest.TestCase):
-    def run_activation(self, flags=(), fail_connection=False):
+    @unittest.skipUnless(shutil.which('systemd-analyze'), 'systemd-analyze is unavailable')
+    def test_generated_units_pass_real_systemd_validation_including_space_in_path(self):
+        for suffix in ['release', 'release with spaces']:
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as root:
+                app = Path(root) / suffix
+                binary = app / '.worker-runtime/venv/bin/python'
+                binary.parent.mkdir(parents=True)
+                binary.symlink_to(sys.executable)
+                units = activation.linux_config.systemd_examples(app, 'backend')
+                for name, body in units.items(): (app / name).write_text(body)
+                result = subprocess.run(['systemd-analyze', 'verify', *(str(app / name) for name in units)],
+                                        text=True, capture_output=True, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def run_activation(self, flags=(), fail_connection=False, fail_unit_validation=False):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         app = Path(temporary.name)
@@ -36,6 +52,8 @@ class ActivationTests(unittest.TestCase):
                 patch.object(activation.getpass, 'getpass', return_value='fixture-login'), \
                 patch.object(activation.getpass, 'getuser', return_value='backend'), \
                 patch.object(activation.subprocess, 'run') as commands, redirect_stdout(output):
+            if fail_unit_validation:
+                commands.side_effect = subprocess.CalledProcessError(1, ['systemd-analyze', 'verify'])
             status = activation.main()
         return status, commands, output.getvalue(), app
 
@@ -60,6 +78,13 @@ class ActivationTests(unittest.TestCase):
         self.assertEqual(status, 1)
         commands.assert_not_called()
         self.assertFalse((app / 'automation/config.local.json').exists())
+        self.assertNotIn('fixture-secret-dsn', output)
+
+    def test_unit_validation_failure_never_installs_or_starts_services(self):
+        status, commands, output, _ = self.run_activation(['--start-worker', '--enable-nightly'], fail_unit_validation=True)
+        self.assertEqual(status, 1)
+        self.assertEqual(commands.call_count, 1)
+        self.assertEqual(commands.call_args.args[0][:2], ['systemd-analyze', 'verify'])
         self.assertNotIn('fixture-secret-dsn', output)
 
     def test_wastage_activation_does_not_enable_other_feeds_or_empty_reports(self):

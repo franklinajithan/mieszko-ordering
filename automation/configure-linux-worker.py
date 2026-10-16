@@ -39,7 +39,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User={user}
-WorkingDirectory="{app}"
+WorkingDirectory={app}
 Environment=TZ=Europe/London
 UMask=0077
 ExecStart="{app}/.worker-runtime/venv/bin/python" "{app}/automation/linux_worker.py"

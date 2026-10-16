@@ -88,6 +88,8 @@ def main():
         if not (args.start_worker or args.enable_nightly):
             print('Configuration prepared only. No jobs processed and no services started.')
             return 0
+        # Validate real unit syntax before replacing installed service definitions.
+        subprocess.run(['systemd-analyze', 'verify', *(str(folder / name) for name in units)], check=True)
         names = ['mieszko-import-worker.service'] if args.start_worker else []
         if args.enable_nightly:
             names += ['mieszko-movement-enqueue.service', 'mieszko-movement-enqueue.timer']
