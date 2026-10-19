@@ -227,7 +227,7 @@ describe('active catalogue boundaries',()=>{
     const {POST}=await import('@/app/api/data-operations/book-stock/route');
     const response=await POST(new Request('http://localhost/api/data-operations/book-stock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({storeId:2})}));
     expect(response.status).toBe(400);
-    expect((await client.query('SELECT id FROM data_import_runs')).rows).toHaveLength(0);
+    expect((await client.query<{id:number}>('SELECT id FROM data_import_runs')).rows).toHaveLength(0);
   });
 });
 
@@ -246,7 +246,7 @@ it('never applies a previous supplier code price after remapping a product',asyn
 describe('operator import retry',()=>{
   it('preserves the failed audit and exact feed period, without duplicate queue entries',async()=>{
     await client.exec("INSERT INTO data_import_runs(store_id,source_type,trigger_type,status,source_start_date,source_end_date,error_message) VALUES(1,'rtc','nightly','failed','2026-10-08','2026-10-09','Downloader timed out')");
-    const original=Number((await client.query('SELECT id FROM data_import_runs')).rows[0].id);
+    const original=Number((await client.query<{id:number}>('SELECT id FROM data_import_runs')).rows[0].id);
     const first=await queue.retryFailedImportRun(original);
     expect(first.alreadyQueued).toBe(false);
     expect(await queue.retryFailedImportRun(original)).toEqual({runId:first.runId,alreadyQueued:true});
@@ -260,7 +260,7 @@ describe('operator import retry',()=>{
     await expect(queue.retryFailedImportRun(1)).rejects.toThrow('Failed import');
     await client.exec("INSERT INTO data_import_runs(store_id,source_type,trigger_type,status) VALUES(2,'normal_sales','nightly','failed')");
     await expect(queue.retryFailedImportRun(2)).rejects.toThrow('Active store');
-    expect((await client.query('SELECT id FROM data_import_runs')).rows).toHaveLength(2);
+    expect((await client.query<{id:number}>('SELECT id FROM data_import_runs')).rows).toHaveLength(2);
   });
 });
 

@@ -17,7 +17,7 @@ export function detectSalesColumns(headers: string[]): {
   };
 
   return {
-    productColumn: find(["product", "code", "sku", "item", "id"]),
+    productColumn: headers.find(h => /^(?:item code|product code|sku|barcode|ean|gtin|code|id)$/i.test(h.trim())) ?? find(["product", "code", "sku", "item", "id"]),
     dateColumn: find(["date", "sales date"]),
     quantityColumn: find(["qty", "quantity", "sold"]),
   };
