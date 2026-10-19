@@ -1,7 +1,7 @@
 import { test,expect } from '@playwright/test';
 import postgres from 'postgres';
 import ExcelJS from 'exceljs';
-import { readFileSync,mkdtempSync,writeFileSync } from 'node:fs';
+import { readFileSync,mkdtempSync,writeFileSync,mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';import path from 'node:path';import {execFileSync} from 'node:child_process';
 const connection='postgresql://postgres:postgres@127.0.0.1:55432/postgres?sslmode=disable';
 const sql=postgres(connection,{max:1,prepare:false,onnotice:()=>{}});
@@ -30,7 +30,7 @@ test('worker: seven-store scheduled Excel imports through dashboard, order and f
  expect((await request.put(`/api/order-sheet/${order.orderId}/draft`,{data:{items:[{orderItemId:milk.orderItemId,orderQty:'13',selected:true}]}})).status()).toBe(200);
  const grouped=await request.post(`/api/orders/${order.orderId}/supplier-orders`,{data:{acknowledgeWarnings:true}});expect(grouped.status()).toBe(200);const groups=(await grouped.json()).data;expect(groups).toHaveLength(7);
  const group=groups.find((row:{storeId:number})=>row.storeId===1);const exported=await request.post(`/api/orders/${order.orderId}/supplier-orders/${group.id}/export`,{data:{acknowledgeWarnings:true}});expect(exported.status()).toBe(200);
- const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(Buffer.from((await exported.json()).data.base64,'base64'));expect(workbook.worksheets[0].getRow(5).getCell(4).value).toBe(13);
+ const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(Buffer.from((await exported.json()).data.base64,'base64') as unknown as ExcelJS.Buffer);expect(workbook.worksheets[0].getRow(5).getCell(4).value).toBe(13);
  const history=await request.get('/api/orders');expect((await history.json()).data.some((row:{id:number})=>row.id===order.orderId)).toBe(true);
  await page.goto(`/orders/${order.orderId}`);await expect(page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Hounslow'})).toHaveValue('13.0000');
 
@@ -115,4 +115,65 @@ test('worker: a matching store marker survives validation and imports all schedu
  const config=configFor([1],{mapping:{code:'Item Code',quantity:'Quantity',store:'Store Code'},command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}','--report-store','0365']});
  run(config,['--enqueue-date','2026-10-07']);
  const runs=await sql`SELECT status FROM data_import_runs`;expect(runs).toHaveLength(3);expect(runs.every(row=>row.status==='success')).toBe(true);
+});
+
+test('recovery: review unmatched product, retry retained file without CRM, and reject changed file',async({request})=>{
+ const config=configFor([4],{command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}','--unknown']});
+ run(config,['--enqueue-date','2026-10-07']);
+ const failed=(await sql`SELECT * FROM data_import_runs WHERE source_type='normal_sales'`)[0];
+ expect(failed.details).toMatchObject({unknown_product_codes:['UNKNOWN-PRODUCT'],matched_row_count:1,unmatched_row_count:1});
+ const headers={origin:'http://127.0.0.1:3100'};
+ expect((await request.patch('/api/download-queue',{headers,data:{runId:Number(failed.id),identifier:'UNKNOWN-PRODUCT',storeProductId:11,evidence:'Fixture verification'}})).status()).toBe(400);
+ expect((await request.patch('/api/download-queue',{headers:{origin:'https://foreign.example'},data:{runId:Number(failed.id),identifier:'UNKNOWN-PRODUCT',storeProductId:42,evidence:'Fixture verification'}})).status()).toBe(403);
+ const resolved=await request.patch('/api/download-queue',{headers,data:{runId:Number(failed.id),identifier:'UNKNOWN-PRODUCT',storeProductId:42,evidence:'Synthetic fixture alternative code verified against product 42'}});
+ expect(resolved.status(),await resolved.text()).toBe(200);
+ const lookup=await request.get(`/api/download-queue?reviewRunId=${failed.id}&search=10002`);
+ expect((await lookup.json()).data).toEqual([expect.objectContaining({id:42,store_product_code:'10002'})]);
+ const retry=await request.post('/api/download-queue',{headers,data:{runId:Number(failed.id),action:'retry_import'}});
+ expect(retry.status(),await retry.text()).toBe(200);const id=(await retry.json()).data.runId;
+ const again=await request.post('/api/download-queue',{headers,data:{runId:Number(failed.id),action:'retry_import'}});
+ expect((await again.json()).data.runId).toBe(id);
+ const settings=JSON.parse(readFileSync(config,'utf8'));
+ for(const feed of Object.values(settings.stores['4'].feeds) as {command:string[]}[])feed.command=['python','-c','raise RuntimeError("CRM must not be called")'];
+ writeFileSync(config,JSON.stringify(settings));run(config);
+ const completed=(await sql`SELECT * FROM data_import_runs WHERE id=${id}`)[0];
+ expect(completed.status,completed.error_message).toBe('success');expect(completed.imported_row_count).toBe(2);
+ expect(completed.details).toMatchObject({reuse_file_of:Number(failed.id),matched_row_count:2,unmatched_row_count:0});
+ expect((await sql`SELECT sold_qty::text AS qty FROM daily_sales WHERE store_product_id=42 AND sales_date='2026-10-07'`)[0].qty).toBe('2.0000');
+ expect((await sql`SELECT status FROM data_import_runs WHERE id=${failed.id}`)[0].status).toBe('failed');
+ // Reprocess identical retained file: fingerprint/transaction prevents duplicate rows.
+ const second=await request.post('/api/download-queue',{headers,data:{runId:Number(failed.id),action:'retry_import'}});
+ const secondId=(await second.json()).data.runId;run(config);
+ expect((await sql`SELECT imported_row_count,details FROM data_import_runs WHERE id=${secondId}`)[0]).toMatchObject({imported_row_count:0,details:{duplicate_of:id}});
+ // Mutated retained report must never replace valid database rows.
+ writeFileSync(failed.source_file_path,'tampered');
+ const third=await request.post('/api/download-queue',{headers,data:{runId:Number(failed.id),action:'retry_import'}});
+ const thirdId=(await third.json()).data.runId;run(config);
+ expect((await sql`SELECT status,error_message FROM data_import_runs WHERE id=${thirdId}`)[0]).toMatchObject({status:'failed',error_message:expect.stringContaining('checksum')});
+ expect((await sql`SELECT count(*)::int AS n FROM daily_sales WHERE store_product_id IN (41,42) AND sales_date='2026-10-07'`)[0].n).toBe(2);
+});
+
+test('recovery: all seven stores and three feeds persist correct independent quantities',async({request})=>{
+ run(configFor([1,2,3,4,5,6,7]),['--enqueue-date','2026-10-07']);
+ expect((await sql`SELECT count(*)::int AS n FROM data_import_runs WHERE status='success'`)[0].n).toBe(21);
+ for(let store=1;store<=7;store++){
+  const [row]=await sql`SELECT d.sold_qty,r.rtc_qty,w.wastage_qty FROM daily_sales d JOIN rtc_sales r ON r.store_product_id=d.store_product_id AND r.rtc_date=d.sales_date JOIN wastage w ON w.store_product_id=d.store_product_id AND w.wastage_date=d.sales_date WHERE d.store_product_id=${store*10+1} AND d.sales_date='2026-10-07'`;
+  expect([Number(row.sold_qty),Number(row.rtc_qty),Number(row.wastage_qty)]).toEqual([4*store,store,.5*store]);
+ }
+ const queue=(await (await request.get('/api/download-queue?view=completed')).json()).data;
+ expect(queue.total).toBe(21);expect(queue.rows.every((row:{stage:string;imported_row_count:number})=>row.stage==='completed'&&row.imported_row_count===1)).toBe(true);
+});
+
+
+test('recovery: evidence collector exports only requested job evidence without worker credentials or writes',async()=>{
+ const config=configFor([4]);run(config,['--enqueue-date','2026-10-07']);
+ const [job]=await sql`SELECT id FROM data_import_runs WHERE source_type='normal_sales'`;
+ const folder=path.dirname(config);mkdirSync(path.join(folder,'automation'));
+ writeFileSync(path.join(folder,'automation/config.local.json'),readFileSync(config));
+ const output=path.join(folder,'evidence.zip');
+ execFileSync('python',['automation/collect-crm-evidence.py','--app-dir',folder,'--output',output,'--jobs',String(job.id)],{env:{...process.env,DATABASE_URL:connection},encoding:'utf8'});
+ const manifest=execFileSync('python',['-c','import zipfile,sys; print(zipfile.ZipFile(sys.argv[1]).read("jobs.json").decode())',output],{encoding:'utf8'});
+ expect(manifest).not.toContain('postgresql://');expect(manifest).not.toContain('source_file_path');
+ expect(JSON.parse(manifest).jobs).toHaveLength(1);expect(JSON.parse(manifest).jobs[0].file_sha256).toMatch(/^[a-f0-9]{64}$/);
+ expect((await sql`SELECT count(*)::int AS n FROM data_import_runs WHERE status='success'`)[0].n).toBe(3);
 });

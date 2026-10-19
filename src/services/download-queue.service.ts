@@ -11,12 +11,12 @@ export async function getDownloadQueue(filters:QueueFilters){
  const scope=sql`(${filters.storeId??null}::int IS NULL OR r.store_id=${filters.storeId??null}) AND (${filters.feed??null}::text IS NULL OR r.source_type=${filters.feed??null})`;
  const view=filters.view==='processing'?sql`${queueState} IN ('downloading','downloaded','importing')`:filters.view==='completed'?sql`${queueState}='success'`:filters.view==='all'?sql`true`:sql`${queueState}=${filters.view}`;
  const [rows,totals,stores,active,next]=await Promise.all([
-  db.execute(sql`SELECT r.id::int,r.store_id,s.name AS store_name,r.source_type,${queueState} AS status,r.source_start_date::text AS from_date,r.source_end_date::text AS to_date,r.started_at,r.completed_at,r.downloaded_row_count,r.imported_row_count,r.error_message,r.source_file_name,r.details->>'retry_of' AS retry_of
+  db.execute(sql`SELECT r.id::int,r.store_id,s.name AS store_name,r.source_type,${queueState} AS status,r.source_start_date::text AS from_date,r.source_end_date::text AS to_date,r.started_at,r.completed_at,r.downloaded_row_count,r.imported_row_count,r.error_message,r.source_file_name,r.details->>'retry_of' AS retry_of,r.details->>'stage' AS stage,r.details->>'matched_row_count' AS matched_row_count,r.details->>'unmatched_row_count' AS unmatched_row_count,r.details->>'unmatched_identifier_count' AS unmatched_identifier_count,(r.source_file_path IS NOT NULL) AS can_retry_import,jsonb_build_object('unmatched_barcodes',r.details->'unmatched_barcodes','unknown_product_codes',r.details->'unknown_product_codes','parse_error',r.details->'parse_error','identifier_resolutions',r.details->'identifier_resolutions','retry_errors',r.details->'retry_errors') AS diagnostics
    FROM data_import_runs r LEFT JOIN stores s ON s.id=r.store_id WHERE ${scope} AND ${view} ORDER BY r.id ${filters.view==='queued'?sql`ASC`:sql`DESC`} LIMIT 50 OFFSET ${(filters.page-1)*50}`),
   db.execute(sql`SELECT ${queueState} AS status,count(*)::int AS count FROM data_import_runs r WHERE ${scope} GROUP BY 1`),
   db.execute(sql`SELECT id,name FROM stores ORDER BY name`),
   // Always show current activity across stores, even while the table is filtered.
-  db.execute(sql`SELECT r.id::int,s.name AS store_name,r.source_type,r.status,r.source_start_date::text AS from_date,r.source_end_date::text AS to_date,r.started_at,r.source_file_name,r.downloaded_row_count
+  db.execute(sql`SELECT r.id::int,s.name AS store_name,r.source_type,r.status,r.source_start_date::text AS from_date,r.source_end_date::text AS to_date,r.started_at,r.source_file_name,r.downloaded_row_count,r.details->>'stage' AS stage
     FROM data_import_runs r LEFT JOIN stores s ON s.id=r.store_id WHERE r.status IN ('downloading','downloaded','importing') ORDER BY r.id LIMIT 10`),
   // Match the database-backed CRM worker's FIFO order. Book Stock is separate.
   db.execute(sql`SELECT r.id::int,s.name AS store_name,r.source_type,r.status,r.source_start_date::text AS from_date,r.source_end_date::text AS to_date
@@ -27,7 +27,7 @@ export async function getDownloadQueue(filters:QueueFilters){
  const total=filters.view==='all'?totals.reduce((sum,row)=>sum+Number(row.count),0):filters.view==='processing'?['downloading','downloaded','importing'].reduce((sum,key)=>sum+(counts[key]??0),0):filters.view==='completed'?(counts.success??0):counts[filters.view]??0;
  return {rows,counts,stores,live:{active,next},total,page:filters.page,pageSize:50,checkedAt:new Date().toISOString()};
 }
-export async function controlDownload(runId:number,action:'pause'|'resume'|'cancel'|'redownload'){
+export async function controlDownload(runId:number,action:'pause'|'resume'|'cancel'|'redownload'|'retry_import'){
  return db.transaction(async tx=>{
   // Use the same store lock as queue generation and import commits, before row locks.
   const [identity]=await tx.execute(sql`SELECT store_id FROM data_import_runs WHERE id=${runId}`);
@@ -44,6 +44,7 @@ export async function controlDownload(runId:number,action:'pause'|'resume'|'canc
    await tx.execute(sql`UPDATE data_import_runs SET status='failed',completed_at=now(),error_message=${state==='paused'?'Paused by operator; resume starts a fresh download.':'Cancelled by operator; previously saved data retained.'},details=details||jsonb_build_object('queue_control',${state}::text) WHERE id=${runId}`);
    return {runId,status:state,message:`Report ${state}. A CRM download already underway may finish; this attempt cannot import data. An import already committed is retained.`};
   }
+  if(action==='retry_import'&&(run.status!=='failed'||control||!run.source_file_path))throw new InputError('Only failed reports with a retained download can retry import.');
   if(action==='resume'&&control!=='paused')throw new InputError('Only paused reports can be resumed.');
   if(!['success','failed'].includes(String(run.status)))throw new InputError('Report is already queued or processing.');
   if(action==='redownload'&&control==='paused')throw new InputError('Use Resume for a paused report.');
@@ -53,10 +54,33 @@ export async function controlDownload(runId:number,action:'pause'|'resume'|'canc
   const [active]=await tx.execute(sql`SELECT id::int FROM data_import_runs WHERE store_id=${storeId} AND source_type=${run.source_type} AND status IN ('queued','downloading','downloaded','importing') AND (source_start_date IS NULL OR source_end_date IS NULL OR (source_start_date<=${run.to_date}::date AND source_end_date>=${run.from_date}::date)) ORDER BY id DESC LIMIT 1`);
   let next=Number(active?.id);
   if(!active){
-   const [created]=await tx.execute(sql`INSERT INTO data_import_runs(store_id,source_type,trigger_type,source_start_date,source_end_date,details) VALUES(${storeId},${run.source_type},'retry',${run.from_date}::date,${run.to_date}::date,jsonb_build_object('retry_of',${runId}::int,'requested_from_ui',true)) RETURNING id::int`);
+   const [created]=await tx.execute(sql`INSERT INTO data_import_runs(store_id,source_type,trigger_type,source_start_date,source_end_date,details) VALUES(${storeId},${run.source_type},'retry',${run.from_date}::date,${run.to_date}::date,jsonb_build_object('retry_of',${runId}::int,'requested_from_ui',true,'reuse_file_of',${action==='retry_import'?runId:null}::int,'identifier_resolutions',${JSON.stringify(action==='retry_import'?(run.details as Record<string,unknown>).identifier_resolutions??{}:{})}::jsonb)) RETURNING id::int`);
    next=Number(created.id);
   }
   if(action==='resume')await tx.execute(sql`UPDATE data_import_runs SET details=details||jsonb_build_object('queue_control','resumed','resumed_as',${next}::int) WHERE id=${runId}`);
-  return {runId:next,status:'queued',message:active?'An overlapping report is already queued or processing.':`Fresh download queued as job #${next}. The worker must be running with this feed enabled.`};
+  return {runId:next,status:'queued',message:active?'An overlapping report is already queued or processing.':`${action==='retry_import'?'Import from retained file':'Fresh download'} queued as job #${next}. The worker must be running with this feed enabled.`};
+ });
+}
+
+// Review is limited to the failed report and inherited only by explicit import retries.
+// It never edits a global catalogue or silently guesses an alternative product.
+export async function reviewProducts(runId:number, query:string){
+ const rows=await db.execute(sql`SELECT sp.id,sp.store_product_code,p.name FROM store_products sp JOIN products p ON p.id=sp.product_id JOIN data_import_runs r ON r.store_id=sp.store_id WHERE r.id=${runId} AND (sp.store_product_code ILIKE ${'%'+query+'%'} OR p.name ILIKE ${'%'+query+'%'}) ORDER BY sp.store_product_code LIMIT 50`);
+ return rows;
+}
+export async function resolveIdentifier(input:{runId:number;identifier:string;storeProductId:number;evidence:string}){
+ return db.transaction(async tx=>{
+  const [identity]=await tx.execute(sql`SELECT store_id FROM data_import_runs WHERE id=${input.runId}`);
+  if(!identity)throw new InputError('Report not found.');
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(73501,${identity.store_id}::int)`);
+  const [run]=await tx.execute(sql`SELECT status,details FROM data_import_runs WHERE id=${input.runId} FOR UPDATE`);
+  const details=run.details as Record<string,unknown>;
+  const unknown=[...Array.isArray(details.unknown_product_codes)?details.unknown_product_codes:[],...Array.isArray(details.unmatched_barcodes)?details.unmatched_barcodes:[]];
+  if(run.status!=='failed'||details.queue_control||!unknown.includes(input.identifier))throw new InputError('Identifier is not unresolved on this failed report.');
+  const [product]=await tx.execute(sql`SELECT id,store_product_code FROM store_products WHERE id=${input.storeProductId} AND store_id=${identity.store_id}::int`);
+  if(!product)throw new InputError('Choose an existing product in the same store.');
+  const resolution={store_product_id:input.storeProductId,evidence:input.evidence,reviewed_at:new Date().toISOString(),store_product_code:product.store_product_code};
+  await tx.execute(sql`UPDATE data_import_runs SET details=jsonb_set(details,'{identifier_resolutions}',COALESCE(details->'identifier_resolutions','{}'::jsonb)||${JSON.stringify({[input.identifier]:resolution})}::jsonb)||jsonb_build_object('resolution_history',COALESCE(details->'resolution_history','[]'::jsonb)||${JSON.stringify([{identifier:input.identifier,...resolution}])}::jsonb) WHERE id=${input.runId}`);
+  return {message:'Verified mapping saved for this report. Retry Import to validate every row before saving.'};
  });
 }

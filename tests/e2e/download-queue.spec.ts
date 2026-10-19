@@ -79,3 +79,20 @@ for(const action of ['pause','cancel'] as const)test(`active ${action} prevents 
   }
  }finally{writeFileSync(release,'release');child.kill('SIGTERM');await finished;}
 });
+
+test('mobile queue offers retained import retry and evidence-based product review',async({page})=>{
+ const [failed]=await sql`INSERT INTO data_import_runs(store_id,source_type,trigger_type,status,source_start_date,source_end_date,source_file_path,error_message,details) VALUES(4,'normal_sales','manual','failed','2026-10-18','2026-10-18','/fixture/report.xls','1 unmatched product identifiers; import cancelled','{"unknown_product_codes":["ALT-42"],"matched_row_count":10,"unmatched_row_count":1}'::jsonb) RETURNING id`;
+ await page.setViewportSize({width:390,height:844});await page.goto('/downloads');
+ await page.getByRole('button',{name:/^Failed \(/}).click();
+ await page.getByText('Error details / review products').click();
+ await page.getByLabel('Search product for ALT-42').fill('10002');await page.getByRole('button',{name:'Search store catalogue'}).click();
+ await page.getByLabel('Verified product for ALT-42').selectOption('42');
+ await page.getByLabel('Verification evidence for ALT-42').fill('Verified synthetic fixture alternate code against store product 42');
+ await page.getByRole('button',{name:'Save verified mapping'}).click();
+ await expect(page.getByText('Verified mapping saved for this report.',{exact:false})).toBeVisible();
+ await page.getByRole('button',{name:`Retry import job ${failed.id}`,exact:true}).click();
+ await expect(page.getByRole('status').filter({hasText:'Import from retained file queued'})).toBeVisible();
+ const [queued]=await sql`SELECT details FROM data_import_runs WHERE status='queued'`;
+ expect(queued.details).toMatchObject({reuse_file_of:Number(failed.id),identifier_resolutions:{'ALT-42':{store_product_id:42}}});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+});

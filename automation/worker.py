@@ -8,6 +8,8 @@ import subprocess
 import time
 import signal
 import threading
+import re
+import shutil
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -92,7 +94,10 @@ def prepare_rows(rows, mapping, source, start, end, allow_empty=False):
         raw = row.get(mapping['quantity'])
         if not code or raw is None or str(raw).strip() == '':
             raise ValueError(f'Row {index}: missing code or quantity')
-        qty = Decimal(str(raw).replace(',', '').strip())
+        text = str(raw).strip()
+        if not re.fullmatch(r'[+-]?(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?', text):
+            raise ValueError(f'Row {index}, Qty: invalid decimal quantity')
+        qty = Decimal(text.replace(',', ''))
         if not qty.is_finite() or abs(qty) >= Decimal('100000000000000'):
             raise ValueError(f'Row {index}: invalid quantity')
         if qty != qty.quantize(Decimal('0.0001')):
@@ -152,6 +157,8 @@ def enqueue_nightly(conn, store_ids, day, sources=None):
 def claim(conn, config=None):
     # Advisory locking during imports serializes writes for a store/source.
     with conn.transaction():
+        # Serialize claim selection, not downloads, to close the two-worker overlap race.
+        conn.execute('SELECT pg_advisory_xact_lock(73502, 0)')
         if config and config.get('store_settings_source') == 'database':
             # This Nebula profile supports the three movement reports only.
             # Leave manual Book Stock requests for a configured stock downloader.
@@ -159,21 +166,106 @@ def claim(conn, config=None):
                 WHERE id=(SELECT r.id FROM data_import_runs r
                   JOIN stores s ON s.id=r.store_id
                   JOIN store_crm_settings c ON c.store_id=s.id
-                  WHERE r.status='queued' AND s.is_active=true AND s.erp_type='msp'
+                  WHERE r.status='queued' AND NOT EXISTS (SELECT 1 FROM data_import_runs busy
+                    WHERE busy.id<>r.id AND busy.store_id=r.store_id AND busy.source_type=r.source_type
+                    AND busy.status IN ('downloading','downloaded','importing')
+                    AND (busy.source_start_date IS NULL OR busy.source_end_date IS NULL OR r.source_start_date IS NULL OR r.source_end_date IS NULL
+                      OR (busy.source_start_date<=r.source_end_date AND busy.source_end_date>=r.source_start_date))) AND s.is_active=true AND s.erp_type='msp'
                     AND r.source_type = ANY(%s)
                     AND (%s::int IS NULL OR r.store_id=%s)
                   ORDER BY r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1)
                 RETURNING id,store_id,source_type,source_start_date,source_end_date''',
                 (enabled_movement_sources(config), config.get('only_store_id'), config.get('only_store_id'))).fetchone()
         return conn.execute('''UPDATE data_import_runs SET status='downloading', started_at=now()
-            WHERE id=(SELECT id FROM data_import_runs WHERE status='queued'
-                ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1)
+            WHERE id=(SELECT r.id FROM data_import_runs r WHERE r.status='queued'
+                AND NOT EXISTS (SELECT 1 FROM data_import_runs busy WHERE busy.id<>r.id
+                    AND busy.store_id=r.store_id AND busy.source_type=r.source_type
+                    AND busy.status IN ('downloading','downloaded','importing')
+                    AND (busy.source_start_date IS NULL OR busy.source_end_date IS NULL OR r.source_start_date IS NULL OR r.source_end_date IS NULL
+                      OR (busy.source_start_date<=r.source_end_date AND busy.source_end_date>=r.source_start_date)))
+                ORDER BY r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1)
             RETURNING id, store_id, source_type, source_start_date, source_end_date''').fetchone()
 
 
 def row_fingerprint(rows):
     return hashlib.sha256(json.dumps([(pid, str(day), format(qty.normalize(), 'f'))
         for (pid, day), qty in sorted(rows.items())], separators=(',', ':')).encode()).hexdigest()
+
+
+def barcode_key(value):
+    """Only numeric GTINs have zero-padding equivalence; never strip punctuation."""
+    value = str(value).strip()
+    if re.fullmatch(r"[0-9]+\.0+", value):
+        value = value.split('.')[0]
+    if re.fullmatch(r"[0-9]{8,14}", value):
+        return value.zfill(14)
+    return value
+
+
+def resolve_identifiers(rows, products, mapping_type, overrides=None):
+    indexes = {}
+    for code, product_id in products:
+        key = barcode_key(code) if mapping_type == 'barcode' else str(code).strip()
+        indexes.setdefault(key, set()).add(product_id)
+    resolved, unknown = {}, []
+    for code in sorted({code for code, _ in rows}):
+        key = barcode_key(code) if mapping_type == 'barcode' else code.strip()
+        candidates = indexes.get(key, set())
+        if len(candidates) == 1:
+            resolved[code] = next(iter(candidates))
+        elif not candidates and code in (overrides or {}):
+            resolved[code] = overrides[code]
+        else:
+            unknown.append(code)
+    return resolved, unknown
+
+
+def record_stage(conn, run_id, stage, **details):
+    details['stage'] = stage
+    conn.execute("UPDATE data_import_runs SET details=details || %s::jsonb WHERE id=%s AND status NOT IN ('success','failed')",
+                 (json.dumps(details), run_id))
+
+
+def retained_report(conn, run_id, store_id, source, start, end, root, additional_roots=()):
+    entry = conn.execute("SELECT details->>'reuse_file_of' FROM data_import_runs WHERE id=%s", (run_id,)).fetchone()
+    if not entry or not entry[0]:
+        return None
+    old = conn.execute("""SELECT source_file_path,details->>'source_sha256' FROM data_import_runs
+        WHERE id=%s AND store_id=%s AND source_type=%s AND source_start_date=%s
+        AND source_end_date=%s AND status='failed'""", (int(entry[0]),store_id,source,start,end)).fetchone()
+    if not old or not old[0]:
+        raise ValueError('Retained report unavailable; request Re-download')
+    path = Path(old[0]).resolve()
+    roots = [root, *(Path(value).resolve() for value in additional_roots)]
+    if not any(path.is_relative_to(allowed) for allowed in roots) or not path.is_file():
+        raise ValueError('Retained report is missing or outside the download directory; request Re-download')
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if old[1] and old[1] != digest:
+        raise ValueError('Retained report checksum changed; request Re-download')
+    return path
+
+
+def match_report(conn, run_id, store_id, rows, mapping_type):
+    if mapping_type == 'barcode':
+        products = conn.execute('SELECT barcode, store_product_id FROM product_barcodes WHERE store_id=%s', (store_id,)).fetchall()
+    elif mapping_type == 'store_product_code':
+        products = conn.execute('SELECT store_product_code, id FROM store_products WHERE store_id=%s', (store_id,)).fetchall()
+    else:
+        raise ValueError('Unsupported product mapping')
+    review = conn.execute("SELECT details->'identifier_resolutions' FROM data_import_runs WHERE id=%s", (run_id,)).fetchone()
+    approved = review[0] if review and isinstance(review[0], dict) else {}
+    valid_ids = {row[0] for row in conn.execute('SELECT id FROM store_products WHERE store_id=%s', (store_id,)).fetchall()}
+    overrides = {code: value['store_product_id'] for code, value in approved.items()
+                 if isinstance(value, dict) and value.get('store_product_id') in valid_ids and value.get('evidence')}
+    products, unknown = resolve_identifiers(rows, products, mapping_type, overrides)
+    matched_count = sum(code in products for code, _ in rows)
+    unmatched_count = len(rows) - matched_count
+    if unknown:
+        raise ImportValidationError(f'{len(unknown)} unmatched product identifiers; import cancelled', {
+            'unmatched_barcodes' if mapping_type == 'barcode' else 'unknown_product_codes': unknown,
+            'unmatched_identifier_count': len(unknown), 'unmatched_row_count': unmatched_count,
+            'matched_row_count': matched_count, 'mapping_type': mapping_type})
+    return products, matched_count
 
 
 def import_report(conn, job, rows, filename, mapping_type="store_product_code", source_sha256=None):
@@ -184,24 +276,15 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
         state = conn.execute('SELECT status FROM data_import_runs WHERE id=%s FOR UPDATE', (run_id,)).fetchone()
         if not state or state[0] != 'importing':
             raise ValueError('Job is no longer importing')
-        if mapping_type == 'barcode':
-            products = dict(conn.execute('SELECT barcode, store_product_id FROM product_barcodes WHERE store_id=%s', (store_id,)).fetchall())
-        elif mapping_type == 'store_product_code':
-            products = dict(conn.execute('SELECT store_product_code, id FROM store_products WHERE store_id=%s', (store_id,)).fetchall())
-        else:
-            raise ValueError('Unsupported product mapping')
-        unknown = sorted({code for code, _ in rows if code not in products})
-        if unknown:
-            raise ImportValidationError(f'{len(unknown)} unmatched product identifiers; import cancelled', {
-                'unmatched_barcodes' if mapping_type == 'barcode' else 'unknown_product_codes': unknown,
-                'unmatched_identifier_count': len(unknown)})
+        products, matched_count = match_report(conn, run_id, store_id, rows, mapping_type)
         resolved = {}
         for (code, day), quantity in rows.items():
             key = (products[code], day)
             resolved[key] = resolved.get(key, Decimal(0)) + quantity
         rows = resolved
         fingerprint = row_fingerprint(rows)
-        details = {'data_sha256': fingerprint, 'source_sha256': source_sha256}
+        details = {'data_sha256': fingerprint, 'source_sha256': source_sha256, 'stage': 'completed',
+                   'matched_row_count': matched_count, 'unmatched_row_count': 0, 'unmatched_identifier_count': 0}
         # Only the latest overlapping import describes the current database state.
         # An older matching fingerprint must not suppress a legitimate correction.
         previous = conn.execute("""SELECT id, imported_at, details->>'data_sha256', details->>'duplicate_of'
@@ -261,16 +344,46 @@ def process_job(conn, config, job):
             raise ValueError('Book Stock report must include negative stock')
         start = str(start or london_today())
         end = str(end or start)
-        folder = Path(config['download_directory']).resolve() / str(run_id)
+        root = Path(config['download_directory']).resolve()
+        retained = retained_report(conn, run_id, store_id, source, start, end, root, config.get('retained_download_directories', []))
+        folder = root / str(run_id)
         folder.mkdir(parents=True, exist_ok=False)  # Never reuse an old download.
         extension = feed.get('extension', '.xlsx')
         if extension not in ('.csv', '.xlsx', '.xls') or (extension == '.xls' and not feed.get('normalize_with_app_parsers')):
             raise ValueError('Invalid file extension')
         output = folder / ('report' + extension)
+        conn.execute("UPDATE data_import_runs SET source_file_name=%s WHERE id=%s AND status='downloading'", (output.name, run_id))
         values = dict(store_id=str(store_id), store_code=crm_store_code(identity[0]) if config.get('store_settings_source') == 'database' else identity[0], source=source, start=start, end=end, output=str(output), crm_url=store.get('crm_url', ''))
         command = [part.format(**values) for part in feed['command']]
-        downloaded = subprocess.run(command, check=False, timeout=feed.get('timeout_seconds', 2400), shell=False,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if retained:
+            output = folder / ('report' + retained.suffix)
+            shutil.copyfile(retained, output)
+            downloaded = subprocess.CompletedProcess([], 0)
+        else:
+            for attempt in range(3):
+                record_stage(conn, run_id, 'downloading', download_attempt=attempt + 1)
+                try:
+                    downloaded = subprocess.run(command, check=False, timeout=feed.get('timeout_seconds', 2400), shell=False,
+                                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                    try:
+                        code = json.loads(downloaded.stderr or b'{}').get('error_code')
+                    except (ValueError, TypeError, AttributeError):
+                        code = None
+                    transient = downloaded.returncode != 0 and code in ('login_page', 'network_timeout')
+                except subprocess.TimeoutExpired:
+                    downloaded = subprocess.CompletedProcess([], 1, stderr=b'{"error_code":"network_timeout"}')
+                    transient = True
+                if not transient or attempt == 2:
+                    break
+                delay = min(60, 5 * 2 ** attempt)
+                record_stage(conn, run_id, 'retrying', retry_attempt=attempt + 1, retry_delay_seconds=delay)
+                conn.execute("UPDATE data_import_runs SET details=jsonb_set(details,'{retry_errors}',COALESCE(details->'retry_errors','[]'::jsonb)||%s::jsonb) WHERE id=%s",
+                             (json.dumps([{'attempt': attempt + 1, 'error': 'temporary_crm_failure', 'delay_seconds': delay}]), run_id))
+                time.sleep(delay)
+                state = conn.execute('SELECT status FROM data_import_runs WHERE id=%s', (run_id,)).fetchone()
+                if not state or state[0] != 'downloading':
+                    return
+                output.unlink(missing_ok=True)
         if downloaded.returncode:
             safe_errors = {
                 'wrong_store': 'CRM displayed another or missing store code. Check the saved store URL before retrying.',
@@ -290,6 +403,9 @@ def process_job(conn, config, job):
         if not output.is_file() or output.stat().st_size == 0:
             raise ValueError('Downloader did not produce the requested report')
         conn.execute("UPDATE data_import_runs SET status='downloaded', downloaded_at=now(), source_file_path=%s, source_start_date=%s, source_end_date=%s WHERE id=%s AND status='downloading'", (str(output), start, end, run_id))
+        digest = hashlib.sha256(output.read_bytes()).hexdigest()
+        conn.execute("UPDATE data_import_runs SET source_file_name=%s,details=details || %s::jsonb WHERE id=%s AND status='downloaded'",
+                     (output.name,json.dumps({'source_sha256':digest,'stage':'parsing'}),run_id))
         mapping_type = feed.get('mapping_type', 'store_product_code')
         mapping = feed['mapping']
         raw_rows = None
@@ -299,6 +415,8 @@ def process_job(conn, config, job):
             raw_rows = read_rows(output, mapping)
             if any(str(row.get(mapping['store'], '')).strip() != identity[0] for row in raw_rows):
                 raise ValueError('Report contains another store or an unrecognized store marker')
+        reasons = {}
+        wastage_barcodes = {}
         if feed.get('normalize_with_app_parsers'):
             normalized = folder / 'normalized.json'
             app_dir = Path(config['app_directory']).resolve()
@@ -307,16 +425,25 @@ def process_job(conn, config, job):
                 '--source', source, '--start', start, '--end', end, '--erp', store.get('erp', 'msp')],
                 cwd=app_dir, check=False, timeout=600, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if normalized_result.returncode:
-                raise ValueError('Report parsing failed. Verify the exported columns, daily date and ERP format; previous data retained.')
+                diagnostic_path = normalized.with_suffix('.error.json')
+                diagnostic = json.loads(diagnostic_path.read_text()) if diagnostic_path.is_file() else {}
+                message = diagnostic.get('message', 'Parser process failed; check worker dependencies')
+                raise ImportValidationError(f'{output.name}: {message}; previous data retained.', {'parse_error': diagnostic, 'stage': 'parsing'})
             envelope = json.loads(normalized.read_text(encoding='utf-8'))
             if envelope.get('source') != source:
                 raise ValueError('Normalizer returned the wrong feed')
+            reasons = envelope.get('wastage_reasons', {})
+            wastage_barcodes = envelope.get('wastage_barcodes', {})
             raw_rows = envelope['rows']
             mapping_type = envelope['mapping_type']
             mapping = {'code': 'Code', 'quantity': 'Qty', 'date': 'Date'}
         elif raw_rows is None:
             raw_rows = read_rows(output, mapping)
+        record_stage(conn, run_id, 'matching', mapping_type=mapping_type, wastage_reasons=reasons, wastage_barcodes=wastage_barcodes)
         prepared = prepare_rows(raw_rows, mapping, source, start, end, allow_empty=feed.get("allow_empty_report") is True)
+        conn.execute("UPDATE data_import_runs SET downloaded_row_count=%s WHERE id=%s AND status='downloaded'", (len(prepared), run_id))
+        _, matched_count = match_report(conn, run_id, store_id, prepared, mapping_type)
+        record_stage(conn, run_id, 'importing', matched_row_count=matched_count, unmatched_row_count=0)
         conn.execute("UPDATE data_import_runs SET status='importing', downloaded_row_count=%s WHERE id=%s AND status='downloaded'", (len(prepared), run_id))
         import_report(conn, (run_id, store_id, source, start, end), prepared, output.name, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
         print(f'Job {run_id}: success ({len(prepared)} rows)', flush=True)
@@ -358,6 +485,10 @@ def main():
             conn.execute("UPDATE data_import_runs SET status='failed', completed_at=now(), error_message='Worker stopped or timed out' WHERE status IN ('downloading','downloaded','importing') AND started_at < now()-(%s * interval '1 minute')", (args.fail_stalled_minutes,))
         if args.retry_run:
             with conn.transaction():
+                identity = conn.execute("SELECT store_id FROM data_import_runs WHERE id=%s", (args.retry_run,)).fetchone()
+                if not identity:
+                    raise ValueError('Failed import run not found')
+                conn.execute('SELECT pg_advisory_xact_lock(73501, %s)', (identity[0],))
                 failed = conn.execute("SELECT store_id,source_type,source_start_date,source_end_date FROM data_import_runs WHERE id=%s AND status='failed' FOR UPDATE", (args.retry_run,)).fetchone()
                 if not failed:
                     raise ValueError('Failed import run not found')

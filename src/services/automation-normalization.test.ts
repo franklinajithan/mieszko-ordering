@@ -68,3 +68,8 @@ describe('live quantity and cost editing',()=>{
     expect(previewOrderItem(item,{orderQty:'2.'}).estimatedLineCost).toBeNull();
   });
 });
+
+it('detects an explicit sales barcode ahead of product name and preserves identifier type',async()=>{
+ const result=await normalizeReport({...request,buffer:Buffer.from('Product Name,Barcode,Sales Date,Sold Qty\nMilk,00123456789012,2026-10-15,2\n')});
+ expect(result.mapping_type).toBe('barcode');expect(result.rows).toEqual([{Code:'00123456789012',Date:'2026-10-15',Qty:'2'}]);
+});
