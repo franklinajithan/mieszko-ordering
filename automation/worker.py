@@ -305,8 +305,23 @@ def process_job(conn, config, job):
             normalized_result = subprocess.run([config.get('node_executable', 'node'), '--import', 'tsx',
                 str(app_dir / 'automation/normalize-report.ts'), '--input', str(output), '--output', str(normalized),
                 '--source', source, '--start', start, '--end', end, '--erp', store.get('erp', 'msp')],
-                cwd=app_dir, check=False, timeout=600, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cwd=app_dir, check=False, timeout=600, stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE, text=True)
             if normalized_result.returncode:
+                # Only expose known, non-sensitive validation messages. Never publish
+                # arbitrary subprocess stderr (paths, credentials or stack traces).
+                diagnostic = (normalized_result.stderr or '').strip().splitlines()
+                diagnostic = diagnostic[-1].strip() if diagnostic else ''
+                safe_messages = (
+                    'Report columns not detected',
+                    'Report date differs from requested date',
+                    'Report row date differs from requested date',
+                    'Invalid requested dates',
+                    'Sales report columns not detected',
+                    'MSP Wastage report says No Records Available.',
+                )
+                if diagnostic.startswith(safe_messages):
+                    raise ValueError('Report parsing failed: ' + diagnostic[:350] + ' Previous data retained.')
                 raise ValueError('Report parsing failed. Verify the exported columns, daily date and ERP format; previous data retained.')
             envelope = json.loads(normalized.read_text(encoding='utf-8'))
             if envelope.get('source') != source:
