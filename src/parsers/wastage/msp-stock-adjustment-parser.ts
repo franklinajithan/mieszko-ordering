@@ -73,7 +73,22 @@ export async function tryParseMspStockAdjustmentReport(
 ): Promise<MspStockAdjustmentParseResult | null> {
   try {
     return await parseMspStockAdjustmentReport(buffer, fileName);
-  } catch {
+  } catch (error) {
+    // An MSP stock-adjustment workbook with the expected table must not
+    // silently fall back to the flat-file parser: doing so hides the actual
+    // validation error and can misinterpret decorative header rows as data.
+    // Only use the fallback for files that are not recognizably MSP reports.
+    const workbook = XLSX.read(buffer, { type: "buffer", sheetRows: 45 });
+    const sheet = workbook.Sheets[workbook.SheetNames[0] ?? ""];
+    const grid = sheet ? XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+      header: 1, defval: "", raw: false,
+    }) : [];
+    const hasMspHeaders = grid.some((row) => {
+      const cells = row.map(cellText);
+      return cells.some((cell) => /^item\\s*code$/i.test(cell)) &&
+        cells.some((cell) => /^qty$/i.test(cell));
+    });
+    if (hasMspHeaders || /stock\\s*adjustment/i.test(fileName)) throw error;
     return null;
   }
 }
