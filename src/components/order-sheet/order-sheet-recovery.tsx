@@ -8,9 +8,10 @@ type Coverage = {rows:Gap[];total:number;pages:number;page:number;unavailable:nu
 type RecoveryJob = {id:number;feed:string;report_date:string;store_name:string;status:string;downloaded_row_count:number|null;imported_row_count:number|null;error_message:string|null};
 type ApiResponse<T> = {success:boolean;data:T;error?:string};
 
-export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormState;scanRequest?:number}) {
+export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form:OrderSheetFormState;scanRequest?:number;onRecoveryFinished?:()=>void}) {
  const lastRequest=useRef(scanRequest);
  const scanRef=useRef<() => Promise<void>>(async()=>{});
+ const onRecoveryFinishedRef=useRef(onRecoveryFinished);
  const refreshAfterCompletion=useRef(false);
  const scanVersion=useRef(0);
  const scopeRef=useRef("");
@@ -54,7 +55,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
   } catch(error){if(version===scanVersion.current&&scopeRef.current===scope)setMessage(error instanceof Error?error.message:"Unable to scan missing reports.");}
   finally{if(version===scanVersion.current)setScanning(false);}
  }
- useEffect(()=>{scanRef.current=scan;});
+ useEffect(()=>{scanRef.current=scan;onRecoveryFinishedRef.current=onRecoveryFinished;});
  async function queueApproved(){
   const approved=rows.filter(row=>selected.includes(key(row))&&row.can_download);
   if(!approved.length||stale||scanning||running)return;
@@ -98,6 +99,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
       refreshAfterCompletion.current=false;
       setMessage("Recovery jobs finished. Rechecking missing reports against the database...");
       void scanRef.current();
+      onRecoveryFinishedRef.current?.();
      }
     }
    }catch(error){if(!cancelled)setJobCheckError(error instanceof Error?error.message:"Unable to check recovery jobs.");}
