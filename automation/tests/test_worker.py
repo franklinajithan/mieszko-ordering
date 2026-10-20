@@ -68,3 +68,11 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.prepare([{'Code':'1','Qty':'2'}], 'sales_and_rtc')
 
 if __name__ == '__main__': unittest.main()
+
+class ReconciliationSchemaTests(unittest.TestCase):
+    def test_missing_migration_is_rejected_before_any_job_is_claimed(self):
+        connection = MagicMock()
+        connection.execute.return_value.fetchone.return_value = (False,)
+        with self.assertRaisesRegex(ValueError, 'migration'):
+            worker.require_reconciliation_schema(connection)
+        self.assertEqual(connection.execute.call_count, 1)

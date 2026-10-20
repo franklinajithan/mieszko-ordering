@@ -187,7 +187,11 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
         if mapping_type == 'barcode':
             products = dict(conn.execute('SELECT barcode, store_product_id FROM product_barcodes WHERE store_id=%s', (store_id,)).fetchall())
         elif mapping_type == 'store_product_code':
-            products = dict(conn.execute('SELECT store_product_code, id FROM store_products WHERE store_id=%s', (store_id,)).fetchall())
+            products = dict(conn.execute('SELECT identifier,store_product_id FROM crm_product_code_aliases WHERE store_id=%s', (store_id,)).fetchall())
+            native = dict(conn.execute('SELECT store_product_code, id FROM store_products WHERE store_id=%s', (store_id,)).fetchall())
+            if any(code in native and native[code] != target for code, target in products.items()):
+                raise ValueError('Product code alias conflicts with product master; manual review required')
+            products.update(native)
         else:
             raise ValueError('Unsupported product mapping')
         unknown = sorted({code for code, _ in rows if code not in products})
@@ -228,6 +232,7 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
             conn.execute("""UPDATE data_import_runs SET status='success', imported_at=%s, completed_at=now(),
                 imported_row_count=0, rejected_row_count=0, source_file_name=%s, details=details || %s::jsonb WHERE id=%s""",
                 (previous[1], filename, json.dumps(details), run_id))
+            conn.execute('DELETE FROM crm_report_stage WHERE run_id=%s', (run_id,))
             return
         imported_at = conn.execute('SELECT clock_timestamp()').fetchone()[0]
         if source == 'book_stock':
@@ -245,10 +250,60 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
         conn.execute('''UPDATE data_import_runs SET status='success', imported_at=%s, completed_at=now(),
             imported_row_count=%s, rejected_row_count=0, source_file_name=%s, details=details || %s::jsonb WHERE id=%s''',
             (imported_at, len(rows), filename, json.dumps(details), run_id))
+        conn.execute('DELETE FROM crm_report_stage WHERE run_id=%s', (run_id,))
+
+
+def stage_report(conn, job, rows, mapping_type, source_sha256):
+    """Retain validated complete input without publishing an incomplete snapshot."""
+    run_id, store_id, source, start, end = job
+    with conn.transaction():
+        conn.execute('SELECT pg_advisory_xact_lock(73501, %s)', (store_id,))
+        state = conn.execute('SELECT status FROM data_import_runs WHERE id=%s FOR UPDATE', (run_id,)).fetchone()
+        if not state or state[0] not in ('downloaded', 'downloading'):
+            raise ValueError('Job is no longer available for staging')
+        conn.execute('DELETE FROM crm_report_stage WHERE run_id=%s', (run_id,))
+        # Batches avoid one database round trip for every transaction in a large report.
+        values = [(run_id, code, str(day), str(qty), mapping_type) for (code, day), qty in rows.items()]
+        for offset in range(0, len(values), 1000):
+            batch = values[offset:offset + 1000]
+            conn.execute('INSERT INTO crm_report_stage(run_id,identifier,report_date,quantity,mapping_type) VALUES '
+                         + ','.join(['(%s,%s,%s,%s,%s)'] * len(batch)), tuple(v for row in batch for v in row))
+        details = {'staged_data_sha256': row_fingerprint(rows), 'staged_row_count': len(rows),
+                   'source_sha256': source_sha256, 'staged_mapping_type': mapping_type}
+        conn.execute("UPDATE data_import_runs SET status='importing',downloaded_row_count=%s,details=details || %s::jsonb WHERE id=%s",
+                     (len(rows), json.dumps(details), run_id))
+
+
+def reuse_validated_stage(conn, job):
+    """Only reuse an immutable, hashed, validated parent for the same store/feed/dates."""
+    run_id, store_id, source, start, end = job
+    parent = conn.execute("""SELECT p.id,p.details,p.source_file_name,p.source_file_path FROM data_import_runs r
+        JOIN data_import_runs p ON p.id=CASE WHEN (r.details->>'retry_of') ~ '^[0-9]+$'
+            THEN (r.details->>'retry_of')::bigint ELSE NULL END
+        WHERE r.id=%s AND r.details->>'reuse_validated_stage'='true' AND p.status='failed'
+          AND p.store_id=%s AND p.source_type=%s AND p.source_start_date=%s AND p.source_end_date=%s""",
+        (run_id, store_id, source, start, end)).fetchone()
+    if not parent:
+        return False
+    parent_id, details, filename, filepath = parent
+    if not details.get('staged_row_count') or not details.get('source_sha256'):
+        return False
+    staged = conn.execute('SELECT identifier,report_date,quantity,mapping_type FROM crm_report_stage WHERE run_id=%s', (parent_id,)).fetchall()
+    if len(staged) != details['staged_row_count'] or any(row[3] != details.get('staged_mapping_type') for row in staged):
+        return False
+    rows = {(code, day): qty for code, day, qty, _ in staged}
+    if row_fingerprint(rows) != details.get('staged_data_sha256'):
+        return False
+    stage_report(conn, job, rows, details['staged_mapping_type'], details['source_sha256'])
+    conn.execute("UPDATE data_import_runs SET source_file_path=%s,downloaded_at=now(),details=details || %s::jsonb WHERE id=%s AND status='importing'",
+                 (filepath, json.dumps({'reused_stage_of': parent_id}), run_id))
+    import_report(conn, job, rows, filename or 'retained-report', details['staged_mapping_type'], details['source_sha256'])
+    return True
 
 
 def process_job(conn, config, job):
     run_id, store_id, source, start, end = job
+    review_descriptions = {}
     try:
         store = get_store_config(conn, config, store_id)
         identity = conn.execute('SELECT code FROM stores WHERE id=%s AND is_active=true', (store_id,)).fetchone()
@@ -261,6 +316,9 @@ def process_job(conn, config, job):
             raise ValueError('Book Stock report must include negative stock')
         start = str(start or london_today())
         end = str(end or start)
+        if reuse_validated_stage(conn, (run_id, store_id, source, start, end)):
+            print(f'Job {run_id}: success (retained validated report)', flush=True)
+            return
         folder = Path(config['download_directory']).resolve() / str(run_id)
         folder.mkdir(parents=True, exist_ok=False)  # Never reuse an old download.
         extension = feed.get('extension', '.xlsx')
@@ -326,20 +384,33 @@ def process_job(conn, config, job):
             envelope = json.loads(normalized.read_text(encoding='utf-8'))
             if envelope.get('source') != source:
                 raise ValueError('Normalizer returned the wrong feed')
+            review_descriptions = envelope.get('product_descriptions', {})
             raw_rows = envelope['rows']
             mapping_type = envelope['mapping_type']
             mapping = {'code': 'Code', 'quantity': 'Qty', 'date': 'Date'}
         elif raw_rows is None:
             raw_rows = read_rows(output, mapping)
         prepared = prepare_rows(raw_rows, mapping, source, start, end, allow_empty=feed.get("allow_empty_report") is True)
-        conn.execute("UPDATE data_import_runs SET status='importing', downloaded_row_count=%s WHERE id=%s AND status='downloaded'", (len(prepared), run_id))
+        stage_report(conn, (run_id, store_id, source, start, end), prepared, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
         import_report(conn, (run_id, store_id, source, start, end), prepared, output.name, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
         print(f'Job {run_id}: success ({len(prepared)} rows)', flush=True)
     except Exception as exc:
         # Keep credentials/command arguments out of logs and dashboard errors.
+        if isinstance(exc, ImportValidationError) and isinstance(review_descriptions, dict):
+            unknown = exc.details.get('unmatched_barcodes', exc.details.get('unknown_product_codes', []))
+            exc.details['unmatched_product_descriptions'] = {
+                code: str(review_descriptions[code])[:500] for code in unknown if review_descriptions.get(code)
+            }
         message = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
         conn.execute("UPDATE data_import_runs SET status='failed', completed_at=now(), error_message=%s, details=details || %s::jsonb WHERE id=%s AND status NOT IN ('success','failed')", (message[:2000], json.dumps(exc.details if isinstance(exc, ImportValidationError) else {}), run_id))
         print(f'Job {run_id}: failed ({message})', flush=True)
+
+
+def require_reconciliation_schema(conn):
+    ready = conn.execute("""SELECT to_regclass('crm_product_code_aliases') IS NOT NULL
+        AND to_regclass('crm_report_stage') IS NOT NULL AND to_regclass('crm_product_identifiers') IS NOT NULL""").fetchone()[0]
+    if not ready:
+        raise ValueError('Apply the backed-up 2026-10-20 reconciliation migration before starting this worker')
 
 
 def main():
@@ -367,6 +438,7 @@ def main():
         config['only_store_id'] = args.store_id
     import psycopg
     with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True, prepare_threshold=None) as conn:
+        require_reconciliation_schema(conn)
         if args.fail_stalled_minutes:
             if args.fail_stalled_minutes < 60:
                 raise ValueError('Stalled timeout must be at least 60 minutes')

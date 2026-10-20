@@ -27,9 +27,16 @@ test('quality: every requested issue class, store isolation and filtered Excel e
  UPDATE supplier_prices SET net_price=0 WHERE supplier_id=1 AND supplier_product_id=11;
  UPDATE supplier_prices SET case_size='0x12' WHERE supplier_id=3;
  UPDATE book_stock SET book_stock_qty=-3 WHERE store_product_id=11;
- INSERT INTO product_barcodes(store_id,store_product_id,barcode) VALUES(2,11,'CROSS-STORE-FIXTURE');
  INSERT INTO import_quality_observations(store_id,source_type,problem_type,reference) VALUES(1,'normal_sales','unknown_product_code','UNKNOWN-ONLY-STORE1'),(1,'rtc','unmatched_barcode','EAN-ONLY-STORE1');
  INSERT INTO data_import_runs(store_id,source_type,trigger_type,status,error_message) VALUES(1,'normal_sales','manual','failed','Fixture unmatched identifiers');`);
+ // New writes are protected; disable this trigger transactionally only to model
+ // corrupt historical data that the diagnostics screen must still identify.
+ await expect(sql`INSERT INTO product_barcodes(store_id,store_product_id,barcode) VALUES(2,11,'CROSS-STORE-FIXTURE')`).rejects.toThrow('another store');
+ await sql.begin(async tx=>{
+  await tx.unsafe('ALTER TABLE product_barcodes DISABLE TRIGGER crm_barcode_store_lock');
+  await tx`INSERT INTO product_barcodes(store_id,store_product_id,barcode) VALUES(2,11,'CROSS-STORE-FIXTURE')`;
+  await tx.unsafe('ALTER TABLE product_barcodes ENABLE TRIGGER crm_barcode_store_lock');
+ });
  const response=await request.get('/api/data-quality?storeId=1');expect(response.status(),await response.text()).toBe(200);const data=(await response.json()).data;
  expect(data.total).toBeLessThan(100);expect(new Set(data.issues.map((i:{type:string})=>i.type))).toEqual(new Set(['duplicate_product','unknown_product_code','unmatched_barcode','missing_supplier_code','missing_price','invalid_case_size','missing_sales_date','negative_stock','no_recent_sales','inconsistent_import','import_failure']));expect(data.issues.every((i:{storeId:number})=>i.storeId===1)).toBe(true);
  const other=(await (await request.get('/api/data-quality?storeId=2&type=unknown_product_code')).json()).data;expect(other.total).toBe(0);

@@ -3,13 +3,15 @@ param(
     [string]$Server = '192.168.128.139',
     [string]$ServerUser = 'backend',
     [switch]$ApplyCrmSettingsMigration,
+    [switch]$ApplyReconciliationMigration,
+    [switch]$ActivateMovementFeeds,
     [switch]$ActivateWastage,
     [switch]$EnableNightly,
     [string]$ResumeRelease
 )
 $ErrorActionPreference = 'Stop'
-if ($EnableNightly -and -not $ActivateWastage) { throw '-EnableNightly requires -ActivateWastage.' }
-if ($ResumeRelease -and ($ResumeRelease -notmatch '^\d{8}-\d{6}-[0-9a-f]{8}-[0-9a-f]{8}$' -or -not $ActivateWastage -or $ApplyCrmSettingsMigration)) {
+if ($EnableNightly -and -not ($ActivateWastage -or $ActivateMovementFeeds)) { throw '-EnableNightly requires -ActivateWastage or -ActivateMovementFeeds.' }
+if ($ResumeRelease -and ($ResumeRelease -notmatch '^\d{8}-\d{6}-[0-9a-f]{8}-[0-9a-f]{8}$' -or -not ($ActivateWastage -or $ActivateMovementFeeds) -or $ApplyCrmSettingsMigration -or $ApplyReconciliationMigration)) {
     throw 'ResumeRelease requires a valid prepared release name and -ActivateWastage, without migrations.'
 }
 if ($Server -notmatch '^[A-Za-z0-9][A-Za-z0-9.-]*$' -or $ServerUser -notmatch '^[a-z_][a-z0-9_-]*$') {
@@ -39,7 +41,7 @@ try {
         $release = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $sha.Substring(0, 8) + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
         $bundle = Join-Path ([IO.Path]::GetTempPath()) "mieszko-worker-$release.tar"
         # Allowlist worker/parser sources: excludes .env, local CRM settings, downloads and database backups.
-        & git archive --format=tar "--output=$bundle" HEAD automation src package.json package-lock.json tsconfig.json migrations/manual/2026-10-16-crm-store-settings.sql
+        & git archive --format=tar "--output=$bundle" HEAD automation src package.json package-lock.json tsconfig.json migrations/manual/2026-10-16-crm-store-settings.sql migrations/manual/2026-10-20-unmatched-products.sql
         if ($LASTEXITCODE -ne 0) { throw 'Source packaging failed.' }
         & ssh $target 'umask 077; mkdir -p "$HOME/mieszko-worker/uploads" "$HOME/mieszko-worker/releases"'
         if ($LASTEXITCODE -ne 0) { throw 'Server directory preparation failed.' }
@@ -50,10 +52,13 @@ try {
         if ($ApplyCrmSettingsMigration) {
             $remote += '; sed -i ''s/\r$//'' "$dest/automation/apply-crm-settings-upgrade.sh"; bash "$dest/automation/apply-crm-settings-upgrade.sh"'
         }
+        if ($ApplyReconciliationMigration) {
+            $remote += '; sed -i ''s/\r$//'' "$dest/automation/apply-reconciliation-upgrade.sh"; bash "$dest/automation/apply-reconciliation-upgrade.sh"'
+        }
         & ssh -t $target $remote
         if ($LASTEXITCODE -ne 0) { throw 'Server preparation failed. Review the output; no imports or schedule were started.' }
     }
-    if ($ActivateWastage) {
+    if ($ActivateWastage -or $ActivateMovementFeeds) {
         # Capture the existing connection locally; never print or package credentials.
         $databaseJson = @'
 const fs = require('fs'), dotenv = require('dotenv');
@@ -74,10 +79,11 @@ process.stdout.write(JSON.stringify({DATABASE_URL: config.DATABASE_URL}));
         $databaseJson = $null
         if ($LASTEXITCODE -ne 0) { throw 'Protected configuration transfer failed; activation stopped.' }
         $activate = '$HOME/mieszko-worker/releases/{0}/.worker-runtime/venv/bin/python $HOME/mieszko-worker/releases/{0}/automation/activate-linux-worker.py --feeds wastage --start-worker' -f $release
+        if ($ActivateMovementFeeds) { $activate = $activate.Replace('--feeds wastage', '--feeds normal_sales rtc wastage') }
         if ($EnableNightly) { $activate += ' --enable-nightly' }
         & ssh -t $target $activate
         if ($LASTEXITCODE -ne 0) { throw 'Worker activation did not finish. Review the output and service status before retrying.' }
-        Write-Host "Wastage worker activated in release $release. Existing Wastage jobs can now be downloaded and imported."
+        Write-Host "Selected movement feeds activated in release $release. Check the Download Queue for actual results."
     } else {
         Write-Host "Worker dependencies prepared from commit $sha. CRM configuration and controlled verification remain."
     }

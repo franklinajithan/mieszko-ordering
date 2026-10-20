@@ -1,3 +1,4 @@
+import { reconcileAfterProductSave } from '@/services/reconciliation/reconciliation.service';
 import { z } from "zod";
 import { storeRepository } from "@/repositories";
 import { importProductRows } from "@/services/products/product-import.service";
@@ -47,5 +48,5 @@ export const POST = route(async (req) => {
     rows: parsed.data.rows,
   });
 
-  return apiOk(result);
+  return apiOk({...result,reconciliation:await reconcileAfterProductSave()});
 });

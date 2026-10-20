@@ -1,3 +1,4 @@
+import { reconcileAfterProductSave } from '@/services/reconciliation/reconciliation.service';
 import { productRepository } from "@/repositories";
 import { barcodeSchema } from "@/validators/schemas";
 import { apiError, apiOk, numericParam, parseJson, route } from "@/lib/api/http";
@@ -48,6 +49,6 @@ export const POST = route(
     if (!row) {
       return apiError("Barcode already exists for this store", 409);
     }
-    return apiOk({ id: row.id }, 201);
+    return apiOk({ id: row.id, reconciliation:await reconcileAfterProductSave() }, 201);
   },
 );

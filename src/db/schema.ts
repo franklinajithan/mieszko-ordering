@@ -1,4 +1,4 @@
-import { bigint, boolean, date, index, integer, jsonb, numeric, pgTable, primaryKey, check, text, timestamp, unique, varchar, } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, index, integer, jsonb, numeric, pgTable, primaryKey, check, text, timestamp, unique, varchar, uuid, } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 
@@ -935,3 +935,42 @@ export const importQualityObservations=pgTable('import_quality_observations',{
  firstSeenAt:timestamp('first_seen_at',{withTimezone:true}).notNull().defaultNow(),
  lastSeenAt:timestamp('last_seen_at',{withTimezone:true}).notNull().defaultNow(),
 },t=>[unique('import_quality_observations_identity_unique').on(t.storeId,t.sourceType,t.problemType,t.reference),check('import_quality_observations_problem_type_check',sql`${t.problemType} IN ('unknown_product_code','unmatched_barcode')`)]);
+
+
+/** Apply 2026-10-20-unmatched-products.sql before starting this app/worker version. */
+export const crmProductIdentifiers = pgTable('crm_product_identifiers', {
+ id:bigint('id',{mode:'number'}).primaryKey().generatedByDefaultAsIdentity(),
+ storeId:integer('store_id').notNull().references(()=>stores.id),
+ kind:text('kind').notNull(),identifier:text('identifier').notNull(),productName:text('product_name'),
+ storeProductId:integer('store_product_id').references(()=>storeProducts.id),
+ firstSeenAt:timestamp('first_seen_at',{withTimezone:true}).notNull().defaultNow(),
+ lastCheckedAt:timestamp('last_checked_at',{withTimezone:true}).notNull().defaultNow(),
+ resolvedAt:timestamp('resolved_at',{withTimezone:true}),
+},t=>[unique('crm_product_identifiers_store_id_kind_identifier_key').on(t.storeId,t.kind,t.identifier),
+ index('crm_product_identifiers_pending_idx').on(t.storeId,t.storeProductId,t.id),
+ check('crm_product_identifiers_kind_check',sql`${t.kind} IN ('Barcode','Product code')`),
+ check('crm_product_identifiers_check',sql`(${t.storeProductId} IS NULL) = (${t.resolvedAt} IS NULL)`)]);
+export const crmIdentifierOccurrences=pgTable('crm_identifier_occurrences',{
+ identifierId:bigint('identifier_id',{mode:'number'}).notNull().references(()=>crmProductIdentifiers.id),
+ runId:bigint('run_id',{mode:'number'}).notNull().references(()=>dataImportRuns.id),
+ transactionCount:integer('transaction_count'),
+},t=>[primaryKey({columns:[t.identifierId,t.runId]})]);
+export const crmProductCodeAliases=pgTable('crm_product_code_aliases',{
+ storeId:integer('store_id').notNull().references(()=>stores.id),identifier:varchar('identifier',{length:100}).notNull(),
+ storeProductId:integer('store_product_id').notNull().references(()=>storeProducts.id),
+},t=>[primaryKey({columns:[t.storeId,t.identifier]})]);
+export const crmReconciliationBatches=pgTable('crm_reconciliation_batches',{
+ id:uuid('id').primaryKey(),rows:jsonb('rows').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+ approvedAt:timestamp('approved_at',{withTimezone:true}),approvedBy:text('approved_by'),result:jsonb('result'),
+});
+export const crmReconciliationAudit=pgTable('crm_reconciliation_audit',{
+ id:bigint('id',{mode:'number'}).primaryKey().generatedByDefaultAsIdentity(),
+ identifierId:bigint('identifier_id',{mode:'number'}).notNull().references(()=>crmProductIdentifiers.id),
+ batchId:uuid('batch_id').references(()=>crmReconciliationBatches.id),storeProductId:integer('store_product_id').references(()=>storeProducts.id),
+ action:text('action').notNull(),operatorName:text('operator_name').notNull(),notes:text('notes'),supplierCode:text('supplier_code'),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[index('crm_audit_identifier_idx').on(t.identifierId,t.id)]);
+export const crmReportStage=pgTable('crm_report_stage',{
+ runId:bigint('run_id',{mode:'number'}).notNull().references(()=>dataImportRuns.id),identifier:varchar('identifier',{length:100}).notNull(),
+ reportDate:date('report_date').notNull(),quantity:numeric('quantity',{precision:18,scale:4}).notNull(),mappingType:text('mapping_type').notNull(),
+},t=>[primaryKey({columns:[t.runId,t.identifier,t.reportDate]}),check('crm_report_stage_mapping_type_check',sql`${t.mappingType} IN ('barcode','store_product_code')`)]);

@@ -57,3 +57,11 @@ class CrmUpgradeTests(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+
+
+class ReconciliationUpgradeTests(CrmUpgradeTests):
+    def setUp(self):
+        super().setUp()
+        repo = Path(__file__).resolve().parents[2]
+        shutil.copy(repo / 'automation/apply-reconciliation-upgrade.sh', self.script)
+        shutil.copy(repo / 'migrations/manual/2026-10-20-unmatched-products.sql', self.script.parents[1] / 'migrations/manual')

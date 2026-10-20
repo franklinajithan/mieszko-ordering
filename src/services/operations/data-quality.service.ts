@@ -75,7 +75,7 @@ async function loadQualityIssues(filters:QualityFilters,day:string):Promise<Qual
  const failures=await db.execute(sql`SELECT r.id::text,r.store_id,s.name,r.source_type,r.details FROM data_import_runs r LEFT JOIN stores s ON s.id=r.store_id
    WHERE r.status='failed' AND NOT(r.details ? 'queue_control') AND (${filters.storeId??null}::integer IS NULL OR r.store_id=${filters.storeId??null})
    AND NOT EXISTS(SELECT 1 FROM data_import_runs ok WHERE ok.status='success' AND ok.details->>'retry_of'=r.id::text) ORDER BY r.id DESC`);
- const [knownCodes,knownBarcodes]=failures.length?await Promise.all([db.execute(sql`SELECT store_id,store_product_code AS code FROM store_products`),db.execute(sql`SELECT store_id,barcode AS code FROM product_barcodes`)]):[[],[]];
+ const [knownCodes,knownBarcodes]=failures.length?await Promise.all([db.execute(sql`SELECT store_id,store_product_code AS code FROM store_products UNION SELECT store_id,identifier AS code FROM crm_product_code_aliases`),db.execute(sql`SELECT store_id,barcode AS code FROM product_barcodes`)]):[[],[]];
  const identifiers={unknown_product_code:new Set(knownCodes.map(r=>`${r.store_id}:${r.code}`)),unmatched_barcode:new Set(knownBarcodes.map(r=>`${r.store_id}:${r.code}`))};
  for(const row of failures){
   const details=row.details as Record<string,unknown>;
@@ -91,6 +91,7 @@ async function loadQualityIssues(filters:QualityFilters,day:string):Promise<Qual
  const observed=await db.execute(sql`SELECT o.*,s.name FROM import_quality_observations o JOIN stores s ON s.id=o.store_id
    WHERE (${filters.storeId??null}::integer IS NULL OR o.store_id=${filters.storeId??null})
    AND NOT (o.problem_type='unknown_product_code' AND EXISTS(SELECT 1 FROM store_products sp WHERE sp.store_id=o.store_id AND sp.store_product_code=o.reference))
+   AND NOT (o.problem_type='unknown_product_code' AND EXISTS(SELECT 1 FROM crm_product_code_aliases a WHERE a.store_id=o.store_id AND a.identifier=o.reference))
    AND NOT (o.problem_type='unmatched_barcode' AND EXISTS(SELECT 1 FROM product_barcodes b WHERE b.store_id=o.store_id AND b.barcode=o.reference))`);
  for(const row of observed)issues.push({id:`observation:${row.id}`,type:row.problem_type as QualityIssue['type'],severity:'error',storeId:Number(row.store_id),storeName:String(row.name),supplierId:null,supplierName:null,productId:null,itemCode:String(row.reference),productName:null,message:`Unmatched identifier observed in ${row.source_type} upload or preview.`,action:'Review the source identifier and map the correct store product. Existing identities remain unchanged.',href:'/products'});
  return issues.filter(issue=>(!filters.type||issue.type===filters.type)&&(!filters.supplierId||issue.supplierId===filters.supplierId)).sort((a,b)=>a.storeName.localeCompare(b.storeName)||a.type.localeCompare(b.type)||a.id.localeCompare(b.id));

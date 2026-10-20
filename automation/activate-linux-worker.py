@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from worker import crm_store_code
+from worker import crm_store_code, require_reconciliation_schema
 import importlib.util
 
 spec = importlib.util.spec_from_file_location('linux_config', Path(__file__).with_name('configure-linux-worker.py'))
@@ -56,6 +56,7 @@ def main():
                              options='-c default_transaction_read_only=on') as conn:
             if conn.execute('SELECT current_database()').fetchone()[0] != 'mieszko-order':
                 raise ValueError('Expected the existing mieszko-order office database; activation cancelled')
+            require_reconciliation_schema(conn)
             stores = conn.execute('''SELECT s.name,s.code FROM stores s
                 JOIN store_crm_settings c ON c.store_id=s.id
                 WHERE s.is_active=true AND s.erp_type='msp' ORDER BY s.name''').fetchall()

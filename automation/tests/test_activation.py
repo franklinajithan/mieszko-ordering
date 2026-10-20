@@ -43,7 +43,7 @@ class ActivationTests(unittest.TestCase):
         connection = database.connect.return_value.__enter__.return_value
         if fail_connection:
             database.connect.side_effect = RuntimeError('fixture-secret-dsn')
-        connection.execute.return_value.fetchone.side_effect = [('mieszko-order',), (3,)]
+        connection.execute.return_value.fetchone.side_effect = [('mieszko-order',), (True,), (3,)]
         connection.execute.return_value.fetchall.return_value = [('Hayes', 'HYS')]
         output = io.StringIO()
         with patch.object(activation, '__file__', str(app / 'automation/activate-linux-worker.py')), \
