@@ -87,7 +87,7 @@ export function OrderSheetPage({
           </div>
         ) : null}
 
-        <OrderSheetRecovery form={formState.form} scanRequest={recoveryScanRequest} onRecoveryFinished={(resume)=>{void workflow.refreshSourceWarnings();if(resume)void workflow.onGenerate();}} />
+        <OrderSheetRecovery form={formState.form} scanRequest={recoveryScanRequest} onRecoveryFinished={(resume)=>{if(resume)void workflow.onGenerate();else void workflow.refreshSourceWarnings();}} />
 
         {workflow.error ? (
           <p className="text-sm text-red-600">{workflow.error}</p>

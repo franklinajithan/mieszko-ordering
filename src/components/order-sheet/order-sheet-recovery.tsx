@@ -81,7 +81,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
  async function queueApproved(confirmed=false){
   const approved=rows.filter(row=>selected.includes(key(row))&&row.can_download).slice(0,250);
   if(!approved.length||stale||scanning||running||jobIds.length)return;
-  if(!confirmed&&!window.confirm(`Queue ${approved.length} selected CRM reports for download? This will not replace completed reports.`))return;
+  if(!confirmed&&!window.confirm(`Queue ${approved.length} selected source reports for download? This will not replace completed reports.`))return;
   setApprovalOpen(false);
   setRunning(true);setProgress({done:0,total:approved.length});setMessage("Submitting approved recovery jobs...");
   const failuresNow:string[]=[];
