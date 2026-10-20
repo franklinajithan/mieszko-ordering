@@ -76,7 +76,15 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
    setProgress({done:i+1,total:approved.length});
   }
   setRunning(false);setSelected([]);setFailures([...failuresNow,...skipped]);
-  if(queuedIds.length){refreshAfterCompletion.current=true;setJobIds(old=>[...new Set([...old,...queuedIds])].slice(-250));}
+  if(queuedIds.length){
+   refreshAfterCompletion.current=true;
+   setJobCheckError("");
+   setJobs([]);
+   setJobIds(old=>[...new Set([...old,...queuedIds])].slice(-250));
+  } else {
+   // An earlier operator may already have completed these reports; refresh coverage.
+   void scanRef.current();
+  }
   setMessage(`${queuedIds.length} recovery jobs tracked; ${skipped.length} already completed or skipped; ${failuresNow.length} requests failed. Job IDs: ${queuedIds.length?queuedIds.join(", "):"none created"}. Progress is monitored automatically; the missing-report scan and order warnings refresh when jobs finish.`);
  }
  useEffect(()=>{
