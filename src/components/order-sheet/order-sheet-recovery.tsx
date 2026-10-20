@@ -5,6 +5,7 @@ import type { OrderSheetFormState } from "@/types/orderSheet";
 
 type Gap = {store_id:number;store_name:string;source_type:"normal_sales"|"rtc"|"wastage";day:string;status:string;reason:string;can_download:boolean;run_id:number|null;configuration_required:boolean};
 type Coverage = {rows:Gap[];total:number;pages:number;page:number;unavailable:number;pending:number};
+type RecoveryJob = {id:number;feed:string;report_date:string;store_name:string;status:string;downloaded_row_count:number|null;imported_row_count:number|null;error_message:string|null};
 type ApiResponse<T> = {success:boolean;data:T;error?:string};
 
 export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormState;scanRequest?:number}) {
@@ -17,6 +18,9 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
  const [progress,setProgress]=useState({done:0,total:0});
  const [scannedScope,setScannedScope]=useState("");
  const [failures,setFailures]=useState<string[]>([]);
+ const [jobIds,setJobIds]=useState<number[]>([]);
+ const [jobs,setJobs]=useState<RecoveryJob[]>([]);
+ const [jobCheckError,setJobCheckError]=useState("");
  const scope=JSON.stringify({stores:form.storeIds,periods:form.comparisonPeriods,rtc:form.includeRtc,wastage:form.includeWastage});
  const stale=scope!==scannedScope;
  const key=(r:Gap)=>`${r.store_id}:${r.source_type}:${r.day}`;
@@ -61,6 +65,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
    setProgress({done:i+1,total:approved.length});
   }
   setRunning(false);setSelected([]);setFailures(failuresNow);
+  setJobIds(old=>[...new Set([...old,...queuedIds])]);
   setMessage(`Submitted ${approved.length-failuresNow.length} recovery requests; ${failuresNow.length} failed. Job IDs: ${queuedIds.length?queuedIds.join(", "):"none created"}. Open Download Queue for live progress, then scan again to verify imports.`);
  }
  useEffect(()=>{
@@ -69,6 +74,24 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
   void scan();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Trigger only on an explicit Generate action; scan snapshots current form.
  },[scanRequest]);
+ useEffect(()=>{
+  if(!jobIds.length)return;
+  let cancelled=false;
+  async function refresh(){
+   try {
+    const response=await fetch("/api/order-sheet/recovery-status?ids="+jobIds.join(","),{cache:"no-store"});
+    const body=await response.json() as ApiResponse<{jobs:RecoveryJob[]}>;
+    if(!response.ok||!body.success)throw new Error(body.error||"Unable to check recovery jobs.");
+    if(cancelled)return;
+    setJobs(body.data.jobs);setJobCheckError("");
+    const finished=body.data.jobs.length===jobIds.length&&body.data.jobs.every(job=>["success","failed","partial","cancelled","paused"].includes(job.status));
+    if(finished){setJobIds([]);setMessage("Recovery jobs finished. Scan missing reports again to verify source data; partial and failed jobs still need attention.");}
+   }catch(error){if(!cancelled)setJobCheckError(error instanceof Error?error.message:"Unable to check recovery jobs.");}
+  }
+  void refresh();
+  const timer=window.setInterval(()=>void refresh(),10000);
+  return ()=>{cancelled=true;window.clearInterval(timer);};
+ },[jobIds]);
  const eligible=rows.filter(row=>row.can_download);
  return <section className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-slate-900" aria-label="Mieszko intelligent data recovery">
   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -78,6 +101,8 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
   {message&&<p role="status" className="mt-3">{message}</p>}
   {stale&&rows.length>0&&<p role="alert">Selections changed. Scan again before approving downloads.</p>}
   {failures.length>0&&<div role="alert" className="mt-2 text-red-700">{failures.map(f=><p key={f}>{f}</p>)}</div>}
+  {jobCheckError&&<p role="alert" className="mt-2 text-red-700">{jobCheckError}</p>}
+  {jobs.length>0&&<div className="mt-3 rounded border bg-white p-3"><p className="font-semibold">Recovery job progress</p><ul className="mt-2 space-y-1">{jobs.map(job=><li key={job.id}>#{job.id} · {job.store_name} · {job.report_date} · {job.feed.replaceAll("_"," ")} · <strong>{job.status}</strong> · imported {job.imported_row_count??0} rows{job.error_message?" · "+job.error_message:""}</li>)}</ul></div>}
   {rows.length>0&&<div className="mt-3">
    <p className="mb-2">{rows.length} gaps · {eligible.length} eligible for CRM download. Missing book stock and supplier prices require separate uploads.</p>
    <div className="max-h-72 overflow-auto rounded border bg-white">
