@@ -12,6 +12,12 @@ test.afterAll(async()=>{await sql.end();});
 
 // Isolate approval to one missing report. Queue creation, status polling,
 // fixture download/import and final generation use the real APIs.
+function runFixtureReport(){
+ const folder=mkdtempSync(path.join(tmpdir(),'mieszko-approved-recovery-'));const config=path.join(folder,'config.json');
+ writeFileSync(config,JSON.stringify({download_directory:path.join(folder,'downloads'),app_directory:process.cwd(),stores:{'1':{erp:'msp',feeds:{normal_sales:{complete_store_report:true,normalize_with_app_parsers:true,extension:'.xlsx',mapping:{code:'Item Code',quantity:'Sold Qty'},command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}']}}}}}));
+ execFileSync('python',['automation/worker.py','--config',config,'--once'],{env:{...process.env,DATABASE_URL:connection},timeout:30000});
+}
+
 async function missingReport(page:Page) {
  await page.clock.setFixedTime(new Date('2026-10-08T12:00:00Z'));
  let generationRequests=0;
@@ -53,9 +59,7 @@ test('approved reports notify completion and wait for permission to proceed',asy
  await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toHaveAttribute('aria-valuenow','0');
  const [queued]=await sql.unsafe("SELECT id,status,source_start_date::text AS day FROM data_import_runs").simple();
  expect(queued).toMatchObject({status:'queued',day:'2026-10-07'});expect(state.generationRequests()).toBe(0);
- const folder=mkdtempSync(path.join(tmpdir(),'mieszko-approved-recovery-'));const config=path.join(folder,'config.json');
- writeFileSync(config,JSON.stringify({download_directory:path.join(folder,'downloads'),app_directory:process.cwd(),stores:{'1':{erp:'msp',feeds:{normal_sales:{complete_store_report:true,normalize_with_app_parsers:true,extension:'.xlsx',mapping:{code:'Item Code',quantity:'Sold Qty'},command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}']}}}}}));
- execFileSync('python',['automation/worker.py','--config',config,'--once'],{env:{...process.env,DATABASE_URL:connection},timeout:30000});
+ runFixtureReport();
  await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toHaveAttribute('aria-valuenow','100',{timeout:25000});
  const completed=page.getByRole('alertdialog');
  await expect(completed.getByText('Reports downloaded and imported',{exact:true})).toBeVisible();
@@ -113,6 +117,18 @@ test('Generate discovers last-year comparison reports on the order screen and sk
  await dialog.getByRole('button',{name:'Approve download of 1 reports',exact:true}).click();
  await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toBeVisible();
  expect((await sql.unsafe("SELECT store_id,source_type,source_start_date::text AS day FROM data_import_runs").simple())).toEqual([{store_id:1,source_type:'normal_sales',day:'2025-10-07'}]);
+ runFixtureReport();
+ await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toHaveAttribute('aria-valuenow','100',{timeout:25000});
+ const completed=page.getByRole('alertdialog');
+ await expect(completed.getByText('Reports downloaded and imported',{exact:true})).toBeVisible();
+ expect((await sql.unsafe("SELECT id FROM orders").simple())).toHaveLength(0);
+ await completed.getByRole('button',{name:'Proceed with order',exact:true}).click();
+ await expect(page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Hounslow'})).toBeVisible({timeout:45000});
+ const downloadEvent=page.waitForEvent('download');
+ await page.getByRole('button',{name:'Dairy workbook',exact:true}).click();
+ expect((await downloadEvent).suggestedFilename()).toContain('Dairy Order');
+ expect((await sql.unsafe("SELECT status FROM data_import_runs WHERE source_start_date='2025-10-07'").simple())[0].status).toBe('success');
+
 });
 
 test('day-by-day dates outside comparison periods detect only missing Normal Sales',async({request})=>{
