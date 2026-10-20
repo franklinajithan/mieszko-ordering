@@ -75,7 +75,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
   }
   setRunning(false);setSelected([]);setFailures(failuresNow);
   if(queuedIds.length){refreshAfterCompletion.current=true;setJobIds(old=>[...new Set([...old,...queuedIds])].slice(-250));}
-  setMessage(`Submitted ${approved.length-failuresNow.length} recovery requests; ${failuresNow.length} failed. Job IDs: ${queuedIds.length?queuedIds.join(", "):"none created"}. Open Download Queue for live progress, then scan again to verify imports.`);
+  setMessage(`Submitted ${approved.length-failuresNow.length} recovery requests; ${failuresNow.length} failed. Job IDs: ${queuedIds.length?queuedIds.join(", "):"none created"}. Progress is monitored automatically; the missing-report scan and order warnings refresh when jobs finish.`);
  }
  useEffect(()=>{
   if(scanRequest===lastRequest.current)return;
@@ -92,7 +92,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
     if(!response.ok||!body.success)throw new Error(body.error||"Unable to check recovery jobs.");
     if(cancelled)return;
     setJobs(body.data.jobs);setJobCheckError("");
-    const finished=body.data.jobs.length===jobIds.length&&body.data.jobs.every(job=>["success","failed","partial","cancelled","paused"].includes(job.status));
+    const finished=body.data.jobs.length===jobIds.length&&body.data.jobs.every(job=>["success","failed","partial","cancelled","paused","resumed"].includes(job.status));
     if(finished){
      setJobIds([]);
      if(refreshAfterCompletion.current){
@@ -132,7 +132,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
    <div className="mt-3 flex flex-wrap items-center gap-3">
     <button type="button" disabled={running||scanning||stale||!eligible.length} onClick={()=>setSelected(eligible.map(key))} className="rounded border px-3 py-2">Select eligible</button>
     <button type="button" disabled={running||scanning||stale||!selected.length} onClick={()=>setSelected([])} className="rounded border px-3 py-2">Clear selection</button>
-    <button type="button" disabled={running||stale||!selected.length} onClick={()=>void queueApproved()} className="rounded bg-emerald-700 px-3 py-2 font-semibold text-white disabled:opacity-50">Approve & queue {selected.length} reports</button>
+    <button type="button" disabled={running||scanning||stale||!selected.length} onClick={()=>void queueApproved()} className="rounded bg-emerald-700 px-3 py-2 font-semibold text-white disabled:opacity-50">Approve & queue {selected.length} reports</button>
     <a href="/book-stock" className="text-blue-700 underline">Book stock upload</a>
     <a href="/supplier-prices" className="text-blue-700 underline">Supplier prices upload</a>
     <a href="/downloads" className="text-blue-700 underline">View live download queue</a>
