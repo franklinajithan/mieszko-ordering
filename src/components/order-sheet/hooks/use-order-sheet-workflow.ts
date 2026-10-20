@@ -83,8 +83,8 @@ export function useOrderSheetWorkflow({
         includeFutureDeliveries: form.includeFutureDeliveries,
         bookStockDate: bookStockRows[0]?.bookStockDate ?? undefined,
         dayBySalesRequired: form.dayBySalesRequired,
-        dayBySalesStartDate: form.dayBySalesStartDate,
-        dayBySalesEndDate: form.dayBySalesEndDate,
+        dayBySalesStartDate: form.dayBySalesRequired ? form.dayBySalesStartDate : undefined,
+        dayBySalesEndDate: form.dayBySalesRequired ? form.dayBySalesEndDate : undefined,
         comparisonPeriods: form.comparisonPeriods.map(({ startDate, endDate }) => ({ startDate, endDate })),
       });
       if (!preflight.success) {
@@ -178,8 +178,8 @@ export function useOrderSheetWorkflow({
         includeFutureDeliveries: form.includeFutureDeliveries,
         bookStockDate: bookStockRows[0]?.bookStockDate ?? undefined,
         dayBySalesRequired: form.dayBySalesRequired,
-        dayBySalesStartDate: form.dayBySalesStartDate,
-        dayBySalesEndDate: form.dayBySalesEndDate,
+        dayBySalesStartDate: form.dayBySalesRequired ? form.dayBySalesStartDate : undefined,
+        dayBySalesEndDate: form.dayBySalesRequired ? form.dayBySalesEndDate : undefined,
         comparisonPeriods: form.comparisonPeriods.map(({startDate,endDate})=>({startDate,endDate})),
       });
       if (response.success) {
