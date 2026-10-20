@@ -13,6 +13,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
  const scanRef=useRef<() => Promise<void>>(async()=>{});
  const refreshAfterCompletion=useRef(false);
  const scanVersion=useRef(0);
+ const scopeRef=useRef("");
  const [rows,setRows]=useState<Gap[]>([]);
  const [scanning,setScanning]=useState(false);
  const [running,setRunning]=useState(false);
@@ -26,6 +27,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
  const [jobCheckError,setJobCheckError]=useState("");
  const scope=JSON.stringify({stores:form.storeIds,periods:form.comparisonPeriods,rtc:form.includeRtc,wastage:form.includeWastage});
  const stale=scope!==scannedScope;
+ useEffect(()=>{scopeRef.current=scope;},[scope]);
  const key=(r:Gap)=>`${r.store_id}:${r.source_type}:${r.day}`;
  const feeds=["normal_sales",...(form.includeRtc?["rtc"]:[]),...(form.includeWastage?["wastage"]:[])];
  async function scan() {
@@ -46,16 +48,16 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
     } while(page<=pages);
    }
    const gaps=[...found.values()].sort((a,b)=>a.day.localeCompare(b.day)||a.store_name.localeCompare(b.store_name));
-   if(version!==scanVersion.current)return;
+   if(version!==scanVersion.current||scopeRef.current!==scope)return;
    setRows(gaps);setScannedScope(scope);
    setMessage(gaps.length?`Found ${gaps.length} store/date/feed gaps. Review and approve individual downloads below.`:"No report gaps found in selected comparison periods.");
-  } catch(error){if(version===scanVersion.current)setMessage(error instanceof Error?error.message:"Unable to scan missing reports.");}
+  } catch(error){if(version===scanVersion.current&&scopeRef.current===scope)setMessage(error instanceof Error?error.message:"Unable to scan missing reports.");}
   finally{if(version===scanVersion.current)setScanning(false);}
  }
  useEffect(()=>{scanRef.current=scan;});
  async function queueApproved(){
   const approved=rows.filter(row=>selected.includes(key(row))&&row.can_download);
-  if(!approved.length||stale)return;
+  if(!approved.length||stale||scanning||running)return;
   if(!window.confirm(`Queue ${approved.length} selected CRM reports for download? This will not replace completed reports.`))return;
   setRunning(true);setProgress({done:0,total:approved.length});setMessage("Submitting approved recovery jobs...");
   const failuresNow:string[]=[];
@@ -123,11 +125,11 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
   {rows.length>0&&<div className="mt-3">
    <p className="mb-2">{rows.length} gaps · {eligible.length} eligible for CRM download. Missing book stock and supplier prices require separate uploads.</p>
    <div className="max-h-72 overflow-auto rounded border bg-white">
-    <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr><th className="p-2">Approve</th><th className="p-2">Store</th><th className="p-2">Report date</th><th className="p-2">Feed</th><th className="p-2">Status</th></tr></thead><tbody>{rows.map(row=><tr key={key(row)} className="border-t"><td className="p-2"><input type="checkbox" aria-label={`Approve ${row.store_name} ${row.source_type} ${row.day}`} disabled={!row.can_download||running||stale} checked={selected.includes(key(row))} onChange={e=>setSelected(old=>e.target.checked?[...old,key(row)]:old.filter(x=>x!==key(row)))}/></td><td className="p-2">{row.store_name}</td><td className="p-2">{row.day}</td><td className="p-2">{row.source_type.replaceAll("_"," ")}</td><td className="p-2" title={row.reason}>{row.status}{row.configuration_required?" · CRM setup needed":""}</td></tr>)}</tbody></table>
+    <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr><th className="p-2">Approve</th><th className="p-2">Store</th><th className="p-2">Report date</th><th className="p-2">Feed</th><th className="p-2">Status</th></tr></thead><tbody>{rows.map(row=><tr key={key(row)} className="border-t"><td className="p-2"><input type="checkbox" aria-label={`Approve ${row.store_name} ${row.source_type} ${row.day}`} disabled={!row.can_download||running||scanning||stale} checked={selected.includes(key(row))} onChange={e=>setSelected(old=>e.target.checked?[...old,key(row)]:old.filter(x=>x!==key(row)))}/></td><td className="p-2">{row.store_name}</td><td className="p-2">{row.day}</td><td className="p-2">{row.source_type.replaceAll("_"," ")}</td><td className="p-2" title={row.reason}>{row.status}{row.configuration_required?" · CRM setup needed":""}</td></tr>)}</tbody></table>
    </div>
    <div className="mt-3 flex flex-wrap items-center gap-3">
-    <button type="button" disabled={running||stale||!eligible.length} onClick={()=>setSelected(eligible.map(key))} className="rounded border px-3 py-2">Select eligible</button>
-    <button type="button" disabled={running||stale||!selected.length} onClick={()=>setSelected([])} className="rounded border px-3 py-2">Clear selection</button>
+    <button type="button" disabled={running||scanning||stale||!eligible.length} onClick={()=>setSelected(eligible.map(key))} className="rounded border px-3 py-2">Select eligible</button>
+    <button type="button" disabled={running||scanning||stale||!selected.length} onClick={()=>setSelected([])} className="rounded border px-3 py-2">Clear selection</button>
     <button type="button" disabled={running||stale||!selected.length} onClick={()=>void queueApproved()} className="rounded bg-emerald-700 px-3 py-2 font-semibold text-white disabled:opacity-50">Approve & queue {selected.length} reports</button>
     <a href="/book-stock" className="text-blue-700 underline">Book stock upload</a>
     <a href="/supplier-prices" className="text-blue-700 underline">Supplier prices upload</a>
