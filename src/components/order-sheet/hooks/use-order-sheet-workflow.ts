@@ -153,6 +153,28 @@ export function useOrderSheetWorkflow({
     }
   }
 
+  async function refreshSourceWarnings() {
+    try {
+      const response = await preflightOrderSheet({
+        storeIds: form.storeIds,
+        supplierIds: form.supplierIds,
+        deliveryDate: form.deliveryDate,
+        includeRtc: form.includeRtc,
+        includeWastage: form.includeWastage,
+        includeBookStock: form.includeBookStock,
+        includeFutureDeliveries: form.includeFutureDeliveries,
+        bookStockDate: bookStockRows[0]?.bookStockDate ?? undefined,
+        comparisonPeriods: form.comparisonPeriods.map(({startDate,endDate})=>({startDate,endDate})),
+      });
+      if (response.success) {
+        setDataWarnings(response.data.warnings);
+        setBookStockRows(response.data.bookStock);
+      }
+    } catch {
+      // Recovery status remains visible; an unavailable preflight must not alter saved orders.
+    }
+  }
+
   async function persistDraft() {
     if (!orderId) throw new Error("Generate the order sheet before saving a draft.");
     const response = await saveOrderSheetDraft({orderId,comment:form.comment,
@@ -225,6 +247,7 @@ export function useOrderSheetWorkflow({
     items,
     orderId,
     onGenerate,
+    refreshSourceWarnings,
     onSaveDraft,
     persistDraft,
     onExport,
