@@ -43,7 +43,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
   setReadyScope("");setCompletionOpen(false);setScanning(true);setMessage("");setRows([]);setSelected([]);setFailures([]);
   try {
    const found=new Map<string,Gap>();
-   const requests=form.comparisonPeriods.map(period=>({...period,feeds}));
+   const requests=form.comparisonPeriods.map(({startDate,endDate})=>({startDate,endDate,feeds}));
    if(form.dayBySalesRequired&&form.dayBySalesStartDate&&form.dayBySalesEndDate)requests.push({startDate:form.dayBySalesStartDate,endDate:form.dayBySalesEndDate,feeds:["normal_sales"]});
    for(const period of requests) {
     let page=1;let pages=1;
