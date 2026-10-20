@@ -108,6 +108,8 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
  const processingJobs=jobs.filter(job=>["queued","downloading","downloaded","importing"].includes(job.status)).length;
  const completedJobs=jobs.filter(job=>job.status==="success").length;
  const problemJobs=jobs.filter(job=>["failed","partial","paused","cancelled","resumed"].includes(job.status)).length;
+ const finishedJobs=completedJobs+problemJobs;
+ const completionPercent=jobs.length?Math.round(finishedJobs/jobs.length*100):0;
  return <section className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-slate-900" aria-label="Mieszko intelligent data recovery">
   <div className="flex flex-wrap items-center justify-between gap-3">
    <div><h3 className="font-semibold">Mieszko · Intelligent Data Recovery</h3><p className="text-slate-600">Check exact CRM reports before placing orders. Downloads require your approval.</p></div>
@@ -117,7 +119,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
   {stale&&rows.length>0&&<p role="alert">Selections changed. Scan again before approving downloads.</p>}
   {failures.length>0&&<div role="alert" className="mt-2 text-red-700">{failures.map(f=><p key={f}>{f}</p>)}</div>}
   {jobCheckError&&<p role="alert" className="mt-2 text-red-700">{jobCheckError}</p>}
-  {jobs.length>0&&<div className="mt-3 rounded border bg-white p-3"><p className="font-semibold">Recovery job progress · refreshed every 10 seconds</p><p className="mt-1 text-slate-600">{processingJobs} in progress · {completedJobs} completed · {problemJobs} need attention</p><ul className="mt-2 space-y-1">{jobs.map(job=><li key={job.id}>#{job.id} · {job.store_name} · {job.report_date} · {job.feed.replaceAll("_"," ")} · <strong>{job.status}</strong> · imported {job.imported_row_count??0} rows{job.error_message?" · "+job.error_message:""}</li>)}</ul></div>}
+  {jobs.length>0&&<div className="mt-3 rounded border bg-white p-3"><p className="font-semibold">Recovery job progress · refreshed every 10 seconds</p><p className="mt-1 text-slate-600">{processingJobs} in progress · {completedJobs} completed · {problemJobs} need attention</p><div role="progressbar" aria-label="Recovery jobs finished" aria-valuemin={0} aria-valuemax={100} aria-valuenow={completionPercent} className="mt-2 h-2 overflow-hidden rounded bg-slate-200"><div className="h-full bg-blue-600 transition-all" style={{width:`${completionPercent}%`}} /></div><p className="mt-1 text-xs text-slate-600">{finishedJobs} of {jobs.length} jobs finished ({completionPercent}%)</p><ul className="mt-2 space-y-1">{jobs.map(job=><li key={job.id}>#{job.id} · {job.store_name} · {job.report_date} · {job.feed.replaceAll("_"," ")} · <strong>{job.status}</strong> · downloaded {job.downloaded_row_count??0} rows · imported {job.imported_row_count??0} rows{job.error_message?" · "+job.error_message:""}</li>)}</ul></div>}
   {rows.length>0&&<div className="mt-3">
    <p className="mb-2">{rows.length} gaps · {eligible.length} eligible for CRM download. Missing book stock and supplier prices require separate uploads.</p>
    <div className="max-h-72 overflow-auto rounded border bg-white">
@@ -132,7 +134,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
     <a href="/downloads" className="text-blue-700 underline">View live download queue</a>
     <a href="/unmatched-products" className="text-blue-700 underline">Review unmatched products</a>
    </div>
-   {running&&<p role="status" className="mt-2">Queue requests: {progress.done}/{progress.total}</p>}
+   {running&&<div className="mt-2" role="status"><p>Queue requests: {progress.done}/{progress.total}</p><progress aria-label="Recovery requests submitted" value={progress.done} max={progress.total} className="mt-1 w-full" /></div>}
   </div>}
  </section>;
 }
