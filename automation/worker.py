@@ -184,6 +184,12 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
         state = conn.execute('SELECT status FROM data_import_runs WHERE id=%s FOR UPDATE', (run_id,)).fetchone()
         if not state or state[0] != 'importing':
             raise ValueError('Job is no longer importing')
+        newer = conn.execute("""SELECT id FROM data_import_runs WHERE store_id=%s AND source_type=%s
+            AND id>%s AND source_start_date<=%s AND source_end_date>=%s
+            AND (status='success' OR details->>'partial_import'='true') LIMIT 1""",
+            (store_id, source, run_id, end, start)).fetchone()
+        if newer:
+            raise ValueError('A newer overlapping report is already saved; previous data retained')
         if mapping_type == 'barcode':
             products = dict(conn.execute('SELECT barcode, store_product_id FROM product_barcodes WHERE store_id=%s', (store_id,)).fetchall())
         elif mapping_type == 'store_product_code':
@@ -195,14 +201,21 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
         else:
             raise ValueError('Unsupported product mapping')
         unknown = sorted({code for code, _ in rows if code not in products})
-        if unknown:
-            raise ImportValidationError(f'{len(unknown)} unmatched product identifiers; import cancelled', {
-                'unmatched_barcodes' if mapping_type == 'barcode' else 'unknown_product_codes': unknown,
-                'unmatched_identifier_count': len(unknown)})
         resolved = {}
         for (code, day), quantity in rows.items():
+            if code not in products:
+                continue
             key = (products[code], day)
             resolved[key] = resolved.get(key, Decimal(0)) + quantity
+        if unknown:
+            details = {
+                'unmatched_barcodes' if mapping_type == 'barcode' else 'unknown_product_codes': unknown,
+                'unmatched_identifier_count': len(unknown),
+            }
+            if source == 'book_stock':
+                # A stock snapshot drives every later stock calculation and remains atomic.
+                raise ImportValidationError(f'{len(unknown)} unmatched product identifiers; stock snapshot retained', details)
+            return publish_partial_report(conn, job, rows, resolved, filename, details, source_sha256)
         rows = resolved
         fingerprint = row_fingerprint(rows)
         details = {'data_sha256': fingerprint, 'source_sha256': source_sha256}
@@ -232,8 +245,9 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
             conn.execute("""UPDATE data_import_runs SET status='success', imported_at=%s, completed_at=now(),
                 imported_row_count=0, rejected_row_count=0, source_file_name=%s, details=details || %s::jsonb WHERE id=%s""",
                 (previous[1], filename, json.dumps(details), run_id))
+            conn.execute('DELETE FROM crm_partial_publications WHERE store_id=%s AND source_type=%s AND report_date BETWEEN %s AND %s', (store_id, source, start, end))
             conn.execute('DELETE FROM crm_report_stage WHERE run_id=%s', (run_id,))
-            return
+            return {'status': 'success', 'saved': 0}
         imported_at = conn.execute('SELECT clock_timestamp()').fetchone()[0]
         if source == 'book_stock':
             # One snapshot timestamp, committed atomically with the successful audit record.
@@ -250,11 +264,66 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
         conn.execute('''UPDATE data_import_runs SET status='success', imported_at=%s, completed_at=now(),
             imported_row_count=%s, rejected_row_count=0, source_file_name=%s, details=details || %s::jsonb WHERE id=%s''',
             (imported_at, len(rows), filename, json.dumps(details), run_id))
+        conn.execute('DELETE FROM crm_partial_publications WHERE store_id=%s AND source_type=%s AND report_date BETWEEN %s AND %s', (store_id, source, start, end))
         conn.execute('DELETE FROM crm_report_stage WHERE run_id=%s', (run_id,))
+        return {'status': 'success', 'saved': len(rows)}
+
+
+def publish_partial_report(conn, job, original, resolved, filename, details, source_sha256):
+    """Publish known subtotals only into empty or verified partial-owned store days.
+
+    A complete previous import or a manual edit is never replaced by a partial
+    report. Replays replace the owned day from the full stage, never add quantities.
+    This function runs inside import_report's store-locked transaction.
+    """
+    run_id, store_id, source, start, end = job
+    table, date_column, quantity_column = FEEDS[source]
+    published, protected = [], []
+    saved = 0
+    for day in sorted({day for _, day in original}):
+        matched = {key: qty for key, qty in resolved.items() if key[1] == day}
+        if not matched:
+            continue
+        current = conn.execute(f'SELECT store_product_id,{date_column},{quantity_column} FROM {table} '
+            f'WHERE {date_column}=%s AND store_product_id IN (SELECT id FROM store_products WHERE store_id=%s)',
+            (day, store_id)).fetchall()
+        owner = conn.execute('SELECT run_id,data_sha256 FROM crm_partial_publications WHERE store_id=%s AND source_type=%s AND report_date=%s FOR UPDATE',
+                             (store_id, source, day)).fetchone()
+        complete = conn.execute("""SELECT id FROM data_import_runs WHERE store_id=%s AND source_type=%s
+            AND status='success' AND source_start_date<=%s AND source_end_date>=%s LIMIT 1""",
+            (store_id, source, day, day)).fetchone()
+        current_hash = row_fingerprint({(pid, d): qty for pid, d, qty in current})
+        if complete or (current and (not owner or owner[1] != current_hash)) or (owner and owner[0] > run_id):
+            protected.append(str(day))
+            continue
+        conn.execute(f'DELETE FROM {table} WHERE {date_column}=%s AND store_product_id IN (SELECT id FROM store_products WHERE store_id=%s)', (day, store_id))
+        for (pid, d), qty in matched.items():
+            conn.execute(f'INSERT INTO {table}(store_product_id,{date_column},{quantity_column}) VALUES(%s,%s,%s)', (pid, d, qty))
+        conn.execute("""INSERT INTO crm_partial_publications(store_id,source_type,report_date,run_id,data_sha256,published_row_count)
+            VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(store_id,source_type,report_date)
+            DO UPDATE SET run_id=EXCLUDED.run_id,data_sha256=EXCLUDED.data_sha256,
+            published_row_count=EXCLUDED.published_row_count,updated_at=now()""",
+            (store_id, source, day, run_id, row_fingerprint(matched), len(matched)))
+        published.append(str(day))
+        saved += len(matched)
+    details.update({'partial_import': bool(published), 'partial_import_version': 1,
+                    'partial_published_dates': published, 'protected_complete_dates': protected,
+                    'matched_staged_rows': len(resolved), 'source_sha256': source_sha256})
+    unknown_set = set(details.get('unmatched_barcodes', details.get('unknown_product_codes', [])))
+    pending_rows = sum(1 for code, _ in original if code in unknown_set)
+    message = f'{saved} matched product/date rows saved; {len(details.get("unmatched_barcodes", details.get("unknown_product_codes", [])))} unmatched identifiers pending review. Report incomplete.'
+    if protected:
+        message += ' Earlier complete or manually edited data retained for protected dates; matched rows remain staged there.'
+    conn.execute("""UPDATE data_import_runs SET status='failed',completed_at=now(),
+        imported_at=CASE WHEN %s>0 THEN clock_timestamp() ELSE NULL END,
+        imported_row_count=%s,rejected_row_count=%s,source_file_name=%s,error_message=%s,
+        details=details || %s::jsonb WHERE id=%s""",
+        (saved, saved, pending_rows, filename, message, json.dumps(details), run_id))
+    return {'status': 'partial' if published else 'pending', 'saved': saved, 'details': details, 'message': message}
 
 
 def stage_report(conn, job, rows, mapping_type, source_sha256):
-    """Retain validated complete input without publishing an incomplete snapshot."""
+    """Retain the full validated input for progressive matching and exact finalization."""
     run_id, store_id, source, start, end = job
     with conn.transaction():
         conn.execute('SELECT pg_advisory_xact_lock(73501, %s)', (store_id,))
@@ -297,8 +366,8 @@ def reuse_validated_stage(conn, job):
     stage_report(conn, job, rows, details['staged_mapping_type'], details['source_sha256'])
     conn.execute("UPDATE data_import_runs SET source_file_path=%s,downloaded_at=now(),details=details || %s::jsonb WHERE id=%s AND status='importing'",
                  (filepath, json.dumps({'reused_stage_of': parent_id}), run_id))
-    import_report(conn, job, rows, filename or 'retained-report', details['staged_mapping_type'], details['source_sha256'])
-    return True
+    result = import_report(conn, job, rows, filename or 'retained-report', details['staged_mapping_type'], details['source_sha256'])
+    return result
 
 
 def process_job(conn, config, job):
@@ -316,8 +385,9 @@ def process_job(conn, config, job):
             raise ValueError('Book Stock report must include negative stock')
         start = str(start or london_today())
         end = str(end or start)
-        if reuse_validated_stage(conn, (run_id, store_id, source, start, end)):
-            print(f'Job {run_id}: success (retained validated report)', flush=True)
+        reused = reuse_validated_stage(conn, (run_id, store_id, source, start, end))
+        if reused:
+            print(f'Job {run_id}: {reused["status"]} (retained validated report) ({reused["saved"]} rows saved)', flush=True)
             return
         folder = Path(config['download_directory']).resolve() / str(run_id)
         folder.mkdir(parents=True, exist_ok=False)  # Never reuse an old download.
@@ -392,8 +462,12 @@ def process_job(conn, config, job):
             raw_rows = read_rows(output, mapping)
         prepared = prepare_rows(raw_rows, mapping, source, start, end, allow_empty=feed.get("allow_empty_report") is True)
         stage_report(conn, (run_id, store_id, source, start, end), prepared, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
-        import_report(conn, (run_id, store_id, source, start, end), prepared, output.name, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
-        print(f'Job {run_id}: success ({len(prepared)} rows)', flush=True)
+        result = import_report(conn, (run_id, store_id, source, start, end), prepared, output.name, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
+        if result and result.get('details'):
+            pending = result['details'].get('unmatched_barcodes', result['details'].get('unknown_product_codes', []))
+            names = {code: str(review_descriptions[code])[:500] for code in pending if review_descriptions.get(code)}
+            conn.execute("UPDATE data_import_runs SET details=details || %s::jsonb WHERE id=%s", (json.dumps({'unmatched_product_descriptions': names}), run_id))
+        print(f'Job {run_id}: {result["status"]} ({result["saved"]} rows saved)', flush=True)
     except Exception as exc:
         # Keep credentials/command arguments out of logs and dashboard errors.
         if isinstance(exc, ImportValidationError) and isinstance(review_descriptions, dict):
@@ -408,9 +482,10 @@ def process_job(conn, config, job):
 
 def require_reconciliation_schema(conn):
     ready = conn.execute("""SELECT to_regclass('crm_product_code_aliases') IS NOT NULL
-        AND to_regclass('crm_report_stage') IS NOT NULL AND to_regclass('crm_product_identifiers') IS NOT NULL""").fetchone()[0]
+        AND to_regclass('crm_report_stage') IS NOT NULL AND to_regclass('crm_product_identifiers') IS NOT NULL
+        AND to_regclass('crm_partial_publications') IS NOT NULL""").fetchone()[0]
     if not ready:
-        raise ValueError('Apply the backed-up 2026-10-20 reconciliation migration before starting this worker')
+        raise ValueError('Apply the backed-up 2026-10-20 reconciliation and partial-import migrations before starting this worker')
 
 
 def main():

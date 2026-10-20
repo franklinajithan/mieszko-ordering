@@ -25,8 +25,8 @@ export async function getDailyImportProgress(input: z.infer<typeof historicalMov
       AND r.source_start_date>=${value.startDate}::date AND r.source_end_date<=${value.endDate}::date
     ORDER BY r.store_id,r.source_type,r.source_start_date,r.source_end_date,r.id DESC
   ) latest ORDER BY CASE status WHEN 'downloading' THEN 0 WHEN 'downloaded' THEN 1
-      WHEN 'importing' THEN 2 WHEN 'failed' THEN 3 WHEN 'queued' THEN 4 ELSE 5 END, id DESC`);
-  const counts: Record<string, number> = { queued: 0, downloading: 0, downloaded: 0, importing: 0, success: 0, failed: 0, paused: 0, cancelled: 0, resumed: 0 };
+      WHEN 'importing' THEN 2 WHEN 'partial' THEN 3 WHEN 'failed' THEN 3 WHEN 'queued' THEN 4 ELSE 5 END, id DESC`);
+  const counts: Record<string, number> = { queued: 0, downloading: 0, downloaded: 0, importing: 0, success: 0, partial: 0, failed: 0, paused: 0, cancelled: 0, resumed: 0 };
   for (const row of rows) counts[String(row.status)] = (counts[String(row.status)] ?? 0) + 1;
   // PostgreSQL bigint run IDs arrive as strings; UI actions submit numeric IDs.
   return { total: rows.length, counts, recent: rows.slice(0, 50).map(row => ({...row,id:Number(row.id)})), checkedAt: new Date().toISOString() };

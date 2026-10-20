@@ -41,7 +41,7 @@ try {
         $release = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $sha.Substring(0, 8) + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
         $bundle = Join-Path ([IO.Path]::GetTempPath()) "mieszko-worker-$release.tar"
         # Allowlist worker/parser sources: excludes .env, local CRM settings, downloads and database backups.
-        & git archive --format=tar "--output=$bundle" HEAD automation src package.json package-lock.json tsconfig.json migrations/manual/2026-10-16-crm-store-settings.sql migrations/manual/2026-10-20-unmatched-products.sql
+        & git archive --format=tar "--output=$bundle" HEAD automation src package.json package-lock.json tsconfig.json migrations/manual/2026-10-16-crm-store-settings.sql migrations/manual/2026-10-20-unmatched-products.sql migrations/manual/2026-10-20-partial-crm-imports.sql
         if ($LASTEXITCODE -ne 0) { throw 'Source packaging failed.' }
         & ssh $target 'umask 077; mkdir -p "$HOME/mieszko-worker/uploads" "$HOME/mieszko-worker/releases"'
         if ($LASTEXITCODE -ne 0) { throw 'Server directory preparation failed.' }

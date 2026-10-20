@@ -80,7 +80,7 @@ export async function buildReviewWorkbook(items: Record<string, unknown>[]) {
     "Upload Corrected Excel, inspect Preview Changes, enter your operator name and explicitly Approve Updates.",
     "Operator names are self-reported because this installation has no user login system.",
     "Approval revalidates current database records and applies all proposed changes in one transaction. Reuploads are safe.",
-    "Eligible complete reports are queued once per mapping revision. Published totals change only after a complete successful import.",
+    "Eligible reports retry once per improved mapping revision. Matching rows on new dates are saved immediately; unmatched rows stay pending. Earlier complete imports are protected.",
   ].forEach((line) => guide.addRow([line]));
   return book.xlsx.writeBuffer();
 }

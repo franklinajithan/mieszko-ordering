@@ -4,7 +4,8 @@ import {sql} from 'drizzle-orm';
 /** Allowlisted audit metadata only: never includes commands, paths, credentials or free-form errors. */
 export async function getDiagnostics(storeId?:number){
  const rows=await db.execute(sql`SELECT id::text,store_id,source_type,trigger_type,status,source_start_date::text,source_end_date::text,started_at,completed_at,downloaded_at,imported_at,downloaded_row_count,imported_row_count,rejected_row_count,
- CASE WHEN error_message ILIKE '%unmatched%' THEN 'Unmatched product identifiers; review Data Quality.'
+ CASE WHEN details->>'partial_import'='true' THEN 'Partial import: matching rows saved; unmatched products pending.'
+ WHEN error_message ILIKE '%unmatched%' THEN 'Unmatched product identifiers; review Data Quality.'
  WHEN error_message ILIKE '%store%' THEN 'Store identity or report configuration needs review.'
  WHEN error_message ILIKE '%empty%' THEN 'Empty report; previous data retained.'
  WHEN error_message ILIKE '%timeout%' OR error_message ILIKE '%stopped%' THEN 'Worker interrupted or timed out; inspect and retry.'

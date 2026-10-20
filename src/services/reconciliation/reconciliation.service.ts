@@ -99,7 +99,7 @@ async function queueResolvedReports(tx: Executor) {
   // Only the newest failure in an overlapping range can be replayed. A mapping signature
   // carried into the child prevents an outdated worker retrying forever after refresh.
   const eligible =
-    await tx.execute(sql`SELECT r.*,md5(string_agg(i.id::text||':'||i.store_product_id::text,',' ORDER BY i.id)) AS signature
+    await tx.execute(sql`SELECT r.*,bool_or(i.store_product_id IS NOT NULL) AS has_resolved_identifiers,md5(string_agg(i.id::text||':'||COALESCE(i.store_product_id::text,'pending'),',' ORDER BY i.id)) AS signature
  FROM data_import_runs r JOIN crm_identifier_occurrences o ON o.run_id=r.id
  JOIN crm_product_identifiers i ON i.id=o.identifier_id
  JOIN stores s ON s.id=r.store_id AND s.is_active
@@ -109,11 +109,14 @@ async function queueResolvedReports(tx: Executor) {
  AND NOT EXISTS(SELECT 1 FROM data_import_runs n WHERE n.store_id=r.store_id AND n.source_type=r.source_type
   AND n.source_start_date<=r.source_end_date AND n.source_end_date>=r.source_start_date
   AND (n.status IN ('queued','downloading','downloaded','importing') OR n.id>r.id))
- GROUP BY r.id HAVING bool_and(i.store_product_id IS NOT NULL)`);
+ GROUP BY r.id HAVING bool_or(i.store_product_id IS NOT NULL) OR jsonb_typeof(r.details->'staged_row_count')='number'`);
   let queued = 0;
   for (const run of eligible) {
     const details = run.details as Record<string, unknown>;
     if (details.reconciliation_signature === run.signature) continue;
+    // A current worker has already published every known row. Retry only when
+    // at least one of this attempt's remaining unknown identifiers now resolves.
+    if(details.partial_import_version===1 && !run.has_resolved_identifiers)continue;
     const [next] =
       await tx.execute(sql`INSERT INTO data_import_runs(store_id,source_type,trigger_type,source_start_date,source_end_date,details)
    VALUES(${run.store_id},${run.source_type},'retry',${run.source_start_date},${run.source_end_date},

@@ -146,7 +146,7 @@ export function UnmatchedProducts() {
         },
       );
       setMessage(
-        `${result.applied} corrections approved. ${result.queued} eligible reports queued. Reports publish when their complete import succeeds.`,
+        `${result.applied} corrections approved. ${result.queued} eligible reports queued. Matching rows are saved on eligible retries; remaining unmatched rows stay pending.`,
       );
       setPreview(null);
       await load();
@@ -194,7 +194,7 @@ export function UnmatchedProducts() {
         </div>
         <p className="text-sm text-muted-foreground">
           Refresh first to collect all product failures and check the latest
-          product master. Parsing errors stay in Download Queue. Unknown
+          product master. Matching rows for new reports are saved immediately; unmatched rows stay pending. Earlier complete imports are protected. Parsing errors stay in Download Queue. Unknown
           transaction counts from older jobs are shown as unavailable.
         </p>
         <div className="flex flex-wrap gap-2">

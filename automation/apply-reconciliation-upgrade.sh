@@ -6,6 +6,8 @@ trap 'echo "Reconciliation upgrade FAILED. Review the error; no imports were sta
 app_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 migration="$app_dir/migrations/manual/2026-10-20-unmatched-products.sql"
 test -s "$migration"
+partial_migration="$app_dir/migrations/manual/2026-10-20-partial-crm-imports.sql"
+test -s "$partial_migration"
 backup_dir="${MIESZKO_DB_BACKUP_DIRECTORY:-$HOME/mieszko-db-backups}"
 mkdir -p "$backup_dir"
 backup_file="$backup_dir/mieszko-order-before-reconciliation-$(date +%Y%m%d-%H%M%S)-$$.dump"
@@ -14,4 +16,5 @@ test -s "$backup_file"
 pg_restore --list "$backup_file" > /dev/null
 echo "Backup created and archive directory checked: $backup_file"
 sudo -u postgres psql -X --dbname=mieszko-order --set=ON_ERROR_STOP=1 --file=- < "$migration"
+sudo -u postgres psql -X --dbname=mieszko-order --set=ON_ERROR_STOP=1 --file=- < "$partial_migration"
 echo 'Reconciliation table upgrade complete. No imports, CRM session or schedule started.'

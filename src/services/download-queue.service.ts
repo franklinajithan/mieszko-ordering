@@ -5,7 +5,7 @@ import {InputError} from '@/utils/input-error';
 
 // Terminal audit states stop even older workers, whose atomic import checks status.
 // Resume always creates another run ID, so an old downloader cannot resume writing.
-export const queueState = sql`CASE WHEN r.status='failed' AND r.details->>'queue_control' IN ('paused','cancelled','resumed') THEN r.details->>'queue_control' ELSE r.status END`;
+export const queueState = sql`CASE WHEN r.status='failed' AND r.details->>'queue_control' IN ('paused','cancelled','resumed') THEN r.details->>'queue_control' WHEN r.status='failed' AND r.details->>'partial_import'='true' THEN 'partial' ELSE r.status END`;
 export type QueueFilters={storeId?:number;feed?:string;view:string;page:number};
 export async function getDownloadQueue(filters:QueueFilters){
  const scope=sql`(${filters.storeId??null}::int IS NULL OR r.store_id=${filters.storeId??null}) AND (${filters.feed??null}::text IS NULL OR r.source_type=${filters.feed??null})`;

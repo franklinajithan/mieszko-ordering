@@ -48,6 +48,7 @@ export async function validateOrderForExport(orderId:number):Promise<OrderValida
  const feeds=await getImportStatusRows();const businessDate=todayIso();
  for(const feed of feeds.filter(f=>order.storeIds.includes(f.store_id)&&(f.source_type==='normal_sales'||(f.source_type==='rtc'&&order.includeRtc)||(f.source_type==='wastage'&&order.includeWastage)||(f.source_type==='book_stock'&&order.includeBookStock)))){
   if(reportNeedsReview(feed.source_type,feed.latest_data_date,businessDate))add('outdated_crm','warning',`${feed.store_name}: ${feed.source_type} latest business date is ${feed.latest_data_date??'missing'}.`,'Refresh or verify the report before ordering.','/operations',undefined,feed.store_id);
+  if(feed.status==='partial')add('partial_import','warning',`${feed.store_name}: ${feed.source_type} has saved matching rows but unmatched products remain.`,'Review Unmatched Products before relying on incomplete totals.','/unmatched-products',undefined,feed.store_id);
   if(feed.status==='failed')add('failed_import','warning',`${feed.store_name}: ${feed.source_type} latest import failed.`,'Resolve the failed import or confirm the retained data.','/operations',undefined,feed.store_id);
  }
  return {orderId,revision:order.revision,issues,blockingCount:issues.filter(i=>i.severity==='blocking').length,warningCount:issues.filter(i=>i.severity==='warning').length,canExport:!issues.some(i=>i.severity==='blocking'),checkedAt:new Date().toISOString()};

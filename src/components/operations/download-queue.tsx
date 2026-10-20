@@ -4,7 +4,7 @@ import {Button} from '@/components/ui/button';
 import {useEffect,useState} from 'react';
 import {apiRequest} from '@/lib/api/client';
 const feeds={normal_sales:'Normal Sales',rtc:'RTC Sales',wastage:'Wastage',book_stock:'Book Stock'};
-const views=[['processing','Processing'],['queued','Waiting'],['paused','Paused'],['completed','Completed'],['failed','Failed'],['cancelled','Cancelled'],['all','All history']] as const;
+const views=[['processing','Processing'],['queued','Waiting'],['paused','Paused'],['completed','Completed'],['partial','Partial / needs review'],['failed','Failed'],['cancelled','Cancelled'],['all','All history']] as const;
 type Row={id:number;store_name:string|null;source_type:keyof typeof feeds;status:string;from_date:string|null;to_date:string|null;started_at:string;completed_at:string|null;downloaded_row_count:number|null;imported_row_count:number|null;error_message:string|null;source_file_name:string|null;retry_of:string|null};
 type LiveRow=Pick<Row,'id'|'store_name'|'source_type'|'status'|'from_date'|'to_date'> & Partial<Pick<Row,'started_at'|'source_file_name'|'downloaded_row_count'>>;
 const stages:Record<string,string>={downloading:'Opening CRM / downloading report',downloaded:'Download complete — validating file',importing:'Saving validated data to PostgreSQL'};
@@ -69,14 +69,14 @@ export function DownloadQueue(){
    <div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full min-w-[1000px] text-left text-sm"><thead className="bg-zinc-50"><tr>{['Job','Store','Feed / dates','Stage','Rows','Details','Controls'].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{data.rows.map(row=><tr key={row.id} className="border-t">
     <td className="p-3">#{row.id}{row.retry_of&&<div>Retry of #{row.retry_of}</div>}</td><td className="p-3">{row.store_name??'Store removed'}</td>
     <td className="p-3">{feeds[row.source_type]}<div>{row.from_date??'Date not recorded'}{row.to_date!==row.from_date?` to ${row.to_date??'unknown'}`:''}</div></td>
-    <td className="p-3"><strong>{row.status==='success'?'Saved':row.status}</strong><div className="text-xs">{new Date(row.started_at).toLocaleString('en-GB')}</div>{['downloading','downloaded','importing'].includes(row.status)&&<progress aria-label={`Job ${row.id} progress`} max={4} value={['queued','downloading','downloaded','importing','success'].indexOf(row.status)} />}</td>
+    <td className="p-3"><strong>{row.status==='success'?'Saved':row.status==='partial'?'Partial — unmatched products pending':row.status}</strong><div className="text-xs">{new Date(row.started_at).toLocaleString('en-GB')}</div>{['downloading','downloaded','importing'].includes(row.status)&&<progress aria-label={`Job ${row.id} progress`} max={4} value={['queued','downloading','downloaded','importing','success'].indexOf(row.status)} />}</td>
     <td className="p-3">Downloaded: {row.downloaded_row_count??'—'}<div>Saved: {row.imported_row_count??'—'}</div></td>
     <td className="max-w-sm p-3">{row.error_message}{row.source_file_name&&<div className="text-xs text-zinc-500">{row.source_file_name}</div>}{row.status==='queued'&&<p>Waiting for the worker; verify feed is enabled if this persists.</p>}</td>
     <td className="p-3"><div className="flex flex-wrap gap-2">
      {['queued','downloading','downloaded'].includes(row.status)&&<button disabled={busy!==null} onClick={()=>void act(row,'pause')} aria-label={`Pause job ${row.id}`} className="rounded border px-2 py-1">Pause</button>}
      {row.status==='paused'&&<button disabled={busy!==null} onClick={()=>void act(row,'resume')} aria-label={`Resume job ${row.id}`} className="rounded border px-2 py-1">Resume</button>}
      {['queued','downloading','downloaded','paused'].includes(row.status)&&<button disabled={busy!==null} onClick={()=>void act(row,'cancel')} aria-label={`Cancel job ${row.id}`} className="rounded border px-2 py-1">Cancel</button>}
-     {['success','failed','cancelled'].includes(row.status)&&<button disabled={busy!==null} onClick={()=>void act(row,'redownload')} aria-label={`Re-download job ${row.id}`} className="rounded border px-2 py-1">Re-download</button>}
+     {['success','failed','partial','cancelled'].includes(row.status)&&<button disabled={busy!==null} onClick={()=>void act(row,'redownload')} aria-label={`Re-download job ${row.id}`} className="rounded border px-2 py-1">Re-download</button>}
      {row.status==='importing'&&<span>Database import committing; allow it to finish.</span>}{busy===row.id&&<span role="status">Updating…</span>}
     </div></td>
    </tr>)}</tbody></table>{!data.rows.length&&<p className="p-6">No reports in this view.</p>}</div>

@@ -72,7 +72,7 @@ test("browser: export, upload, validate, approve, refresh and audit without chan
   ).toBeVisible();
   expect(
     await sql`SELECT * FROM data_import_runs WHERE status='queued'`,
-  ).toHaveLength(0);
+  ).toHaveLength(1);
   await page.getByLabel("Resolution status").selectOption("resolved");
   await expect(page.getByText("000123", { exact: true })).toBeVisible();
   await page

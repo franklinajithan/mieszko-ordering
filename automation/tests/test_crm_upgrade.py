@@ -8,6 +8,7 @@ import unittest
 
 
 class CrmUpgradeTests(unittest.TestCase):
+    expected_calls = ['dump','archive-check','apply']
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -40,7 +41,7 @@ class CrmUpgradeTests(unittest.TestCase):
     def test_upgrade_runs_only_after_successful_dump_and_archive_check(self):
         result = self.run_upgrade()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.log.read_text().splitlines(), ['dump','archive-check','apply'])
+        self.assertEqual(self.log.read_text().splitlines(), self.expected_calls)
         self.assertIn('upgrade complete', result.stdout)
 
     def test_dump_failure_never_reaches_migration(self):
@@ -60,8 +61,10 @@ if __name__ == '__main__': unittest.main()
 
 
 class ReconciliationUpgradeTests(CrmUpgradeTests):
+    expected_calls = ['dump','archive-check','apply','apply']
     def setUp(self):
         super().setUp()
         repo = Path(__file__).resolve().parents[2]
         shutil.copy(repo / 'automation/apply-reconciliation-upgrade.sh', self.script)
         shutil.copy(repo / 'migrations/manual/2026-10-20-unmatched-products.sql', self.script.parents[1] / 'migrations/manual')
+        shutil.copy(repo / 'migrations/manual/2026-10-20-partial-crm-imports.sql', self.script.parents[1] / 'migrations/manual')

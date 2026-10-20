@@ -974,3 +974,14 @@ export const crmReportStage=pgTable('crm_report_stage',{
  runId:bigint('run_id',{mode:'number'}).notNull().references(()=>dataImportRuns.id),identifier:varchar('identifier',{length:100}).notNull(),
  reportDate:date('report_date').notNull(),quantity:numeric('quantity',{precision:18,scale:4}).notNull(),mappingType:text('mapping_type').notNull(),
 },t=>[primaryKey({columns:[t.runId,t.identifier,t.reportDate]}),check('crm_report_stage_mapping_type_check',sql`${t.mappingType} IN ('barcode','store_product_code')`)]);
+
+
+/** Store-day ownership for known partial subtotals; full successful imports clear it. */
+export const crmPartialPublications=pgTable('crm_partial_publications',{
+ storeId:integer('store_id').notNull().references(()=>stores.id),sourceType:varchar('source_type',{length:32}).notNull(),
+ reportDate:date('report_date').notNull(),runId:bigint('run_id',{mode:'number'}).notNull().references(()=>dataImportRuns.id),
+ dataSha256:text('data_sha256').notNull(),publishedRowCount:integer('published_row_count').notNull(),
+ updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[primaryKey({columns:[t.storeId,t.sourceType,t.reportDate]}),index('crm_partial_publications_run_idx').on(t.runId),
+ check('crm_partial_publications_source_type_check',sql`${t.sourceType} IN ('normal_sales','rtc','wastage')`),
+ check('crm_partial_publications_published_row_count_check',sql`${t.publishedRowCount}>0`)]);

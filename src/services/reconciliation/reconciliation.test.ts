@@ -239,7 +239,7 @@ describe("persistent reconciliation", () => {
           "SELECT * FROM data_import_runs WHERE status='queued'",
         )
       ).rows,
-    ).toHaveLength(0);
+    ).toHaveLength(1);
   });
   it("rejects duplicates, competing barcodes, invalid stores and missing required fields", async () => {
     await failure(["000123", "000124"]);
