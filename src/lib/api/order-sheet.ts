@@ -81,6 +81,9 @@ export function preflightOrderSheet(input: {
   includeWastage?: boolean;
   includeBookStock?: boolean;
   includeFutureDeliveries?: boolean;
+  dayBySalesRequired?: boolean;
+  dayBySalesStartDate?: string;
+  dayBySalesEndDate?: string;
   comparisonPeriods: Array<{ startDate: string; endDate: string }>;
 }): Promise<ActionResult<OrderSheetPreflight>> {
   return apiRequest("/order-sheet/preflight", { method: "POST", body: input });

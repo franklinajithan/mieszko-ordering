@@ -82,6 +82,9 @@ export function useOrderSheetWorkflow({
         includeBookStock: form.includeBookStock,
         includeFutureDeliveries: form.includeFutureDeliveries,
         bookStockDate: bookStockRows[0]?.bookStockDate ?? undefined,
+        dayBySalesRequired: form.dayBySalesRequired,
+        dayBySalesStartDate: form.dayBySalesRequired ? form.dayBySalesStartDate : undefined,
+        dayBySalesEndDate: form.dayBySalesRequired ? form.dayBySalesEndDate : undefined,
         comparisonPeriods: form.comparisonPeriods.map(({ startDate, endDate }) => ({ startDate, endDate })),
       });
       if (!preflight.success) {
@@ -174,9 +177,13 @@ export function useOrderSheetWorkflow({
         includeBookStock: form.includeBookStock,
         includeFutureDeliveries: form.includeFutureDeliveries,
         bookStockDate: bookStockRows[0]?.bookStockDate ?? undefined,
+        dayBySalesRequired: form.dayBySalesRequired,
+        dayBySalesStartDate: form.dayBySalesRequired ? form.dayBySalesStartDate : undefined,
+        dayBySalesEndDate: form.dayBySalesRequired ? form.dayBySalesEndDate : undefined,
         comparisonPeriods: form.comparisonPeriods.map(({startDate,endDate})=>({startDate,endDate})),
       });
       if (response.success) {
+        if(response.data.ready&&!response.data.feedCoverage?.some(feed=>feed.missing.length))setError(null);
         setDataWarnings(response.data.warnings);
         setBookStockRows(response.data.bookStock);
       }

@@ -3,12 +3,14 @@ import { sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { listDatesInclusive } from '@/utils/orderSheetCalculations';
 const feeds={normal_sales:{table:'daily_sales',date:'sales_date',label:'Normal Sales'},rtc:{table:'rtc_sales',date:'rtc_date',label:'RTC Sales'},wastage:{table:'wastage',date:'wastage_date',label:'Wastage'}} as const;
-export async function getImportCoverage(input:{storeIds:number[];comparisonPeriods:Array<{startDate:string;endDate:string}>;includeRtc?:boolean;includeWastage?:boolean}) {
-  const dates=new Set(input.comparisonPeriods.flatMap(period=>listDatesInclusive(period.startDate,period.endDate)));
-  if (!dates.size || !input.storeIds.length) return {coverage:[],warnings:[]};
-  const sorted=[...dates].sort();
+export async function getImportCoverage(input:{storeIds:number[];comparisonPeriods:Array<{startDate:string;endDate:string}>;includeRtc?:boolean;includeWastage?:boolean;dayBySalesRequired?:boolean;dayBySalesStartDate?:string;dayBySalesEndDate?:string}) {
+  const comparisonDates=new Set(input.comparisonPeriods.flatMap(period=>listDatesInclusive(period.startDate,period.endDate)));
+  if (!comparisonDates.size || !input.storeIds.length) return {coverage:[],warnings:[]};
   const enabled=(['normal_sales',...(input.includeRtc?['rtc']:[]),...(input.includeWastage?['wastage']:[])] as Array<keyof typeof feeds>);
   const coverage=await Promise.all(enabled.map(async source=>{
+    const dates=new Set(comparisonDates);
+    if(source==="normal_sales"&&input.dayBySalesRequired&&input.dayBySalesStartDate&&input.dayBySalesEndDate)for(const day of listDatesInclusive(input.dayBySalesStartDate,input.dayBySalesEndDate))dates.add(day);
+    const sorted=[...dates].sort();
     const feed=feeds[source];
     const rows=await db.execute(sql`SELECT sp.store_id, f.${sql.identifier(feed.date)}::text AS business_date, max(f.updated_at) AS updated_at
       FROM ${sql.identifier(feed.table)} f JOIN store_products sp ON sp.id=f.store_product_id
