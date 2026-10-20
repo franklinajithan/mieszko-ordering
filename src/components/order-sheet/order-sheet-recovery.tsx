@@ -9,7 +9,7 @@ type Coverage = {rows:Gap[];total:number;pages:number;page:number;unavailable:nu
 type RecoveryJob = {id:number;feed:string;report_date:string;store_name:string;status:string;downloaded_row_count:number|null;imported_row_count:number|null;error_message:string|null};
 type ApiResponse<T> = {success:boolean;data:T;error?:string};
 
-export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form:OrderSheetFormState;scanRequest?:number;onRecoveryFinished?:(resumeGeneration:boolean)=>void}) {
+export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form:OrderSheetFormState;scanRequest?:number;onRecoveryFinished?:(resumeGeneration:boolean)=>void|Promise<void>}) {
  const lastRequest=useRef(scanRequest);
  const scanRef=useRef<(offerApproval?:boolean) => Promise<Gap[]|undefined>>(async()=>undefined);
  const generationScope=useRef("");
@@ -86,6 +86,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
  async function verifyCompletion(hadProblems:boolean,completedScope:string){
   const gaps=await scanRef.current();
   if(!gaps)return;
+  await onRecoveryFinishedRef.current?.(false);
   const same=completedScope!==""&&completedScope===scopeRef.current;
   if(!hadProblems&&!gaps.length){
    setMessage("Reports downloaded and imported. The selected sales data is ready; you can proceed with your order.");
@@ -93,7 +94,6 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
   }else{
    setMessage(hadProblems?"Some reports could not be downloaded or imported. Review the dates and errors below before proceeding.":gaps.length+" required reports are still missing. Review the remaining dates below.");
   }
-  onRecoveryFinishedRef.current?.(false);
  }
  function proceed(){
   if(readyScope!==scopeRef.current)return;
