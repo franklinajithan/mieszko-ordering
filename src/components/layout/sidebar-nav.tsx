@@ -10,6 +10,7 @@ import {
   Layers,
   LayoutDashboard,
   Package,
+  AlertTriangle,
   Store,
   Tags,
   Trash2,
@@ -51,6 +52,11 @@ export const navGroups: NavGroup[] = [
         label: "Products",
         icon: Package,
         match: (p) => p.startsWith("/products"),
+      },
+      {
+        href: "/unmatched-products",
+        label: "Unmatched Products",
+        icon: AlertTriangle,
       },
       {
         href: "/departments",
