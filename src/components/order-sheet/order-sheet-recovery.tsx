@@ -11,9 +11,11 @@ type ApiResponse<T> = {success:boolean;data:T;error?:string};
 
 export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form:OrderSheetFormState;scanRequest?:number;onRecoveryFinished?:(resumeGeneration:boolean)=>void}) {
  const lastRequest=useRef(scanRequest);
- const scanRef=useRef<(offerApproval?:boolean) => Promise<void>>(async()=>{});
+ const scanRef=useRef<(offerApproval?:boolean) => Promise<Gap[]|undefined>>(async()=>undefined);
  const generationScope=useRef("");
  const [approvalOpen,setApprovalOpen]=useState(false);
+ const [readyScope,setReadyScope]=useState("");
+ const [completionOpen,setCompletionOpen]=useState(false);
  const onRecoveryFinishedRef=useRef(onRecoveryFinished);
  const refreshAfterCompletion=useRef(false);
  const scanVersion=useRef(0);
@@ -38,13 +40,15 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
   if(offerApproval)generationScope.current=scope;
   if(!form.storeIds.length || !form.comparisonPeriods.length){setMessage("Select stores and comparison dates first.");return;}
   const version=++scanVersion.current;
-  setScanning(true);setMessage("");setRows([]);setSelected([]);setFailures([]);
+  setReadyScope("");setCompletionOpen(false);setScanning(true);setMessage("");setRows([]);setSelected([]);setFailures([]);
   try {
    const found=new Map<string,Gap>();
-   for(const period of form.comparisonPeriods) {
+   const requests=form.comparisonPeriods.map(period=>({...period,feeds}));
+   if(form.dayBySalesRequired&&form.dayBySalesStartDate&&form.dayBySalesEndDate)requests.push({startDate:form.dayBySalesStartDate,endDate:form.dayBySalesEndDate,feeds:["normal_sales"]});
+   for(const period of requests) {
     let page=1;let pages=1;
     do {
-     const params=new URLSearchParams({stores:form.storeIds.join(","),feeds:feeds.join(","),from:period.startDate,to:period.endDate,page:String(page),missingOnly:"true"});
+     const params=new URLSearchParams({stores:form.storeIds.join(","),feeds:period.feeds.join(","),from:period.startDate,to:period.endDate,page:String(page),missingOnly:"true"});
      const response=await fetch(`/api/automation/coverage?${params}`,{cache:"no-store"});
      const body=await response.json() as ApiResponse<Coverage>;
      if(!response.ok || !body.success)throw new Error(body.error || "Coverage scan failed");
@@ -71,13 +75,31 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
     if(eligible.length&&!jobIds.length)setApprovalOpen(true);
     else if(!eligible.length) {
      const pending=[...new Set(gaps.filter(row=>["queued","downloading","downloaded","importing"].includes(row.status)&&row.run_id).map(row=>row.run_id!))].slice(0,250);
-     if(pending.length){refreshAfterCompletion.current=true;setJobIds(pending);setMessage("Required reports are already queued. Monitoring their imports before regenerating.");}
+     if(pending.length){refreshAfterCompletion.current=true;setJobIds(pending);setMessage("Required reports are already queued. Monitoring their imports; you will be notified when the data is ready.");}
     }
    }
+   return gaps;
   } catch(error){if(version===scanVersion.current&&scopeRef.current===scope)setMessage(error instanceof Error?error.message:"Unable to scan missing reports.");}
   finally{if(version===scanVersion.current)setScanning(false);}
  }
  useEffect(()=>{scanRef.current=scan;onRecoveryFinishedRef.current=onRecoveryFinished;});
+ async function verifyCompletion(hadProblems:boolean,completedScope:string){
+  const gaps=await scanRef.current();
+  if(!gaps)return;
+  const same=completedScope!==""&&completedScope===scopeRef.current;
+  if(!hadProblems&&!gaps.length){
+   setMessage("Reports downloaded and imported. The selected sales data is ready; you can proceed with your order.");
+   if(same){setReadyScope(completedScope);setCompletionOpen(true);}
+  }else{
+   setMessage(hadProblems?"Some reports could not be downloaded or imported. Review the dates and errors below before proceeding.":gaps.length+" required reports are still missing. Review the remaining dates below.");
+  }
+  onRecoveryFinishedRef.current?.(false);
+ }
+ function proceed(){
+  if(readyScope!==scopeRef.current)return;
+  setCompletionOpen(false);setReadyScope("");
+  onRecoveryFinishedRef.current?.(true);
+ }
  async function queueApproved(confirmed=false){
   const approved=rows.filter(row=>selected.includes(key(row))&&row.can_download).slice(0,250);
   if(!approved.length||stale||scanning||running||jobIds.length)return;
@@ -109,12 +131,11 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
    setJobIds(old=>[...new Set([...old,...queuedIds])].slice(-250));
   } else {
    // Another operator may have completed the reports while approval was open.
-   const resume=!failuresNow.length&&generationScope.current===scopeRef.current;
+   const completedScope=generationScope.current;
    generationScope.current="";
-   void scanRef.current();
-   onRecoveryFinishedRef.current?.(resume);
+   await verifyCompletion(!!failuresNow.length,completedScope);
   }
-  setMessage(`${queuedIds.length} recovery jobs tracked; ${skipped.length} already completed or skipped; ${failuresNow.length} requests failed. Job IDs: ${queuedIds.length?queuedIds.join(", "):"none created"}. Progress is monitored automatically; the missing-report scan and order warnings refresh when jobs finish.`);
+  if(queuedIds.length)setMessage(`${queuedIds.length} recovery jobs tracked; ${skipped.length} already completed or skipped; ${failuresNow.length} requests failed. Job IDs: ${queuedIds.length?queuedIds.join(", "):"none created"}. Progress is monitored automatically; the missing-report scan and order warnings refresh when jobs finish.`);
  }
  useEffect(()=>{
   if(scanRequest===lastRequest.current)return;
@@ -141,10 +162,9 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
       refreshAfterCompletion.current=false;
       const unsuccessful=body.data.jobs.filter(job=>job.status!=="success");
       setMessage(unsuccessful.length?`${unsuccessful.length} recovery job(s) did not complete successfully. Rechecking gaps; review failed or unmatched imports before retrying.`:"All recovery jobs completed. Verifying saved reports and refreshing order warnings...");
-      void scanRef.current();
-      const resume=!unsuccessful.length&&generationScope.current===scopeRef.current;
+      const completedScope=generationScope.current;
       generationScope.current="";
-      onRecoveryFinishedRef.current?.(resume);
+      await verifyCompletion(!!unsuccessful.length,completedScope);
      }
     }
    }catch(error){if(!cancelled)setJobCheckError(error instanceof Error?error.message:"Unable to check recovery jobs.");}
@@ -161,9 +181,14 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
  const finishedJobs=completedJobs+problemJobs;
  const completionPercent=jobs.length?Math.round(finishedJobs/jobs.length*100):0;
  return <section className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-slate-900" aria-label="Mieszko intelligent data recovery">
+  <ConfirmAlertDialog open={completionOpen&&readyScope===scope} onOpenChange={setCompletionOpen}
+   title="Reports downloaded and imported"
+   description="The missing reports have been saved and checked. Your selected data is ready. Proceed to generate the order sheet, then use Dairy workbook to download the Hayes-style file."
+   confirmLabel="Proceed with order" cancelLabel="Review first" confirmVariant="default" onConfirm={proceed} />
+  {readyScope===scope&&<div role="status" className="mb-3 rounded border border-emerald-300 bg-emerald-50 p-3"><p>Reports downloaded and imported. Ready to proceed with your order.</p><button type="button" className="mt-2 rounded bg-emerald-700 px-3 py-2 text-white" onClick={proceed}>Proceed with order</button></div>}
   <ConfirmAlertDialog open={approvalOpen&&!stale} onOpenChange={open=>{setApprovalOpen(open);if(!open)generationScope.current="";}}
    title="Download missing reports?"
-   description={`The order needs ${selected.length} source reports. Approve downloading and importing the listed reports? Completed reports will be kept. The order will regenerate after successful imports if your selections stay the same.`}
+   description={`The order needs ${selected.length} source reports. Approve downloading and importing the listed reports? Completed reports will be kept. After successful imports, you can review the completion notice and proceed with the order.`}
    confirmLabel={`Approve download of ${selected.length} reports`} confirmVariant="default" confirming={running}
    onConfirm={()=>void queueApproved(true)}>
    <div className="max-h-64 overflow-auto text-sm"><ul>{rows.filter(row=>selected.includes(key(row))).map(row=><li key={key(row)}>{row.store_name} · {row.day} · {row.source_type.replaceAll("_"," ")}</li>)}</ul></div>

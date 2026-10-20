@@ -17,6 +17,9 @@ const inputSchema = z.object({
   includeBookStock: z.boolean().default(true),
   includeFutureDeliveries: z.boolean().default(false),
   bookStockDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dayBySalesRequired: z.boolean().default(false),
+  dayBySalesStartDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+  dayBySalesEndDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
   comparisonPeriods: z.array(z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
