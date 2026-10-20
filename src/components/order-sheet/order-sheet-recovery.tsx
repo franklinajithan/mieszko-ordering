@@ -46,19 +46,22 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
  async function queueApproved(){
   const approved=rows.filter(row=>selected.includes(key(row))&&row.can_download);
   if(!approved.length||stale)return;
+  if(!window.confirm(`Queue ${approved.length} selected CRM reports for download? This will not replace completed reports.`))return;
   setRunning(true);setProgress({done:0,total:approved.length});setMessage("Submitting approved recovery jobs...");
   const failuresNow:string[]=[];
+  const queuedIds:number[]=[];
   for(let i=0;i<approved.length;i++){
    const row=approved[i];
    try{
     const response=await fetch("/api/automation/coverage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({storeId:row.store_id,feed:row.source_type,day:row.day})});
     const body=await response.json() as ApiResponse<{runId:number|null;message:string}>;
     if(!response.ok||!body.success)throw new Error(body.error||"Queue rejected");
+    if(body.data?.runId)queuedIds.push(body.data.runId);
    }catch(error){failuresNow.push(`${row.store_name} ${row.day} ${row.source_type}: ${error instanceof Error?error.message:"Request failed"}`);}
    setProgress({done:i+1,total:approved.length});
   }
   setRunning(false);setSelected([]);setFailures(failuresNow);
-  setMessage(`Submitted ${approved.length-failuresNow.length} recovery requests; ${failuresNow.length} failed. Open Download Queue for live progress, then scan again to verify imports.`);
+  setMessage(`Submitted ${approved.length-failuresNow.length} recovery requests; ${failuresNow.length} failed. Job IDs: ${queuedIds.length?queuedIds.join(", "):"none created"}. Open Download Queue for live progress, then scan again to verify imports.`);
  }
  useEffect(()=>{
   if(scanRequest===lastRequest.current)return;
