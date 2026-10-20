@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { SupplierOrderPanel } from "@/components/orders/supplier-order-panel";
 import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
 import { OrderSheetRecovery } from "@/components/order-sheet/order-sheet-recovery";
@@ -24,6 +25,7 @@ export function OrderSheetPage({
   suppliers: Supplier[];
   departments: DepartmentOption[];
 }) {
+  const [recoveryScanRequest,setRecoveryScanRequest]=useState(0);
   const formState = useOrderSheetForm(stores, suppliers, departments);
   const status = useOrderSheetStatus(formState.form);
   const workflow = useOrderSheetWorkflow({
@@ -84,7 +86,7 @@ export function OrderSheetPage({
           </div>
         ) : null}
 
-        <OrderSheetRecovery form={formState.form} />
+        <OrderSheetRecovery form={formState.form} scanRequest={recoveryScanRequest} />
 
         {workflow.error ? (
           <p className="text-sm text-red-600">{workflow.error}</p>
@@ -99,7 +101,7 @@ export function OrderSheetPage({
           onSave={() => void workflow.onSaveDraft()}
           onExport={() => void workflow.onExport()}
           onExportDairy={() => void workflow.onExport("dairy")}
-          onGenerate={() => void workflow.onGenerate()}
+          onGenerate={() => {setRecoveryScanRequest(value=>value+1);void workflow.onGenerate();}}
         />
 
         <ConfirmAlertDialog
