@@ -299,3 +299,8 @@ worker and the chosen feed must be enabled for queued retries to execute.
 ### Bounded nightly failure recovery
 
 The installed timer also queues eligible temporary download failures from the last 30 completed report days after a 45-minute cooldown, with at most three automatic retries per chain. It honours nightly store eligibility, verified feeds, active/newer attempts and operator pause/cancel controls. Unmatched products require mapping; parser failures retry after a worker/parser update. The Download Queue shows automatic attempt numbers. See [reconciliation and recovery](unmatched-products-reconciliation.md#nightly-behaviour-and-updating-an-existing-installation) for exclusions and read-only server health checks, which the release script now runs after activation. Existing installations must deploy with `-EnableNightly` to install the expanded timer.
+
+
+### Check missing report dates
+
+The Download Queue and CRM date-range progress now include a chronological coverage panel, a completed-report progress bar and per-date download actions, including dates with no existing job. The worker processes waiting movement reports by earliest report date, then job ID. See [Download Queue coverage](download-queue.md#missing-report-dates-and-progress) for status meanings, protection of completed data, and stage progress. Deploy the updated worker as well as rebuilding the website.

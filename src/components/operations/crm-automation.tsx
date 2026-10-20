@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import {ReportCoverage} from "./report-coverage";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -159,7 +160,8 @@ export function CrmAutomation() {
           {currentProgress.counts.queued > 0 && currentProgress.counts.downloading + currentProgress.counts.downloaded + currentProgress.counts.importing === 0 && <p className="text-amber-800">Waiting for the server worker to pick up these reports. If this persists, check the worker service and enabled feeds.</p>}
           <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Store</th><th className="p-2">Date</th><th className="p-2">Feed</th><th className="p-2">Status</th><th className="p-2">Products saved</th><th className="p-2">Details</th><th className="p-2">Action</th></tr></thead>
           <tbody>{currentProgress.recent.map(row => <tr key={row.id} className="border-t"><td className="p-2">{row.store_name}</td><td className="p-2">{row.day}</td><td className="p-2">{labels[row.source_type]}</td><td className="p-2">{row.status}</td><td className="p-2">{row.imported_row_count ?? '—'}</td><td className="p-2">{row.error_message ?? (row.status === 'success' ? 'Saved; open the feed page to view data.' : '')}</td><td className="p-2">{['failed','partial'].includes(row.status) && <Button onClick={() => void redownload(row)} disabled={retrying !== null || queueing} aria-label={`Re-download ${row.store_name} ${labels[row.source_type]} ${row.day}`}>{retrying === row.id ? 'Queueing…' : 'Re-download'}</Button>}</td></tr>)}</tbody></table></div>
-          {currentProgress.total > 50 && <p className="text-sm">Showing 50 attempts; active and failed reports appear first. Narrow the date range to inspect older completed dates.</p>}
+          <ReportCoverage storeIds={selected} feeds={feeds} from={from} to={to} onQueued={()=>setProgressVersion(n=>n+1)}/>
+          {currentProgress.total > 50 && <p className="text-sm">Showing the first 50 attempts in report-date order. Narrow the date range to inspect later dates; the coverage list above checks every selected date.</p>}
           <p className="flex gap-4"><Link href="/wastage" className="text-blue-700 underline">View saved Wastage</Link><Link href="/daily-sales" className="text-blue-700 underline">View Normal Sales</Link><Link href="/rtc" className="text-blue-700 underline">View RTC</Link></p>
         </>}
       </section>

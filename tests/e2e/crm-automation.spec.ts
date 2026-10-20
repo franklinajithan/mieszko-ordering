@@ -103,7 +103,7 @@ test('historical Wastage button resumes partial batches and reports actual impor
  expect(progress.status()).toBe(200);
  const data=(await progress.json()).data;
  expect(data.counts).toMatchObject({success:1,failed:1,queued:133});expect(data.total).toBe(135);
- await expect(page.getByLabel('Daily import progress').getByRole('status')).toContainText('1 completed · 0 partial · 1 failed · 133 queued');
+ await expect(page.getByLabel('Daily import progress').getByRole('status').filter({hasText:'1 completed'})).toContainText('1 completed · 0 partial · 1 failed · 133 queued');
  await expect(page.getByText('Fixture report missing',{exact:true})).toBeVisible();
  await request.post('/api/automation/imports',{headers:origin,data:{storeIds:[1],feeds:['wastage'],startDate:'2026-06-04',endDate:'2026-06-04',replaceCompleted:true}});
  const retry=(await (await request.get('/api/automation/imports?stores=1&feeds=wastage&from=2026-06-03&to=2026-10-15')).json()).data;

@@ -242,12 +242,12 @@ def claim(conn, config=None):
                   WHERE r.status='queued' AND s.is_active=true AND s.erp_type='msp'
                     AND r.source_type = ANY(%s)
                     AND (%s::int IS NULL OR r.store_id=%s)
-                  ORDER BY r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1)
+                  ORDER BY r.source_start_date ASC NULLS LAST,r.id ASC FOR UPDATE OF r SKIP LOCKED LIMIT 1)
                 RETURNING id,store_id,source_type,source_start_date,source_end_date''',
                 (enabled_movement_sources(config), config.get('only_store_id'), config.get('only_store_id'))).fetchone()
         return conn.execute('''UPDATE data_import_runs SET status='downloading', started_at=now()
             WHERE id=(SELECT id FROM data_import_runs WHERE status='queued'
-                ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1)
+                ORDER BY source_start_date ASC NULLS LAST,id ASC FOR UPDATE SKIP LOCKED LIMIT 1)
             RETURNING id, store_id, source_type, source_start_date, source_end_date''').fetchone()
 
 

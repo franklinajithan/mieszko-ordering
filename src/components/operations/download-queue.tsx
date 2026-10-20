@@ -3,15 +3,20 @@ import {useRouter} from 'next/navigation';
 import {Button} from '@/components/ui/button';
 import {useEffect,useState} from 'react';
 import {apiRequest} from '@/lib/api/client';
+import {ReportCoverage} from './report-coverage';
+import {londonToday} from '@/validators/crm-automation';
 const feeds={normal_sales:'Normal Sales',rtc:'RTC Sales',wastage:'Wastage',book_stock:'Book Stock'};
 const views=[['processing','Processing'],['queued','Waiting'],['paused','Paused'],['completed','Completed'],['partial','Partial / needs review'],['failed','Failed'],['cancelled','Cancelled'],['all','All history']] as const;
 type Row={id:number;store_name:string|null;source_type:keyof typeof feeds;status:string;from_date:string|null;to_date:string|null;started_at:string;completed_at:string|null;downloaded_row_count:number|null;imported_row_count:number|null;error_message:string|null;source_file_name:string|null;automatic_retry_count?:number|null;retry_of:string|null};
 type LiveRow=Pick<Row,'id'|'store_name'|'source_type'|'status'|'from_date'|'to_date'> & Partial<Pick<Row,'started_at'|'source_file_name'|'downloaded_row_count'>>;
 const stages:Record<string,string>={downloading:'Opening CRM / downloading report',downloaded:'Download complete — validating file',importing:'Saving validated data to PostgreSQL'};
 function reportName(row:LiveRow){return `${row.store_name??'Store removed'} · ${feeds[row.source_type]} · ${row.from_date??'Date not recorded'}${row.to_date!==row.from_date?` to ${row.to_date??'unknown'}`:''}`;}
-type Queue={live:{active:LiveRow[];next:LiveRow[]};rows:Row[];counts:Record<string,number>;stores:{id:number;name:string}[];total:number;page:number;pageSize:number;checkedAt:string};
+type Queue={live:{active:LiveRow[];next:LiveRow[]};rows:Row[];counts:Record<string,number>;stores:{id:number;name:string;is_active:boolean;erp_type:string}[];total:number;page:number;pageSize:number;checkedAt:string};
 export function DownloadQueue(){
  const router=useRouter();
+ const yesterday=new Date(Date.parse(londonToday()+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ const [from,setFrom]=useState(()=>new Date(Date.parse(yesterday+'T00:00:00Z')-6*86400000).toISOString().slice(0,10));
+ const [to,setTo]=useState(yesterday);
  const [view,setView]=useState('processing'),[storeId,setStore]=useState(''),[feed,setFeed]=useState(''),[page,setPage]=useState(1);
  const [result,setResult]=useState<{query:string;data:Queue}|null>(null),[error,setError]=useState(''),[message,setMessage]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState<number|null>(null),[refresh,setRefresh]=useState(0);
  const query=new URLSearchParams({view,page:String(page),...(storeId?{storeId}:{}),...(feed?{feed}:{})}).toString();
@@ -45,6 +50,7 @@ export function DownloadQueue(){
     <p className="text-xs text-zinc-600">All stores and feeds · Worker stages recorded in PostgreSQL · Checked {new Date(data.checkedAt).toLocaleTimeString('en-GB')}</p>
     {data.live.active.length?data.live.active.map(row=><article key={row.id} aria-label={`Current job ${row.id}`} className="mt-3 rounded border bg-white p-3">
      <p className="font-semibold">{reportName(row)}</p><p>Job #{row.id} · {stages[row.status]??row.status}</p>
+     <progress className="mt-2 h-3 w-full accent-emerald-700" aria-label={`Job ${row.id} stage progress`} max={4} value={['queued','downloading','downloaded','importing'].indexOf(row.status)}/><p className="text-xs">Stage {['queued','downloading','downloaded','importing'].indexOf(row.status)} of 4 · Complete when saved</p>
      {row.started_at&&<p className="text-sm">Started {new Date(row.started_at).toLocaleString('en-GB')}</p>}
      <p className="text-sm">File: {row.source_file_name??'Filename recorded when download finishes'}{row.downloaded_row_count!=null?` · ${row.downloaded_row_count} rows`:''}</p>
      {row.started_at&&Date.parse(data.checkedAt)-Date.parse(row.started_at)>7200000&&<p className="text-amber-900">This attempt has been active for over two hours. Check the worker before assuming it is still progressing.</p>}
@@ -53,7 +59,7 @@ export function DownloadQueue(){
    </div>
    <div className="rounded-xl border bg-white p-4">
     <h2 className="text-lg font-semibold">Next waiting CRM reports</h2>
-    <p className="text-xs text-zinc-600">All stores · Oldest job first · The worker selects from its enabled feeds. Book Stock is handled separately.</p>
+    <p className="text-xs text-zinc-600">All stores · Oldest report date first · The worker selects from its enabled feeds. Book Stock is handled separately.</p>
     {data.live.next.length?<ol className="mt-3 list-decimal space-y-2 pl-5">{data.live.next.map((row,index)=><li key={row.id} aria-label={`Queue position ${index+1}`}><strong>{reportName(row)}</strong><div className="text-sm">Job #{row.id}{index===0?' · First waiting candidate':''}</div></li>)}</ol>:<p className="mt-3">No waiting CRM reports with an active store and saved CRM settings.</p>}
     <Button className="mt-3" variant="outline" onClick={()=>{setView('queued');setPage(1);}}>Show waiting reports</Button>
    </div>
@@ -62,6 +68,12 @@ export function DownloadQueue(){
    <label>Store<select aria-label="Queue store" className="ml-2 rounded border p-2" value={storeId} onChange={e=>{setStore(e.target.value);setPage(1);}}><option value="">All stores</option>{(result?.data.stores??[]).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
    <label>Feed<select aria-label="Queue feed" className="ml-2 rounded border p-2" value={feed} onChange={e=>{setFeed(e.target.value);setPage(1);}}><option value="">All feeds</option>{Object.entries(feeds).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
   </div>
+  <div className="flex flex-wrap gap-4 rounded-xl border bg-white p-4">
+   <label>Check report dates from<input aria-label="Coverage from date" className="ml-2 rounded border p-2" type="date" max={yesterday} value={from} onChange={e=>setFrom(e.target.value)}/></label>
+   <label>To<input aria-label="Coverage to date" className="ml-2 rounded border p-2" type="date" max={yesterday} value={to} onChange={e=>setTo(e.target.value)}/></label>
+  </div>
+  {result&&<ReportCoverage storeIds={storeId?[Number(storeId)]:result.data.stores.filter(s=>s.is_active&&s.erp_type==='msp').map(s=>s.id)} feeds={feed==='book_stock'?[]:feed?[feed]:['normal_sales','rtc','wastage']} from={from} to={to} onQueued={()=>setRefresh(n=>n+1)}/>}
+  <p className="text-sm text-zinc-600">Reports below are ordered by sales / report date, oldest first. Current downloads finish before the worker starts the next waiting date.</p>
   <nav aria-label="Download queue views" className="flex flex-wrap gap-2">{views.map(([key,label])=><button key={key} aria-pressed={view===key} className={`rounded border px-3 py-2 ${view===key?'bg-emerald-700 text-white':'bg-white'}`} onClick={()=>{setView(key);setPage(1);}}>{label}{data?` (${count(key)})`:''}</button>)}</nav>
   {error&&<p role="alert" className="rounded border border-red-300 bg-red-50 p-3">{error}</p>}
   {message&&<p role="status" className="rounded border border-emerald-300 bg-emerald-50 p-3">{message}</p>}
