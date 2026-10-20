@@ -49,7 +49,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
   } catch(error){setMessage(error instanceof Error?error.message:"Unable to scan missing reports.");}
   finally{setScanning(false);}
  }
- scanRef.current=scan;
+ useEffect(()=>{scanRef.current=scan;});
  async function queueApproved(){
   const approved=rows.filter(row=>selected.includes(key(row))&&row.can_download);
   if(!approved.length||stale)return;
