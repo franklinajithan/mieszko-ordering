@@ -34,6 +34,7 @@ export function OrderSheetPage({
     bookStockRows: status.bookStockRows,
     setForm: formState.setForm,
     setBookStockRows: status.setBookStockRows,
+    onMissingData:()=>setRecoveryScanRequest(value=>value+1),
   });
 
   return (
@@ -86,7 +87,7 @@ export function OrderSheetPage({
           </div>
         ) : null}
 
-        <OrderSheetRecovery form={formState.form} scanRequest={recoveryScanRequest} onRecoveryFinished={()=>void workflow.refreshSourceWarnings()} />
+        <OrderSheetRecovery form={formState.form} scanRequest={recoveryScanRequest} onRecoveryFinished={(resume)=>{void workflow.refreshSourceWarnings();if(resume)void workflow.onGenerate();}} />
 
         {workflow.error ? (
           <p className="text-sm text-red-600">{workflow.error}</p>
@@ -101,7 +102,7 @@ export function OrderSheetPage({
           onSave={() => void workflow.onSaveDraft()}
           onExport={() => void workflow.onExport()}
           onExportDairy={() => void workflow.onExport("dairy")}
-          onGenerate={() => {setRecoveryScanRequest(value=>value+1);void workflow.onGenerate();}}
+          onGenerate={() => void workflow.onGenerate()}
         />
 
         <ConfirmAlertDialog

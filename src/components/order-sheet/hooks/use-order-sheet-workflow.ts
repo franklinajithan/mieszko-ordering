@@ -26,6 +26,7 @@ type Input = {
   bookStockRows: BookStockStatusRow[];
   setForm: Dispatch<SetStateAction<OrderSheetFormState>>;
   setBookStockRows: Dispatch<SetStateAction<BookStockStatusRow[]>>;
+  onMissingData?: () => void;
 };
 
 export function useOrderSheetWorkflow({
@@ -34,6 +35,7 @@ export function useOrderSheetWorkflow({
   bookStockRows,
   setForm,
   setBookStockRows,
+  onMissingData,
 }: Input) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -89,9 +91,17 @@ export function useOrderSheetWorkflow({
       }
       setDataWarnings(preflight.data.warnings);
       setBookStockRows(preflight.data.bookStock);
+      const missingReports = preflight.data.feedCoverage?.reduce((count,feed)=>count+feed.missing.length,0) ?? 0;
+      if (missingReports > 0) {
+        setGenerateProgress(null);
+        setError(`Missing report data for ${missingReports} store/date/feed combinations. Review the download approval before generating.`);
+        onMissingData?.();
+        return;
+      }
       if (!preflight.data.ready) {
         setGenerateProgress(null);
         setError("Order data is incomplete. " + preflight.data.blockers.join("; "));
+        onMissingData?.();
         return;
       }
       setGenerateProgress({ percent: 40, done: false });

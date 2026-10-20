@@ -74,6 +74,8 @@ test('disabled sources stay blank and a manually ordered zero-activity product s
 });
 
 test('dairy workbook browser button persists edits before downloading',async({page})=>{
+  // Keep default comparison dates inside the seeded report coverage.
+  await page.clock.setFixedTime(new Date('2026-10-08T12:00:00Z'));
  await page.goto('/order-sheet');await page.getByRole('button',{name:'Generate Order Sheet',exact:true}).click();
  const quantity=page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Hounslow'});await expect(quantity).toBeVisible({timeout:45000});await quantity.fill('11');
  const event=page.waitForEvent('download');await page.getByRole('button',{name:'Dairy workbook',exact:true}).click();const download=await event;
