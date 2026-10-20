@@ -34,7 +34,7 @@ try {
         $check = 'test -x $HOME/mieszko-worker/releases/{0}/.worker-runtime/venv/bin/python && test -f $HOME/mieszko-worker/releases/{0}/automation/activate-linux-worker.py && if systemctl is-active --quiet mieszko-import-worker.service; then echo Worker_already_active_resume_cancelled; exit 1; fi' -f $release
         & ssh $target $check
         if ($LASTEXITCODE -ne 0) { throw 'Prepared release not found or worker already active. Resume stopped.' }
-        & scp (Join-Path $PSScriptRoot 'store-worker-environment.py') (Join-Path $PSScriptRoot 'configure-linux-worker.py') (Join-Path $PSScriptRoot 'activate-linux-worker.py') "${target}:mieszko-worker/releases/$release/automation/"
+        & scp (Join-Path $PSScriptRoot 'store-worker-environment.py') (Join-Path $PSScriptRoot 'configure-linux-worker.py') (Join-Path $PSScriptRoot 'activate-linux-worker.py') (Join-Path $PSScriptRoot 'check-linux-worker.py') "${target}:mieszko-worker/releases/$release/automation/"
         if ($LASTEXITCODE -ne 0) { throw 'Activation repair transfer failed.' }
         Write-Host "Resuming prepared release $release; dependency installation skipped."
     } else {
@@ -83,6 +83,10 @@ process.stdout.write(JSON.stringify({DATABASE_URL: config.DATABASE_URL}));
         if ($EnableNightly) { $activate += ' --enable-nightly' }
         & ssh -t $target $activate
         if ($LASTEXITCODE -ne 0) { throw 'Worker activation did not finish. Review the output and service status before retrying.' }
+        $health = '$HOME/mieszko-worker/releases/{0}/.worker-runtime/venv/bin/python $HOME/mieszko-worker/releases/{0}/automation/check-linux-worker.py' -f $release
+        if ($EnableNightly) { $health += ' --require-nightly' }
+        & ssh $target $health
+        if ($LASTEXITCODE -ne 0) { throw 'Activation completed, but server health checks need attention. Review the checks above before relying on unattended downloads.' }
         Write-Host "Selected movement feeds activated in release $release. Check the Download Queue for actual results."
     } else {
         Write-Host "Worker dependencies prepared from commit $sha. CRM configuration and controlled verification remain."

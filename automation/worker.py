@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from functools import lru_cache
 
 FEEDS = {
     'normal_sales': ('daily_sales', 'sales_date', 'sold_qty'),
@@ -132,7 +133,7 @@ def read_rows(path, mapping):
 
 
 def enqueue_nightly(conn, store_ids, day, sources=None):
-    """Only the three movement feeds are nightly. Retrying a failed day is explicit."""
+    """Queue each movement report day once; bounded recovery is scheduled separately."""
     date.fromisoformat(day)
     with conn.transaction():
         for store_id in sorted(set(store_ids)):
@@ -147,6 +148,85 @@ def enqueue_nightly(conn, store_ids, day, sources=None):
                     AND NOT EXISTS (SELECT 1 FROM data_import_runs WHERE store_id=%s
                       AND source_type=%s AND source_start_date<=%s AND source_end_date>=%s)''',
                     (store_id, source, day, day, store_id, store_id, source, day, day))
+
+
+@lru_cache(maxsize=1)
+def worker_revision():
+    """Fingerprint executable worker/parser code so format failures retry after an upgrade."""
+    app = Path(__file__).resolve().parent.parent
+    files = [Path(__file__).resolve(), app / 'automation/normalize-report.ts', app / 'automation/nebula_download.py']
+    files += [p for p in (app / 'src/parsers').rglob('*.ts') if not p.name.endswith('.test.ts')]
+    digest = hashlib.sha256()
+    for path in sorted(files):
+        if path.is_file():
+            digest.update(str(path.relative_to(app)).encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def failure_category(message, exception=None):
+    value = str(message).lower()
+    if isinstance(exception, ImportValidationError) or 'unmatched' in value:
+        return 'product_review'
+    if any(word in value for word in ('another store', 'wrong store', 'store identity', 'missing store code',
+            'login code', 'complete_store_report', 'includes_negative_stock', 'configured store',
+            'invalid file extension', 'date differs', 'dates differ', 'date outside', 'row date differs',
+            'date controls changed', 'did not retain', 'empty report', 'no records available', 'four decimal',
+            'negative movement', 'expected positive', 'invalid quantity', 'missing code or quantity')):
+        return 'review_required'
+    if 'parsing failed' in value or 'columns not detected' in value:
+        return 'parser_upgrade'
+    if isinstance(exception, subprocess.TimeoutExpired) or any(word in value for word in (
+            'timeout', 'timed out', 'login page is unavailable', 'downloader failed', 'crm report export failed',
+            'downloader did not produce', 'connection', 'worker stopped')):
+        return 'download_retry'
+    return 'review_required'
+
+
+def enqueue_failed_retries(conn, store_ids, sources, day, revision=None):
+    """Retry recent transient failures at most three times; never loop product/parser errors.
+
+    The installed timer invokes this at 02:00, 03:00, 04:00 and 05:00 London time.
+    Each candidate must have cooled down for 45 minutes. The last 30 report days
+    are eligible; operator controls, active work and newer attempts take precedence.
+    """
+    revision = revision or worker_revision()
+    last_day = date.fromisoformat(day)
+    first_day = last_day - timedelta(days=29)
+    queued = []
+    with conn.transaction():
+        for store_id in sorted(set(store_ids)):
+            conn.execute('SELECT pg_advisory_xact_lock(73501, %s)', (store_id,))
+            failures = conn.execute("""SELECT r.id,r.source_type,r.source_start_date,r.source_end_date,r.details,r.error_message
+                FROM data_import_runs r JOIN stores s ON s.id=r.store_id AND s.is_active=true
+                WHERE r.store_id=%s AND r.source_type=ANY(%s) AND r.status='failed'
+                  AND r.source_start_date BETWEEN %s AND %s AND r.source_end_date<=%s
+                  AND COALESCE(r.completed_at,r.started_at)<now()-interval '45 minutes'
+                  AND NOT(r.details ? 'queue_control') AND NOT(r.details ? 'unmatched_barcodes')
+                  AND NOT(r.details ? 'unknown_product_codes') AND NOT(r.details ? 'automatic_retry_as')
+                  AND NOT EXISTS(SELECT 1 FROM data_import_runs n WHERE n.store_id=r.store_id AND n.source_type=r.source_type
+                    AND n.source_start_date<=r.source_end_date AND n.source_end_date>=r.source_start_date
+                    AND (n.id>r.id OR n.status IN ('queued','downloading','downloaded','importing')))
+                ORDER BY r.id LIMIT 100""", (store_id, list(sources), first_day, last_day, last_day)).fetchall()
+            for run_id, source, start, end, details, error in failures:
+                category = failure_category(error or '')
+                count = details.get('automatic_retry_count', 0)
+                if type(count) is not int or not 0 <= count < 3:
+                    continue
+                if category == 'parser_upgrade':
+                    if details.get('worker_revision') == revision:
+                        continue
+                elif category != 'download_retry':
+                    continue
+                payload = {'retry_of': run_id, 'automatic_retry_count': count + 1,
+                           'automatic_retry_reason': category, 'scheduled_worker_revision': revision}
+                created = conn.execute("""INSERT INTO data_import_runs(store_id,source_type,trigger_type,
+                    source_start_date,source_end_date,details) VALUES(%s,%s,'retry',%s,%s,%s::jsonb) RETURNING id""",
+                    (store_id, source, start, end, json.dumps(payload))).fetchone()[0]
+                conn.execute("UPDATE data_import_runs SET details=details || %s::jsonb WHERE id=%s",
+                             (json.dumps({'automatic_retry_as': created}), run_id))
+                queued.append(created)
+    return queued
 
 
 def claim(conn, config=None):
@@ -374,6 +454,8 @@ def process_job(conn, config, job):
     run_id, store_id, source, start, end = job
     review_descriptions = {}
     try:
+        conn.execute("UPDATE data_import_runs SET details=details || %s::jsonb WHERE id=%s AND status NOT IN ('success','failed')",
+                     (json.dumps({'worker_revision': worker_revision()}), run_id))
         store = get_store_config(conn, config, store_id)
         identity = conn.execute('SELECT code FROM stores WHERE id=%s AND is_active=true', (store_id,)).fetchone()
         if not identity or (store.get('code') and store['code'] != identity[0]):
@@ -476,7 +558,9 @@ def process_job(conn, config, job):
                 code: str(review_descriptions[code])[:500] for code in unknown if review_descriptions.get(code)
             }
         message = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
-        conn.execute("UPDATE data_import_runs SET status='failed', completed_at=now(), error_message=%s, details=details || %s::jsonb WHERE id=%s AND status NOT IN ('success','failed')", (message[:2000], json.dumps(exc.details if isinstance(exc, ImportValidationError) else {}), run_id))
+        failure_details = dict(exc.details if isinstance(exc, ImportValidationError) else {})
+        failure_details.update({'failure_category': failure_category(message, exc), 'worker_revision': worker_revision()})
+        conn.execute("UPDATE data_import_runs SET status='failed', completed_at=now(), error_message=%s, details=details || %s::jsonb WHERE id=%s AND status NOT IN ('success','failed')", (message[:2000], json.dumps(failure_details), run_id))
         print(f'Job {run_id}: failed ({message})', flush=True)
 
 
@@ -534,7 +618,11 @@ def main():
             ids = nightly_store_ids(conn, config)
             if args.store_id is not None:
                 ids = [store_id for store_id in ids if store_id == args.store_id]
-            enqueue_nightly(conn, ids, day, enabled_movement_sources(config))
+            sources = enabled_movement_sources(config)
+            enqueue_nightly(conn, ids, day, sources)
+            if args.enqueue_yesterday:
+                retried = enqueue_failed_retries(conn, ids, sources, day)
+                print(f'Nightly recovery: {len(retried)} eligible failed reports queued for automatic retry.', flush=True)
         if args.enqueue_only:
             return
         processed = 0

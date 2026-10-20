@@ -5,7 +5,7 @@ import {useEffect,useState} from 'react';
 import {apiRequest} from '@/lib/api/client';
 const feeds={normal_sales:'Normal Sales',rtc:'RTC Sales',wastage:'Wastage',book_stock:'Book Stock'};
 const views=[['processing','Processing'],['queued','Waiting'],['paused','Paused'],['completed','Completed'],['partial','Partial / needs review'],['failed','Failed'],['cancelled','Cancelled'],['all','All history']] as const;
-type Row={id:number;store_name:string|null;source_type:keyof typeof feeds;status:string;from_date:string|null;to_date:string|null;started_at:string;completed_at:string|null;downloaded_row_count:number|null;imported_row_count:number|null;error_message:string|null;source_file_name:string|null;retry_of:string|null};
+type Row={id:number;store_name:string|null;source_type:keyof typeof feeds;status:string;from_date:string|null;to_date:string|null;started_at:string;completed_at:string|null;downloaded_row_count:number|null;imported_row_count:number|null;error_message:string|null;source_file_name:string|null;automatic_retry_count?:number|null;retry_of:string|null};
 type LiveRow=Pick<Row,'id'|'store_name'|'source_type'|'status'|'from_date'|'to_date'> & Partial<Pick<Row,'started_at'|'source_file_name'|'downloaded_row_count'>>;
 const stages:Record<string,string>={downloading:'Opening CRM / downloading report',downloaded:'Download complete — validating file',importing:'Saving validated data to PostgreSQL'};
 function reportName(row:LiveRow){return `${row.store_name??'Store removed'} · ${feeds[row.source_type]} · ${row.from_date??'Date not recorded'}${row.to_date!==row.from_date?` to ${row.to_date??'unknown'}`:''}`;}
@@ -37,6 +37,7 @@ export function DownloadQueue(){
  return <div className="space-y-4">
   <div className="flex flex-wrap gap-3"><Button onClick={()=>router.push('/automation')}>New download / CRM settings</Button><Button variant="outline" onClick={()=>router.push('/operations')}>Office Operations</Button><Button variant="outline" disabled={loading} onClick={()=>setRefresh(n=>n+1)}>Refresh queue</Button></div>
   <p className="text-sm">Queued reports wait for the Ubuntu worker and an enabled report feed. This screen refreshes every 5 seconds while visible. Closing it does not stop the worker. Book Stock remains manual.</p>
+  <p className="text-sm text-zinc-600">After the updated nightly timer is installed, enabled stores retry eligible download failures from the last 30 report days at 02:00, 03:00, 04:00 and 05:00 London time, with at most 3 automatic retries per report. Unmatched products need mapping; parsing failures retry after a worker update.</p>
   <p className="text-sm text-zinc-600">Pause stops this attempt from importing; Resume starts a fresh attempt. A CRM download already underway may finish. An atomic database import already in progress cannot be interrupted.</p>
   {data&&<section aria-label="Live worker activity" className="grid gap-4 lg:grid-cols-2">
    <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4">
@@ -67,7 +68,7 @@ export function DownloadQueue(){
   {loading&&<p role="status">Checking download queue…</p>}
   {data&&<><p className="text-sm text-zinc-600">{data.total} attempts in this view · Page {data.page} · Checked {new Date(data.checkedAt).toLocaleTimeString('en-GB')}. Counts use the selected store and feed.</p>
    <div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full min-w-[1000px] text-left text-sm"><thead className="bg-zinc-50"><tr>{['Job','Store','Feed / dates','Stage','Rows','Details','Controls'].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{data.rows.map(row=><tr key={row.id} className="border-t">
-    <td className="p-3">#{row.id}{row.retry_of&&<div>Retry of #{row.retry_of}</div>}</td><td className="p-3">{row.store_name??'Store removed'}</td>
+    <td className="p-3">#{row.id}{row.retry_of&&<div>Retry of #{row.retry_of}</div>}{row.automatic_retry_count&&<div>Automatic retry {row.automatic_retry_count}/3</div>}</td><td className="p-3">{row.store_name??'Store removed'}</td>
     <td className="p-3">{feeds[row.source_type]}<div>{row.from_date??'Date not recorded'}{row.to_date!==row.from_date?` to ${row.to_date??'unknown'}`:''}</div></td>
     <td className="p-3"><strong>{row.status==='success'?'Saved':row.status==='partial'?'Partial — unmatched products pending':row.status}</strong><div className="text-xs">{new Date(row.started_at).toLocaleString('en-GB')}</div>{['downloading','downloaded','importing'].includes(row.status)&&<progress aria-label={`Job ${row.id} progress`} max={4} value={['queued','downloading','downloaded','importing','success'].indexOf(row.status)} />}</td>
     <td className="p-3">Downloaded: {row.downloaded_row_count??'—'}<div>Saved: {row.imported_row_count??'—'}</div></td>

@@ -74,7 +74,7 @@ have been checked. Do not assume the three report layouts contain identical colu
 3. Set complete-report verification only for confirmed feeds, then perform one
    authorized import and independently check the PostgreSQL rows and dashboard.
 4. Review the generated systemd unit paths/user/environment. The continuous worker
-   consumes queued jobs; the separate 02:00 Europe/London timer queues yesterday
+   consumes queued jobs; the separate 02:00–05:00 hourly Europe/London timer queues yesterday
    using `--enqueue-only`. No Book Stock jobs are scheduled or consumed by this
    movement-only profile. Existing manual stock support requires its own verified
    downloader configuration.
@@ -226,7 +226,7 @@ run the following in the Windows project folder. This is an explicit operational
 action: it prepares a new isolated worker release, privately transfers DATABASE_URL
 from the existing .env/.env.local, prompts for the hidden CRM login code, checks
 the existing office database read-only, enables Wastage only, and starts the worker.
-It also enables the 02:00 Europe/London timer for the stores marked Include in the
+It also enables the hourly 02:00, 03:00, 04:00 and 05:00 Europe/London timer for the stores marked Include in the
 UI. It does not run migrations or deploy the web application.
 
 ```powershell
@@ -294,3 +294,8 @@ dates in that range, so narrow the range and feeds first. Active jobs are skippe
 Resolve missing product mappings or changed URLs before retrying. An empty CRM
 report is not automatically treated as zero sales or zero wastage. The Ubuntu
 worker and the chosen feed must be enabled for queued retries to execute.
+
+
+### Bounded nightly failure recovery
+
+The installed timer also queues eligible temporary download failures from the last 30 completed report days after a 45-minute cooldown, with at most three automatic retries per chain. It honours nightly store eligibility, verified feeds, active/newer attempts and operator pause/cancel controls. Unmatched products require mapping; parser failures retry after a worker/parser update. The Download Queue shows automatic attempt numbers. See [reconciliation and recovery](unmatched-products-reconciliation.md#nightly-behaviour-and-updating-an-existing-installation) for exclusions and read-only server health checks, which the release script now runs after activation. Existing installations must deploy with `-EnableNightly` to install the expanded timer.

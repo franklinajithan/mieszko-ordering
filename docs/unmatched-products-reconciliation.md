@@ -70,14 +70,29 @@ There is no web-deployment step in GitHub CI; it verifies source and tests. The 
 
 - TypeScript and ESLint checks passed; Next.js production build passed.
 - 177 application unit/integration tests passed, including 20,001 identifiers, full-history export, Excel text preservation, validation output, duplicate mapping rejection, cross-store isolation, batch rollback, repeat approval, automatic reconciliation and migration reapplication.
-- 49 Python tests passed, including backup/archive failure gates and missing-migration startup protection.
+- 58 Python tests passed, including backup/archive failure gates, missing-migration startup protection, retry classification, real systemd unit syntax, timer replacement, and read-only health checks with credential redaction.
 - All 103 system/browser cases passed in the final partial-import run. The extension adds coverage for all three feeds, progressive correction, exact final totals, repeated retries, manual/complete/zero-report protection, barcode matching, rollback and legacy staged failures. The diagnostics fixture asserts that invalid new cross-store barcode writes are rejected before transactionally simulating corrupt historical data for diagnostics.
 - Browser coverage exercised export, corrected upload, preview, explicit approval, refresh, audit and 390px mobile layout. API/worker coverage verified existing Product Upload auto-reconciliation and replay of a retained validated report with the downloader deliberately configured to fail if invoked.
+
+The recovery extension passed seven database/browser cases: retry budget and cooldown, audit history, pause/cancel/newer-attempt protection, product/validation exclusions, parser version gating, date/store/feed limits, recovered download totals, and scheduled enqueue-only integration. Together with the existing 103 system cases, all 110 unique scenarios passed across the full suite and targeted recovery rerun. Application tests, lint, TypeScript and the production build also passed.
 
 These results used disposable local data and offline CRM fixtures, not the live Hayes database or reports.
 
 ## Nightly behaviour and updating an existing installation
 
-The nightly scheduler still queues the previous day's new movement reports for enabled stores/feeds. It does not automatically re-download every historical failed or partial attempt. Mapping corrections queue eligible reprocessing immediately; saved validated stages are reused where possible. Download/parsing failures still require operator Retry / Re-download, and parser errors may need a fix first.
+The updated timer runs at 02:00, 03:00, 04:00 and 05:00 Europe/London. Each run queues the previous day's new movement reports once, and recovers eligible failures from the last 30 completed report days. Only active MSP stores marked **Include in nightly** and feeds verified in the installed worker configuration are eligible.
 
-After deploying the partial-import extension with the release command above, click Refresh in Unmatched Products. Older failures with a retained validated stage can publish matching rows once without waiting for every correction. For an older failure without a stage, use Re-download in Download Queue; the new worker will save its matching rows while retaining unmatched identifiers. The worker and nightly timer must be running for queued work to execute.
+Automatic recovery creates a new audited attempt, after a minimum 45-minute cooldown, for temporary download/export/network/timeout failures. Each chain has at most three automatic retries. Paused/cancelled attempts, overlapping queued or processing work, newer attempts, completed reports, unmatched products and validation/configuration errors are excluded. Parser failures retry only when the worker/parser content changes (legacy attempts without a version can retry once); the same three-attempt budget applies. The queue shows **Automatic retry 1/3**, etc. Manual Re-download starts a fresh attempt and budget. Failures older than 30 report days need manual review and Re-download.
+
+Mapping corrections queue eligible reprocessing immediately; saved validated stages are reused where possible. In **Unmatched Products**, click Refresh to upgrade older failures with a retained validated stage and publish matching rows once. Failed reports without a stage must be downloaded again. Automatic recovery does not repair unknown product mappings, incorrect dates/store identity, missing login settings, or unsupported report layouts. Inspect those in Download Queue and correct the underlying cause first.
+
+Deploy using the PowerShell command above with **-EnableNightly** to replace the old single-run timer. The release script now performs read-only health checks after activation: protected configuration, database connection/migrations, verified feeds, nightly store eligibility, worker startup/restart enablement, installed release paths, and all four timer times. It prints historical status counts and warns about attempts active for over two hours; it never automatically clears an attempt that might still be running.
+
+To repeat health checks on Ubuntu from the active release:
+
+```bash
+app=$(systemctl show mieszko-import-worker.service --property=WorkingDirectory --value)
+"$app/.worker-runtime/venv/bin/python" "$app/automation/check-linux-worker.py" --require-nightly
+```
+
+Health checks confirm deployment readiness, not a successful live CRM export. Check **Download Queue → Completed** for saved reports and review **Failed / Partial** for remaining work. The website can be closed while the Ubuntu worker continues; the Ubuntu server must stay on and retain database/CRM network access.

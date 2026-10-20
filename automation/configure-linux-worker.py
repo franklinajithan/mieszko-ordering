@@ -55,10 +55,13 @@ WantedBy=multi-user.target
     nightly = nightly.replace(f'"{app}/automation/linux_worker.py"', f'"{app}/automation/linux_worker.py" --enqueue-yesterday --enqueue-only')
     nightly = nightly.split('[Install]')[0]
     timer = '''[Unit]
-Description=Queue yesterday's separate Normal Sales, RTC and Wastage reports
+Description=Queue yesterday's reports and recover eligible recent failures
 
 [Timer]
 OnCalendar=*-*-* 02:00:00 Europe/London
+OnCalendar=*-*-* 03:00:00 Europe/London
+OnCalendar=*-*-* 04:00:00 Europe/London
+OnCalendar=*-*-* 05:00:00 Europe/London
 Persistent=true
 Unit=mieszko-movement-enqueue.service
 

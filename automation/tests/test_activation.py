@@ -70,6 +70,7 @@ class ActivationTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn(unittest.mock.call(['sudo', 'systemctl', 'restart', 'mieszko-import-worker.service'], check=True), commands.call_args_list)
         self.assertIn(unittest.mock.call(['sudo', 'systemctl', 'enable', '--now', 'mieszko-movement-enqueue.timer'], check=True), commands.call_args_list)
+        self.assertIn(unittest.mock.call(['sudo', 'systemctl', 'restart', 'mieszko-movement-enqueue.timer'], check=True), commands.call_args_list)
         self.assertNotIn('fixture-login', output)
         self.assertNotIn('fixture-secret-dsn', output)
 

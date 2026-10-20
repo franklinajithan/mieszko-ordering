@@ -103,6 +103,7 @@ def main():
             subprocess.run(['sudo', 'systemctl', 'is-active', '--quiet', 'mieszko-import-worker.service'], check=True)
         if args.enable_nightly:
             subprocess.run(['sudo', 'systemctl', 'enable', '--now', 'mieszko-movement-enqueue.timer'], check=True)
+            subprocess.run(['sudo', 'systemctl', 'restart', 'mieszko-movement-enqueue.timer'], check=True)
         print('Activation complete. Check CRM Downloads progress and Office Operations. Book Stock remains manual.')
         return 0
     except Exception as error:
