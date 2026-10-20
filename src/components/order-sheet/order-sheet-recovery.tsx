@@ -97,7 +97,8 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
      setJobIds([]);
      if(refreshAfterCompletion.current){
       refreshAfterCompletion.current=false;
-      setMessage("Recovery jobs finished. Rechecking missing reports against the database...");
+      const unsuccessful=body.data.jobs.filter(job=>job.status!=="success");
+      setMessage(unsuccessful.length?`${unsuccessful.length} recovery job(s) did not complete successfully. Rechecking gaps; review failed or unmatched imports before retrying.`:"All recovery jobs completed. Verifying saved reports and refreshing order warnings...");
       void scanRef.current();
       onRecoveryFinishedRef.current?.();
      }
@@ -127,7 +128,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
   {rows.length>0&&<div className="mt-3">
    <p className="mb-2">{rows.length} gaps · {eligible.length} eligible for CRM download. Missing book stock and supplier prices require separate uploads.</p>
    <div className="max-h-72 overflow-auto rounded border bg-white">
-    <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr><th className="p-2">Approve</th><th className="p-2">Store</th><th className="p-2">Report date</th><th className="p-2">Feed</th><th className="p-2">Status</th></tr></thead><tbody>{rows.map(row=><tr key={key(row)} className="border-t"><td className="p-2"><input type="checkbox" aria-label={`Approve ${row.store_name} ${row.source_type} ${row.day}`} disabled={!row.can_download||running||scanning||stale} checked={selected.includes(key(row))} onChange={e=>setSelected(old=>e.target.checked?[...old,key(row)]:old.filter(x=>x!==key(row)))}/></td><td className="p-2">{row.store_name}</td><td className="p-2">{row.day}</td><td className="p-2">{row.source_type.replaceAll("_"," ")}</td><td className="p-2" title={row.reason}>{row.status}{row.configuration_required?" · CRM setup needed":""}</td></tr>)}</tbody></table>
+    <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr><th className="p-2">Approve</th><th className="p-2">Store</th><th className="p-2">Report date</th><th className="p-2">Feed</th><th className="p-2">Status</th></tr></thead><tbody>{rows.map(row=><tr key={key(row)} className="border-t"><td className="p-2"><input type="checkbox" aria-label={`Approve ${row.store_name} ${row.source_type} ${row.day}`} disabled={!row.can_download||running||scanning||stale} checked={selected.includes(key(row))} onChange={e=>setSelected(old=>e.target.checked?[...old,key(row)]:old.filter(x=>x!==key(row)))}/></td><td className="p-2">{row.store_name}</td><td className="p-2">{row.day}</td><td className="p-2">{row.source_type.replaceAll("_"," ")}</td><td className="p-2" title={row.reason}><span className="font-semibold">{row.status}</span>{row.configuration_required?" · CRM setup needed":""}<span className="block text-slate-600">{row.reason}</span></td></tr>)}</tbody></table>
    </div>
    <div className="mt-3 flex flex-wrap items-center gap-3">
     <button type="button" disabled={running||scanning||stale||!eligible.length} onClick={()=>setSelected(eligible.map(key))} className="rounded border px-3 py-2">Select eligible</button>
