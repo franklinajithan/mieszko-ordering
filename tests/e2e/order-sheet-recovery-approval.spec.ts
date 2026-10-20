@@ -64,6 +64,9 @@ test('approved reports notify completion and wait for permission to proceed',asy
  await completed.getByRole('button',{name:'Proceed with order',exact:true}).click();
  await expect(page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Hounslow'})).toBeVisible({timeout:45000});
  expect(state.generationRequests()).toBe(1);
+ const downloadEvent=page.waitForEvent('download');
+ await page.getByRole('button',{name:'Dairy workbook',exact:true}).click();
+ expect((await downloadEvent).suggestedFilename()).toContain('Dairy Order');
  expect((await sql.unsafe("SELECT status FROM data_import_runs WHERE id="+Number(queued.id)).simple())[0].status).toBe('success');
 });
 
