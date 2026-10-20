@@ -63,6 +63,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
   setRunning(true);setProgress({done:0,total:approved.length});setMessage("Submitting approved recovery jobs...");
   const failuresNow:string[]=[];
   const queuedIds:number[]=[];
+  const skipped:string[]=[];
   for(let i=0;i<approved.length;i++){
    const row=approved[i];
    try{
@@ -70,12 +71,13 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
     const body=await response.json() as ApiResponse<{runId:number|null;message:string}>;
     if(!response.ok||!body.success)throw new Error(body.error||"Queue rejected");
     if(body.data?.runId)queuedIds.push(body.data.runId);
+    else skipped.push(`${row.store_name} ${row.day} ${row.source_type}: ${body.data?.message||"No recovery job created"}`);
    }catch(error){failuresNow.push(`${row.store_name} ${row.day} ${row.source_type}: ${error instanceof Error?error.message:"Request failed"}`);}
    setProgress({done:i+1,total:approved.length});
   }
-  setRunning(false);setSelected([]);setFailures(failuresNow);
+  setRunning(false);setSelected([]);setFailures([...failuresNow,...skipped]);
   if(queuedIds.length){refreshAfterCompletion.current=true;setJobIds(old=>[...new Set([...old,...queuedIds])].slice(-250));}
-  setMessage(`Submitted ${approved.length-failuresNow.length} recovery requests; ${failuresNow.length} failed. Job IDs: ${queuedIds.length?queuedIds.join(", "):"none created"}. Progress is monitored automatically; the missing-report scan and order warnings refresh when jobs finish.`);
+  setMessage(`${queuedIds.length} recovery jobs tracked; ${skipped.length} already completed or skipped; ${failuresNow.length} requests failed. Job IDs: ${queuedIds.length?queuedIds.join(", "):"none created"}. Progress is monitored automatically; the missing-report scan and order warnings refresh when jobs finish.`);
  }
  useEffect(()=>{
   if(scanRequest===lastRequest.current)return;
