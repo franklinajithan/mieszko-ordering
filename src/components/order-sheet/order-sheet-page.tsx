@@ -95,6 +95,7 @@ export function OrderSheetPage({
           onClear={() => workflow.setConfirmClear(true)}
           onSave={() => void workflow.onSaveDraft()}
           onExport={() => void workflow.onExport()}
+          onExportDairy={() => void workflow.onExport("dairy")}
           onGenerate={() => void workflow.onGenerate()}
         />
 

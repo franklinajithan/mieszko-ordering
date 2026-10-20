@@ -165,12 +165,12 @@ export function useOrderSheetWorkflow({
     catch (cause) { setError(cause instanceof Error?cause.message:"Unable to save draft"); }
     finally {setSaving(false);}
   }
-  async function onExport() {
+  async function onExport(format: "standard" | "dairy" = "standard") {
     if (!orderId) return;
     setSaving(true);setError(null);
     try {
       await persistDraft();
-      const response=await exportOrder({orderId});
+      const response=await exportOrder({orderId,format});
       if (!response.success) throw new Error(response.error);
       const bytes=Uint8Array.from(atob(response.data.base64),char=>char.charCodeAt(0));
       const url=URL.createObjectURL(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));

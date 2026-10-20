@@ -11,6 +11,7 @@ export function OrderSheetActionBar({
   onClear,
   onSave,
   onExport,
+  onExportDairy,
   onGenerate,
 }: {
   orderId: number | null;
@@ -20,6 +21,7 @@ export function OrderSheetActionBar({
   onClear: () => void;
   onSave: () => void;
   onExport: () => void;
+  onExportDairy: () => void;
   onGenerate: () => void;
 }) {
   return (
@@ -57,6 +59,9 @@ export function OrderSheetActionBar({
           onClick={onExport}
         >
           Export Excel
+        </Button>
+        <Button type="button" variant="outline" disabled={!orderId || generating || saving} onClick={onExportDairy} title="Product and NO Movement tabs per store. Enable Day-by-sales required for daily columns.">
+          Dairy workbook
         </Button>
         <Button type="button" disabled={generating || saving} onClick={onGenerate}>
           {generating ? "Generating..." : "Generate Order Sheet"}
