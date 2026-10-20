@@ -73,3 +73,17 @@ test('failed recovery stays visible and never generates an order automatically',
  expect(state.generationRequests()).toBe(0);
  expect((await sql`SELECT id FROM orders`)).toHaveLength(0);
 });
+
+test('missing book stock offers an approved worker refresh without creating an order',async({page})=>{
+ await sql`DELETE FROM book_stock WHERE store_product_id IN(11,12,13)`;
+ await page.clock.setFixedTime(new Date('2026-10-08T12:00:00Z'));
+ await page.goto('/order-sheet');
+ await page.getByRole('button',{name:'Generate Order Sheet',exact:true}).click();
+ const dialog=page.getByRole('alertdialog');
+ await expect(dialog.getByText('Hounslow · Latest snapshot · book stock',{exact:true})).toBeVisible();
+ expect((await sql`SELECT id FROM data_import_runs`)).toHaveLength(0);
+ await dialog.getByRole('button',{name:'Approve download of 1 reports',exact:true}).click();
+ await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toBeVisible();
+ expect((await sql`SELECT source_type,status FROM data_import_runs`)).toEqual([{source_type:'book_stock',status:'queued'}]);
+ expect((await sql`SELECT id FROM orders`)).toHaveLength(0);
+});
