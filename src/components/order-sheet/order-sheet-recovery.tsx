@@ -95,7 +95,10 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
  useEffect(()=>{
   if(!jobIds.length)return;
   let cancelled=false;
+  let checking=false;
   async function refresh(){
+   if(cancelled||checking)return;
+   checking=true;
    try {
     const response=await fetch("/api/order-sheet/recovery-status?ids="+jobIds.join(","),{cache:"no-store"});
     const body=await response.json() as ApiResponse<{jobs:RecoveryJob[]}>;
@@ -114,6 +117,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
      }
     }
    }catch(error){if(!cancelled)setJobCheckError(error instanceof Error?error.message:"Unable to check recovery jobs.");}
+   finally{checking=false;}
   }
   void refresh();
   const timer=window.setInterval(()=>void refresh(),10000);
