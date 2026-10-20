@@ -125,3 +125,32 @@ test('day-by-day dates outside comparison periods detect only missing Normal Sal
  const disabled=await request.post('/api/order-sheet/preflight',{data:{...input,dayBySalesRequired:false}});
  expect((await disabled.json()).data.feedCoverage.every((feed:{missing:unknown[]})=>feed.missing.length===0)).toBe(true);
 });
+
+test('one approval queues more than 250 reports and checks every job in bounded status requests',async({page,request})=>{
+ test.setTimeout(90000);
+ await request.put('/api/automation/stores/1',{headers:{origin:'http://127.0.0.1:3100'},data:{crmUrl:'http://127.0.0.1:3201/',nightlyEnabled:false}});
+ const dates=Array.from({length:251},(_,index)=>new Date(Date.UTC(2025,0,1+index)).toISOString().slice(0,10));
+ const checked=new Set<number>();const sizes:number[]=[];
+ await page.route('**/api/order-sheet/recovery-status?**',async route=>{
+  const ids=new URL(route.request().url()).searchParams.get('ids')!.split(',').map(Number);
+  sizes.push(ids.length);ids.forEach(id=>checked.add(id));await route.continue();
+ });
+ await page.route('**/api/order-sheet/preflight',async route=>{
+  const response=await route.fetch();const body=await response.json();
+  body.data.feedCoverage=[{source:'normal_sales',missing:dates.map(date=>({storeId:1,date}))}];
+  await route.fulfill({response,json:body});
+ });
+ await page.route('**/api/automation/coverage?**',async route=>{
+  const rows=dates.map(day=>({store_id:1,store_name:'Hounslow',source_type:'normal_sales',day,status:'missing',reason:'Historical report is missing',can_download:true,run_id:null,configuration_required:false}));
+  await route.fulfill({json:{success:true,data:{rows,total:251,pages:1,page:1,unavailable:251,pending:0}}});
+ });
+ await page.clock.setFixedTime(new Date('2026-10-08T12:00:00Z'));
+ await page.goto('/order-sheet');await page.getByRole('button',{name:'Generate Order Sheet',exact:true}).click();
+ await page.getByRole('alertdialog').getByRole('button',{name:'Approve download of 251 reports',exact:true}).click();
+ await expect(page.getByText('0 of 251 jobs finished (0%)',{exact:true})).toBeVisible({timeout:45000});
+ const queued=await sql.unsafe("SELECT id FROM data_import_runs ORDER BY source_start_date").simple();
+ expect(queued).toHaveLength(251);
+ expect([...checked].sort((a,b)=>a-b)).toEqual(queued.map(row=>Number(row.id)).sort((a,b)=>a-b));
+ expect(sizes.length).toBeGreaterThanOrEqual(2);expect(sizes.every(size=>size<=250)).toBe(true);
+ expect((await sql.unsafe("SELECT id FROM orders").simple())).toHaveLength(0);
+});
