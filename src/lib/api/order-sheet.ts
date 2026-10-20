@@ -57,6 +57,7 @@ export function saveOrderSheetDraft(input: {
 }
 
 export type OrderSheetPreflight = {
+  feedCoverage?: Array<{source:string;missing:Array<{storeId:number;date:string}>}>;
   ready: boolean;
   blockers: string[];
   warnings: string[];

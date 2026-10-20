@@ -36,6 +36,8 @@ test('browser: dashboard, live editing, supplier Excel and history',async({page,
 });
 
 test('browser: Generate Order form saves current edits before workbook export',async({page})=>{
+  // Keep default comparison dates inside the seeded report coverage.
+  await page.clock.setFixedTime(new Date('2026-10-08T12:00:00Z'));
   await page.goto('/order-sheet');
   await page.getByRole('button',{name:'Generate Order Sheet',exact:true}).click();
   const quantity=page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Hounslow'});
