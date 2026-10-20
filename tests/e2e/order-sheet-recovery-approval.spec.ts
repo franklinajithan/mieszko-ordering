@@ -60,12 +60,13 @@ test('approved reports notify completion and wait for permission to proceed',asy
  const [queued]=await sql.unsafe("SELECT id,status,source_start_date::text AS day FROM data_import_runs").simple();
  expect(queued).toMatchObject({status:'queued',day:'2026-10-07'});expect(state.generationRequests()).toBe(0);
  runFixtureReport();
- await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toHaveAttribute('aria-valuenow','100',{timeout:25000});
  const completed=page.getByRole('alertdialog');
- await expect(completed.getByText('Reports downloaded and imported',{exact:true})).toBeVisible();
+ await expect(completed.getByText('Reports downloaded and imported',{exact:true})).toBeVisible({timeout:25000});
  expect(state.generationRequests()).toBe(0);
  expect((await sql.unsafe("SELECT id FROM orders").simple())).toHaveLength(0);
- await completed.getByRole('button',{name:'Proceed with order',exact:true}).click();
+ await completed.getByRole('button',{name:'Review first',exact:true}).click();
+ await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toHaveAttribute('aria-valuenow','100');
+ await page.getByRole('button',{name:'Proceed with order',exact:true}).click();
  await expect(page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Hounslow'})).toBeVisible({timeout:45000});
  expect(state.generationRequests()).toBe(1);
  const downloadEvent=page.waitForEvent('download');
@@ -118,9 +119,8 @@ test('Generate discovers last-year comparison reports on the order screen and sk
  await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toBeVisible();
  expect((await sql.unsafe("SELECT store_id,source_type,source_start_date::text AS day FROM data_import_runs").simple())).toEqual([{store_id:1,source_type:'normal_sales',day:'2025-10-07'}]);
  runFixtureReport();
- await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toHaveAttribute('aria-valuenow','100',{timeout:25000});
  const completed=page.getByRole('alertdialog');
- await expect(completed.getByText('Reports downloaded and imported',{exact:true})).toBeVisible();
+ await expect(completed.getByText('Reports downloaded and imported',{exact:true})).toBeVisible({timeout:25000});
  expect((await sql.unsafe("SELECT id FROM orders").simple())).toHaveLength(0);
  await completed.getByRole('button',{name:'Proceed with order',exact:true}).click();
  await expect(page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Hounslow'})).toBeVisible({timeout:45000});
