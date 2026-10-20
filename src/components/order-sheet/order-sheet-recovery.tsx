@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OrderSheetFormState } from "@/types/orderSheet";
 
 type Gap = {store_id:number;store_name:string;source_type:"normal_sales"|"rtc"|"wastage";day:string;status:string;reason:string;can_download:boolean;run_id:number|null;configuration_required:boolean};
 type Coverage = {rows:Gap[];total:number;pages:number;page:number;unavailable:number;pending:number};
 type ApiResponse<T> = {success:boolean;data:T;error?:string};
 
-export function OrderSheetRecovery({form}:{form:OrderSheetFormState}) {
+export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormState;scanRequest?:number}) {
+ const lastRequest=useRef(scanRequest);
  const [rows,setRows]=useState<Gap[]>([]);
  const [scanning,setScanning]=useState(false);
  const [running,setRunning]=useState(false);
@@ -59,6 +60,12 @@ export function OrderSheetRecovery({form}:{form:OrderSheetFormState}) {
   setRunning(false);setSelected([]);setFailures(failuresNow);
   setMessage(`Submitted ${approved.length-failuresNow.length} recovery requests; ${failuresNow.length} failed. Open Download Queue for live progress, then scan again to verify imports.`);
  }
+ useEffect(()=>{
+  if(scanRequest===lastRequest.current)return;
+  lastRequest.current=scanRequest;
+  void scan();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Trigger only on an explicit Generate action; scan snapshots current form.
+ },[scanRequest]);
  const eligible=rows.filter(row=>row.can_download);
  return <section className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-slate-900" aria-label="Mieszko intelligent data recovery">
   <div className="flex flex-wrap items-center justify-between gap-3">
