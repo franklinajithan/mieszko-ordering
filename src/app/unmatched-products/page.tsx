@@ -1,7 +1,7 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { db } from "@/db";
 import { dataImportRuns, stores } from "@/db/schema";
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
