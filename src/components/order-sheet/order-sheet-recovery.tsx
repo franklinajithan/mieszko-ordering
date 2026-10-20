@@ -12,6 +12,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
  const lastRequest=useRef(scanRequest);
  const scanRef=useRef<() => Promise<void>>(async()=>{});
  const refreshAfterCompletion=useRef(false);
+ const scanVersion=useRef(0);
  const [rows,setRows]=useState<Gap[]>([]);
  const [scanning,setScanning]=useState(false);
  const [running,setRunning]=useState(false);
@@ -29,6 +30,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
  const feeds=["normal_sales",...(form.includeRtc?["rtc"]:[]),...(form.includeWastage?["wastage"]:[])];
  async function scan() {
   if(!form.storeIds.length || !form.comparisonPeriods.length){setMessage("Select stores and comparison dates first.");return;}
+  const version=++scanVersion.current;
   setScanning(true);setMessage("");setRows([]);setSelected([]);setFailures([]);
   try {
    const found=new Map<string,Gap>();
@@ -44,10 +46,11 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
     } while(page<=pages);
    }
    const gaps=[...found.values()].sort((a,b)=>a.day.localeCompare(b.day)||a.store_name.localeCompare(b.store_name));
+   if(version!==scanVersion.current)return;
    setRows(gaps);setScannedScope(scope);
    setMessage(gaps.length?`Found ${gaps.length} store/date/feed gaps. Review and approve individual downloads below.`:"No report gaps found in selected comparison periods.");
-  } catch(error){setMessage(error instanceof Error?error.message:"Unable to scan missing reports.");}
-  finally{setScanning(false);}
+  } catch(error){if(version===scanVersion.current)setMessage(error instanceof Error?error.message:"Unable to scan missing reports.");}
+  finally{if(version===scanVersion.current)setScanning(false);}
  }
  useEffect(()=>{scanRef.current=scan;});
  async function queueApproved(){
@@ -102,6 +105,9 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
   return ()=>{cancelled=true;window.clearInterval(timer);};
  },[jobIds]);
  const eligible=rows.filter(row=>row.can_download);
+ const processingJobs=jobs.filter(job=>["queued","downloading","downloaded","importing"].includes(job.status)).length;
+ const completedJobs=jobs.filter(job=>job.status==="success").length;
+ const problemJobs=jobs.filter(job=>["failed","partial","paused","cancelled","resumed"].includes(job.status)).length;
  return <section className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-slate-900" aria-label="Mieszko intelligent data recovery">
   <div className="flex flex-wrap items-center justify-between gap-3">
    <div><h3 className="font-semibold">Mieszko · Intelligent Data Recovery</h3><p className="text-slate-600">Check exact CRM reports before placing orders. Downloads require your approval.</p></div>
@@ -111,7 +117,7 @@ export function OrderSheetRecovery({form,scanRequest=0}:{form:OrderSheetFormStat
   {stale&&rows.length>0&&<p role="alert">Selections changed. Scan again before approving downloads.</p>}
   {failures.length>0&&<div role="alert" className="mt-2 text-red-700">{failures.map(f=><p key={f}>{f}</p>)}</div>}
   {jobCheckError&&<p role="alert" className="mt-2 text-red-700">{jobCheckError}</p>}
-  {jobs.length>0&&<div className="mt-3 rounded border bg-white p-3"><p className="font-semibold">Recovery job progress · refreshed every 10 seconds</p><ul className="mt-2 space-y-1">{jobs.map(job=><li key={job.id}>#{job.id} · {job.store_name} · {job.report_date} · {job.feed.replaceAll("_"," ")} · <strong>{job.status}</strong> · imported {job.imported_row_count??0} rows{job.error_message?" · "+job.error_message:""}</li>)}</ul></div>}
+  {jobs.length>0&&<div className="mt-3 rounded border bg-white p-3"><p className="font-semibold">Recovery job progress · refreshed every 10 seconds</p><p className="mt-1 text-slate-600">{processingJobs} in progress · {completedJobs} completed · {problemJobs} need attention</p><ul className="mt-2 space-y-1">{jobs.map(job=><li key={job.id}>#{job.id} · {job.store_name} · {job.report_date} · {job.feed.replaceAll("_"," ")} · <strong>{job.status}</strong> · imported {job.imported_row_count??0} rows{job.error_message?" · "+job.error_message:""}</li>)}</ul></div>}
   {rows.length>0&&<div className="mt-3">
    <p className="mb-2">{rows.length} gaps · {eligible.length} eligible for CRM download. Missing book stock and supplier prices require separate uploads.</p>
    <div className="max-h-72 overflow-auto rounded border bg-white">
