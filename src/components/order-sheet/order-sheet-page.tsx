@@ -2,6 +2,7 @@
 
 import { SupplierOrderPanel } from "@/components/orders/supplier-order-panel";
 import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
+import { OrderSheetRecovery } from "@/components/order-sheet/order-sheet-recovery";
 import { OrderSheetActionBar } from "@/components/order-sheet/order-sheet-action-bar";
 import { OrderSheetFormPanel } from "@/components/order-sheet/order-sheet-form-panel";
 import { OrderSheetResultsPanel } from "@/components/order-sheet/order-sheet-results-panel";
@@ -82,6 +83,8 @@ export function OrderSheetPage({
             <ul className="mt-2 list-disc pl-5">{workflow.dataWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
           </div>
         ) : null}
+
+        <OrderSheetRecovery form={formState.form} />
 
         {workflow.error ? (
           <p className="text-sm text-red-600">{workflow.error}</p>
