@@ -1,3 +1,5 @@
+> Business rule updated 21 October 2026: recognized Wastage reports with zero rows, including MSP “No Records Available”, complete successfully as zero wastage. Dates and report identity are still validated; malformed downloads, wrong dates and unknown formats remain failures. Matching movement rows are saved and unmatched products are queued for review without failing the import. Earlier test/activation notes below describe the previous empty-report policy.
+
 # Daily CRM downloads and editable store addresses
 
 ## Completed development

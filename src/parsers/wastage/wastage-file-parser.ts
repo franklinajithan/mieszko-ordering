@@ -86,6 +86,7 @@ function parseFlatCsv(buffer: ArrayBuffer | Buffer): {
 export type WastageFileParseResult = {
   headers: string[];
   rows: ParsedRow[];
+  emptyReport?: boolean;
   referenceColumn?: string;
   quantityColumn?: string;
   wastageDate?: string;
@@ -121,8 +122,7 @@ export async function parseWastageFileBuffer(
       : Buffer.from(buffer as ArrayBuffer);
 
   // MSP sometimes exports a valid-looking workbook containing only
-  // "No Records Available". Treat this as an unverified empty report,
-  // not a successful zero-wastage import: CRM filters still need checking.
+  // "No Records Available". A recognized Wastage report means zero activity.
   if (erpType === "msp" && /\.(?:xls|xlsx)$/i.test(fileName)) {
     const workbook = XLSX.read(asBuffer, { type: "buffer" });
     const first = workbook.Sheets[workbook.SheetNames[0] ?? ""];
@@ -133,9 +133,23 @@ export async function parseWastageFileBuffer(
       if (cells.some((row) => row.some((value) =>
         /\bNo Records Available\b/i.test(String(value ?? ""))
       ))) {
-        throw new Error(
-          "MSP Wastage report says No Records Available. Verify the CRM store, report type, date range and filters before confirming zero wastage; existing data was not imported or replaced.",
-        );
+        const text = cells.flat().map(value => String(value ?? "")).join(" ");
+        if (!/wastage|stock\s*adjustment/i.test(text)) {
+          throw new Error("Empty file is not a recognized Wastage report");
+        }
+        const dates = [
+          ...[...text.matchAll(/\b(\d{2})[./-](\d{2})[./-](\d{4})\b/g)]
+            .map(match => `${match[3]}-${match[2]}-${match[1]}`),
+          ...[...text.matchAll(/\b\d{4}-\d{2}-\d{2}\b/g)].map(match => match[0]),
+        ];
+        if (new Set(dates).size > 1) {
+          throw new Error("Wastage zero-activity report must cover one day");
+        }
+        return {
+          headers: ["Item Code", "Qty"], rows: [], referenceColumn: "Item Code",
+          quantityColumn: "Qty", wastageDate: dates[0], emptyReport: true,
+          storeProductCodeMapped: true, gloposMapped: false, barcodeMapped: false,
+        };
       }
     }
   }

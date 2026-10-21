@@ -44,8 +44,8 @@ test('coverage identifies missing, failed, partial and waiting dates and counts 
  await sql`INSERT INTO daily_sales(store_product_id,sales_date,sold_qty) VALUES(11,'2026-10-16',4)`;
  await job('2026-10-17','failed');await job('2026-10-18');
  const result=(await (await request.get(coverage())).json()).data;
- expect(result).toMatchObject({expected:5,available:1,unavailable:4,pending:1,actionRequired:3,percentage:20});
- expect(result.rows.map((row:{day:string;status:string})=>[row.day,row.status])).toEqual([['2026-10-15','missing'],['2026-10-16','partial'],['2026-10-17','failed'],['2026-10-18','queued']]);
+ expect(result).toMatchObject({expected:5,available:2,unavailable:3,pending:1,actionRequired:2,percentage:40});
+ expect(result.rows.map((row:{day:string;status:string})=>[row.day,row.status])).toEqual([['2026-10-15','missing'],['2026-10-17','failed'],['2026-10-18','queued']]);
  expect(result.rows[0]).toMatchObject({can_download:true,reason:'Report data is not available for 2026-10-15.'});
  const all=(await (await request.get(coverage('2026-10-14','2026-10-18','&missingOnly=false'))).json()).data;
  expect(all.rows).toHaveLength(5);expect(all.rows[0].status).toBe('success');

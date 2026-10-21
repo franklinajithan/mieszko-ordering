@@ -36,11 +36,11 @@ test('worker: seven-store scheduled Excel imports through dashboard, order and f
 
 });
 
-test('worker: unmatched report rolls back the entire feed and records failure',async()=>{
+test('worker: unmatched rows go to review without marking movement imports failed',async()=>{
  const config=configFor([1],{command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}','--unknown']});
  run(config,['--enqueue-date','2026-10-07']);
  expect(Number((await sql`SELECT sold_qty FROM daily_sales WHERE store_product_id=11 AND sales_date='2026-10-07'`)[0].sold_qty)).toBe(4);
- expect(Number((await sql`SELECT count(*) FROM data_import_runs WHERE status='failed'`)[0].count)).toBe(3);
+ expect(Number((await sql`SELECT count(*) FROM data_import_runs WHERE status='failed'`)[0].count)).toBe(0);
  expect((await sql`SELECT imported_at FROM data_import_runs`).every(row=>row.imported_at===null)).toBe(true);
 });
 
@@ -61,7 +61,7 @@ test('API: supplier-price import works using one database connection',async({req
 test('worker: empty reports fail safely and an explicit retry succeeds',async()=>{
  const config=configFor([1],{command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}','--empty']});
  run(config,['--enqueue-date','2026-10-07']);
- const failed=await sql`SELECT id,source_type,status FROM data_import_runs ORDER BY id`;expect(failed.every(row=>row.status==='failed')).toBe(true);
+ const failed=await sql`SELECT id,source_type,status FROM data_import_runs ORDER BY id`;expect(failed.filter(row=>row.source_type!=='wastage').every(row=>row.status==='failed')).toBe(true);expect(failed.find(row=>row.source_type==='wastage')?.status).toBe('success');
  const normal=failed.find(row=>row.source_type==='normal_sales')!;
  const good=configFor([1]);run(good,['--retry-run',String(normal.id)]);
  const last=(await sql`SELECT status,details FROM data_import_runs ORDER BY id DESC LIMIT 1`)[0];expect(last.status).toBe('success');expect(last.details.retry_of).toBe(Number(normal.id));

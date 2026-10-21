@@ -170,3 +170,17 @@ test('one approval queues more than 250 reports and checks every job in bounded 
  expect(sizes.length).toBeGreaterThanOrEqual(2);expect(sizes.every(size=>size<=250)).toBe(true);
  expect((await sql.unsafe("SELECT id FROM orders").simple())).toHaveLength(0);
 });
+
+test('saved matching rows with unmatched products complete recovery without a failure',async({page,request})=>{
+ await request.put('/api/automation/stores/1',{headers:{origin:'http://127.0.0.1:3100'},data:{crmUrl:'http://127.0.0.1:3201/',nightlyEnabled:false}});
+ const state=await missingReport(page);
+ await state.dialog.getByRole('button',{name:'Approve download of 1 reports',exact:true}).click();
+ await expect(page.getByRole('progressbar',{name:'Recovery jobs finished'})).toBeVisible();
+ await sql.unsafe("UPDATE data_import_runs SET status='success',imported_row_count=849,details=details||'{\"partial_import\":true,\"has_unmatched_products\":true,\"unknown_product_codes\":[\"REVIEW-ME\"]}'::jsonb WHERE store_id=1").simple();
+ const completion=page.getByRole('alertdialog');
+ await expect(completion.getByText('Reports downloaded and imported',{exact:true})).toBeVisible({timeout:25000});
+ expect(state.generationRequests()).toBe(0);
+ await completion.getByRole('button',{name:'Review first',exact:true}).click();
+ await expect(page.getByText('0 in progress · 1 completed · 1 with unmatched products · 0 failed or stopped',{exact:true})).toBeVisible();
+ await expect(page.getByText('Imported · unmatched products',{exact:true})).toBeVisible();
+});

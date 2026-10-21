@@ -5,11 +5,11 @@ import {InputError} from '@/utils/input-error';
 
 // Terminal audit states stop even older workers, whose atomic import checks status.
 // Resume always creates another run ID, so an old downloader cannot resume writing.
-export const queueState = sql`CASE WHEN r.status='failed' AND r.details->>'queue_control' IN ('paused','cancelled','resumed') THEN r.details->>'queue_control' WHEN r.status='failed' AND r.details->>'partial_import'='true' THEN 'partial' ELSE r.status END`;
+export const queueState = sql`CASE WHEN r.status='failed' AND r.details->>'queue_control' IN ('paused','cancelled','resumed') THEN r.details->>'queue_control' WHEN r.status IN ('success','failed') AND (r.details->>'partial_import'='true' OR r.details->>'has_unmatched_products'='true') THEN 'partial' ELSE r.status END`;
 export type QueueFilters={storeId?:number;feed?:string;view:string;page:number};
 export async function getDownloadQueue(filters:QueueFilters){
  const scope=sql`(${filters.storeId??null}::int IS NULL OR r.store_id=${filters.storeId??null}) AND (${filters.feed??null}::text IS NULL OR r.source_type=${filters.feed??null})`;
- const view=filters.view==='processing'?sql`${queueState} IN ('downloading','downloaded','importing')`:filters.view==='completed'?sql`${queueState}='success'`:filters.view==='all'?sql`true`:sql`${queueState}=${filters.view}`;
+ const view=filters.view==='processing'?sql`${queueState} IN ('downloading','downloaded','importing')`:filters.view==='completed'?sql`${queueState} IN ('success','partial')`:filters.view==='all'?sql`true`:sql`${queueState}=${filters.view}`;
  const [rows,totals,stores,active,next]=await Promise.all([
   db.execute(sql`SELECT r.id::int,r.store_id,s.name AS store_name,r.source_type,${queueState} AS status,r.source_start_date::text AS from_date,r.source_end_date::text AS to_date,r.started_at,r.completed_at,r.downloaded_row_count,r.imported_row_count,r.error_message,r.source_file_name,r.details->>'retry_of' AS retry_of,CASE WHEN r.details->>'automatic_retry_count' ~ '^[1-3]$' THEN (r.details->>'automatic_retry_count')::int ELSE NULL END AS automatic_retry_count
    FROM data_import_runs r LEFT JOIN stores s ON s.id=r.store_id WHERE ${scope} AND ${view} ORDER BY r.source_start_date ASC NULLS LAST,r.source_end_date ASC NULLS LAST,s.name,r.source_type,r.id DESC LIMIT 50 OFFSET ${(filters.page-1)*50}`),
@@ -24,7 +24,7 @@ export async function getDownloadQueue(filters:QueueFilters){
     WHERE r.status='queued' AND s.is_active AND s.erp_type='msp' AND r.source_type IN ('normal_sales','rtc','wastage') ORDER BY r.source_start_date ASC NULLS LAST,r.id ASC LIMIT 5`),
  ]);
  const counts=Object.fromEntries(totals.map(row=>[String(row.status),Number(row.count)]));
- const total=filters.view==='all'?totals.reduce((sum,row)=>sum+Number(row.count),0):filters.view==='processing'?['downloading','downloaded','importing'].reduce((sum,key)=>sum+(counts[key]??0),0):filters.view==='completed'?(counts.success??0):counts[filters.view]??0;
+ const total=filters.view==='all'?totals.reduce((sum,row)=>sum+Number(row.count),0):filters.view==='processing'?['downloading','downloaded','importing'].reduce((sum,key)=>sum+(counts[key]??0),0):filters.view==='completed'?((counts.success??0)+(counts.partial??0)):counts[filters.view]??0;
  return {rows,counts,stores,live:{active,next},total,page:filters.page,pageSize:50,checkedAt:new Date().toISOString()};
 }
 export async function controlDownload(runId:number,action:'pause'|'resume'|'cancel'|'redownload'){

@@ -71,7 +71,7 @@ for (const source of Object.keys(tables) as Feed[])
     ]);
     const [audit] =
       await sql`SELECT * FROM data_import_runs WHERE id=${first.id}`;
-    expect(audit.status).toBe("failed");
+    expect(audit.status).toBe("success");
     expect(audit.details.partial_import).toBe(true);
     expect(audit.imported_row_count).toBe(1);
     expect(audit.rejected_row_count).toBe(2);
@@ -112,7 +112,7 @@ for (const source of Object.keys(tables) as Feed[])
     const feedCoverage = ready.feedCoverage.find(
       (feed: { source: string }) => feed.source === source,
     );
-    expect(feedCoverage.availableStoreDays).toBe(0);
+    expect(feedCoverage.availableStoreDays).toBe(1);
     async function correct(identifier: string, target: string) {
       const response = await request.get(
         "/api/unmatched-products/export?storeId=1",
@@ -248,6 +248,10 @@ test("barcode reports save matches while unknown barcodes remain pending", async
     { store_product_id: 11, quantity: "1.2500" },
   ]);
   expect(result.result.details.unmatched_barcodes).toEqual(["000099999"]);
+  const [review] = await sql`SELECT i.identifier,i.kind,o.run_id FROM crm_product_identifiers i
+    JOIN crm_identifier_occurrences o ON o.identifier_id=i.id WHERE i.identifier='000099999'`;
+  expect(review).toMatchObject({identifier:"000099999",kind:"Barcode"});
+  expect(Number(review.run_id)).toBe(result.id);
 });
 test("partial write failure rolls back quantities, ownership and the terminal audit", async () => {
   await sql.unsafe(
@@ -288,7 +292,7 @@ test("refresh upgrades a legacy staged failure once to publish matching rows wit
   const first = await attempt("normal_sales");
   await sql`DELETE FROM daily_sales WHERE sales_date='2026-10-15'`;
   await sql`DELETE FROM crm_partial_publications`;
-  await sql`UPDATE data_import_runs SET imported_at=NULL,imported_row_count=0,details=details-'partial_import_version'-'partial_import' WHERE id=${first.id}`;
+  await sql`UPDATE data_import_runs SET status='failed',imported_at=NULL,imported_row_count=0,details=details-'partial_import_version'-'partial_import'-'has_unmatched_products' WHERE id=${first.id}`;
   const refresh = await request.post("/api/unmatched-products");
   expect((await refresh.json()).data.queued).toBe(1);
   const folder = mkdtempSync(path.join(tmpdir(), "legacy-partial-"));
