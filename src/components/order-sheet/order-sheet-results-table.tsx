@@ -1,6 +1,7 @@
 "use client";
 
 import { useDeferredValue, useMemo, useState } from "react";
+import {useGridWindow,ORDER_GRID_ROW_HEIGHT} from "./hooks/use-grid-window";
 import {useTablePreferences} from "./hooks/use-table-preferences";
 import {ReviewDialog} from "@/components/ui/review-dialog";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,7 @@ export function OrderSheetResultsTable({
   const {onlySuggested,onlySelected}=preferences;
   const [page,setPage]=useState(1);
   const [sort,setSort]=useState("original");
+  const [jumpRow,setJumpRow]=useState("");
   const deferredSearch=useDeferredValue(search);
   const [explainedItemId, setExplainedItemId] = useState<number | null>(null);
 
@@ -74,8 +76,14 @@ export function OrderSheetResultsTable({
     if(sort==='original')return filtered;
     return [...filtered].sort((a,b)=>sort==='product'?a.productName.localeCompare(b.productName):sort==='code'?a.itemCode.localeCompare(b.itemCode,undefined,{numeric:true}):parseQty(b.suggestedOrderQty).comparedTo(parseQty(a.suggestedOrderQty)));
   },[filtered,sort]);
-  const currentPage=Math.min(page,Math.max(1,Math.ceil(filtered.length/preferences.pageSize)));
-  const visible=sorted.slice((currentPage-1)*preferences.pageSize,currentPage*preferences.pageSize);
+  const pageSize=preferences.pageSize===0?Math.max(1,filtered.length):preferences.pageSize;
+  const currentPage=Math.min(page,Math.max(1,Math.ceil(filtered.length/pageSize)));
+  const pageRows=sorted.slice((currentPage-1)*pageSize,currentPage*pageSize);
+  const {viewport:viewportRef,header:headerRef,onScroll:handleGridScroll,focusQuantity,start:windowStart,end:windowEnd}=useGridWindow(pageRows.length,JSON.stringify([deferredSearch,storeFilter,supplierFilter,onlySuggested,onlySelected,sort,currentPage,pageSize,pageRows.length]));
+  const visible=pageRows.slice(windowStart,windowEnd);
+  const periodColumns=comparisonPeriods.length?comparisonPeriods:periodLabels.map((label,index)=>({periodKey:`period_${index+1}`,title:label,dateRangeLabel:'',startDate:'',endDate:''}));
+  const periodFeedCount=1+Number(includeRtc)+Number(includeWastage);
+  const columnCount=15+supplierColumns.length+periodColumns.length*periodFeedCount+dailySalesLabels.length+Number(showStoreColumn);
   return (
     <div className="min-w-0 space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -112,10 +120,11 @@ export function OrderSheetResultsTable({
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label>Store <select aria-label="Order table store" value={storeFilter} onChange={e=>{setPreferences({store:e.target.value});setPage(1);}} className="rounded border p-2"><option value="">All stores</option>{storeOptions.map(([code,name])=><option key={code} value={code}>{name}</option>)}</select></label>
         <label>Supplier <select aria-label="Order table supplier" value={supplierFilter} onChange={e=>{setPreferences({supplier:e.target.value});setPage(1);}} className="rounded border p-2"><option value="">All suppliers</option>{supplierColumns.map(s=><option key={s.supplierId} value={s.supplierId}>{s.name}</option>)}</select></label>
-        <label>Rows <select aria-label="Order table page size" value={preferences.pageSize} onChange={e=>{setPreferences({pageSize:Number(e.target.value)});setPage(1);}} className="rounded border p-2">{[50,100,200].map(n=><option key={n}>{n}</option>)}</select></label>
-        <button onClick={()=>{setPreferences({store:'',supplier:'',onlySuggested:false,onlySelected:false,pageSize:100});setSearch('');setPage(1);}} className="rounded border p-2">Reset table preferences</button>
+        <label>Rows <select aria-label="Order table page size" value={preferences.pageSize} onChange={e=>{setPreferences({pageSize:Number(e.target.value)});setPage(1);}} className="rounded border p-2">{[0,50,100,200,500,1000].map(n=><option key={n} value={n}>{n===0?"All rows":n}</option>)}</select></label>
+        <button onClick={()=>{setPreferences({store:'',supplier:'',onlySuggested:false,onlySelected:false,pageSize:0});setSearch('');setPage(1);setSort('original');setJumpRow('');}} className="rounded border p-2">Reset table preferences</button>
         <label>Sort <select aria-label="Sort order products" value={sort} onChange={e=>{setSort(e.target.value);setPage(1);}} className="rounded border p-2"><option value="original">Original order</option><option value="code">Item code</option><option value="product">Product name</option><option value="suggested">Highest suggested quantity</option></select></label>
-        <span>{filtered.length} matching products · Page {currentPage}</span><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)} className="rounded border p-2">Previous products</button><button disabled={currentPage*preferences.pageSize>=filtered.length} onClick={()=>setPage(currentPage+1)} className="rounded border p-2">Next products</button>
+        <span>{filtered.length} matching products · {preferences.pageSize===0?"All rows":`Page ${currentPage}`}</span>{preferences.pageSize>0&&<><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)} className="rounded border p-2">Previous products</button><button disabled={currentPage*pageSize>=filtered.length} onClick={()=>setPage(currentPage+1)} className="rounded border p-2">Next products</button></>}
+        {preferences.pageSize===0&&<label className="flex items-center gap-2">Go to row <input type="number" min={1} max={filtered.length} aria-label="Go to product row" className="w-24 rounded border p-2" value={jumpRow} onChange={event=>setJumpRow(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();const row=Number(jumpRow);if(Number.isInteger(row)&&row>0&&row<=filtered.length)focusQuantity(row-1);}}} /><button type="button" className="rounded border p-2" onClick={()=>{const row=Number(jumpRow);if(Number.isInteger(row)&&row>0&&row<=filtered.length)focusQuantity(row-1);}}>Go</button></label>}
         <span className="text-xs text-zinc-500">Enter / ↓ next quantity · Shift+Enter / ↑ previous. Select all applies to the whole order.</span>
       </div>
       {explainedItemId !== null ? (() => {
@@ -137,7 +146,8 @@ export function OrderSheetResultsTable({
             </div>
             <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[['Book Stock',item.bookStockQty],['Received but not posted',item.receivedNotPostedQty],['Future deliveries in horizon',item.futureDeliveryQty],['Coverage forecast demand',item.coverageDemandQty],['Final manually adjusted quantity',item.orderQty],['Cheapest supplier',item.supplierName],['Net unit price',item.cheapestNetPrice],['Estimated order cost',item.estimatedLineCost]].map(([label,value])=><div key={label}><dt className="text-xs text-zinc-600">{label}</dt><dd className="font-semibold">{value??'Not recorded'}</dd></div>)}</dl>
             <p className="mt-3">Stock anchor: {item.stockAnchorDate??'Not recorded'} · Calculation method: {item.calculationMethod??'Not recorded'}</p>
-            <ul className="mt-2 list-inside list-disc">{comparisonPeriods.map((period,index)=><li key={period.periodKey}>{period.startDate} to {period.endDate}: Normal Sales {item.periodSales[index]??'0'} units</li>)}</ul>
+            <div className="mt-3 overflow-auto rounded border"><table className="w-full min-w-[550px] text-left [&_th]:border [&_th]:p-2 [&_td]:border [&_td]:p-2"><caption className="text-left font-medium">Comparison period movement totals</caption><thead><tr>{['Dates','Normal sales','RTC','Wastage'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{comparisonPeriods.map((period,index)=><tr key={period.periodKey}><td>{period.startDate} to {period.endDate}</td><td>{item.periodSales[index]??'Not recorded'}</td><td>{includeRtc?(item.periodRtc?.[index]??'Recalculate to show totals'):'Excluded'}</td><td>{includeWastage?(item.periodWastage?.[index]??'Recalculate to show totals'):'Excluded'}</td></tr>)}</tbody></table></div>
+            <p className="mt-2 text-xs text-zinc-600">Each column totals transactions within its inclusive comparison dates. Forecast RTC uses the selected sales method; forecast Wastage uses the average across comparison periods. Gaps between periods are excluded.</p>
             {item.stockStages?.length?<div className="mt-3 overflow-auto"><table className="min-w-full text-xs"><caption className="text-left font-medium">Saved stock movement timeline</caption><thead><tr>{['Stage / date','Stock before','Forecast','Shortage','Delivery added','Stock after'].map(h=><th key={h} className="p-2 text-left">{h}</th>)}</tr></thead><tbody>{item.stockStages.map((stage,index)=><tr key={index}><td className="p-2">{stage.stage} · {stage.eventDate}</td>{[stage.stockBefore,stage.forecastSales,stage.shortage,stage.deliveryAdded,stage.stockAfter].map((value,index)=><td key={index} className="p-2 text-right tabular-nums">{formatDecimal(value,4)}</td>)}</tr>)}</tbody></table></div>:null}
             <p className="mt-3 font-medium">Supplier price comparison</p>
             <div className="mt-2 overflow-auto rounded border"><table className="w-full min-w-[650px] border-collapse text-left text-sm [&_th]:border [&_th]:p-2 [&_td]:border [&_td]:p-2"><thead className="bg-zinc-50"><tr>{['Supplier','Supplier code','Net unit price','Case size','Status'].map(label=><th scope="col" key={label}>{label}</th>)}</tr></thead><tbody>{item.supplierQuotes.map(quote=><tr key={quote.supplierId} className={quote.isCheapest?'bg-emerald-50':''}><td>{quote.supplierName}</td><td>{quote.supplierProductCode??'Unmapped'}</td><td className="text-right tabular-nums">{quote.netPrice?`£${formatDecimal(quote.netPrice,4)}`:'Unavailable'}</td><td>{quote.caseSize??'Not supplied'}</td><td>{quote.isCheapest?'Cheapest valid price':quote.failureReason??quote.priceValidationStatus}</td></tr>)}{!item.supplierQuotes.length&&<tr><td colSpan={5}>No supplier quotations available.</td></tr>}</tbody></table></div>
@@ -154,12 +164,13 @@ export function OrderSheetResultsTable({
       })() : null}
 
       <p className="text-xs text-zinc-500">Scroll the grid horizontally for supplier prices and quantities. Select the suggested quantity for its explanation.</p>
-      <div className="max-h-[65vh] overflow-auto overscroll-contain rounded-xl border border-zinc-300" role="region" aria-label="Order product grid" tabIndex={0}>
-        <table aria-label="Order products" className="w-max min-w-full border-separate border-spacing-0 text-left text-sm [&_th]:border-b [&_th]:border-r [&_th]:border-zinc-200 [&_td]:border-b [&_td]:border-r [&_td]:border-zinc-200">
-          <colgroup><col style={{width:44}} /><col style={{width:112}} /><col style={{width:280}} />{showStoreColumn&&<col style={{width:130}} />}<col style={{width:170}} />{supplierColumns.map(supplier=><col key={supplier.supplierId} style={{width:140}} />)}<col style={{width:130}} /><col style={{width:120}} />{(comparisonPeriods.length?comparisonPeriods:periodLabels).map((_,index)=><col key={`period-${index}`} style={{width:150}} />)}{dailySalesLabels.map((_,index)=><col key={`day-${index}`} style={{width:110}} />)}{Array.from({length:8},(_,index)=><col key={`quantity-${index}`} style={{width:130}} />)}</colgroup>
-          <thead className="sticky top-0 z-20 bg-zinc-100 text-xs font-semibold text-zinc-600 [&_th]:min-w-28">
-            <tr>
-              <th scope="col" className="sticky left-0 z-30 !min-w-11 bg-zinc-100 px-3 py-3">
+      <div ref={viewportRef} onScroll={handleGridScroll} className="max-h-[65vh] overflow-auto overscroll-contain rounded-xl border border-zinc-300" role="region" aria-label="Order product grid" tabIndex={0}>
+        <table aria-label="Order products" aria-rowcount={filtered.length+1} className="w-max min-w-full border-separate border-spacing-0 text-left text-sm [&_th]:border-b [&_th]:border-r [&_th]:border-zinc-200 [&_td]:border-b [&_td]:border-r [&_td]:border-zinc-200">
+          <colgroup><col style={{width:56}} /><col style={{width:44}} /><col style={{width:112}} /><col style={{width:280}} />{showStoreColumn&&<col style={{width:130}} />}<col style={{width:170}} />{supplierColumns.map(supplier=><col key={supplier.supplierId} style={{width:140}} />)}<col style={{width:130}} /><col style={{width:120}} />{periodColumns.flatMap((_,index)=>Array.from({length:periodFeedCount},(__,feed)=><col key={`period-${index}-${feed}`} style={{width:150}} />))}{dailySalesLabels.map((_,index)=><col key={`day-${index}`} style={{width:110}} />)}{Array.from({length:8},(_,index)=><col key={`quantity-${index}`} style={{width:130}} />)}</colgroup>
+          <thead ref={headerRef} className="sticky top-0 z-20 bg-zinc-100 text-xs font-semibold text-zinc-600 [&_th]:min-w-28">
+            <tr className="h-28">
+              <th scope="col" className="sticky left-0 z-30 !min-w-14 bg-emerald-100 px-2 py-3 text-right">Row</th>
+              <th scope="col" className="sticky left-14 z-30 !min-w-11 bg-zinc-100 px-3 py-3">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -167,47 +178,26 @@ export function OrderSheetResultsTable({
                   aria-label="Select all products"
                 />
               </th>
-              <th scope="col" className="sticky left-11 z-30 min-w-28 bg-zinc-100 px-3 py-3">Item Code</th>
-              <th scope="col" className="min-w-[280px] bg-zinc-100 px-3 py-3 lg:sticky lg:left-[156px] lg:z-30">Product</th>
+              <th scope="col" className="sticky left-[100px] z-30 min-w-28 bg-zinc-100 px-3 py-3">Item Code</th>
+              <th scope="col" className="min-w-[280px] bg-zinc-100 px-3 py-3 lg:sticky lg:left-[212px] lg:z-30">Product</th>
               {showStoreColumn ? <th className="px-3 py-2">Store</th> : null}
               <th className="px-3 py-2">Barcode</th>
               {supplierColumns.map((supplier) => (
-                <th key={supplier.supplierId} className="px-3 py-2">
+                <th key={supplier.supplierId} className={`px-3 py-2 ${supplierColour(supplier.code)}`}>
                   {supplier.code}
                 </th>
               ))}
               <th className="px-3 py-2">Department</th>
               <th className="px-3 py-2 text-right">Current Stock</th>
-              {(comparisonPeriods.length
-                ? comparisonPeriods
-                : periodLabels.map((label, index) => ({
-                    periodKey: `period_${index + 1}`,
-                    title: label,
-                    dateRangeLabel: "",
-                    startDate: "",
-                    endDate: "",
-                  }))
-              ).map((column) => (
-                <th key={column.periodKey} className="px-3 py-2 text-right align-bottom">
-                  <div className="font-semibold normal-case">{column.title}</div>
-                  {column.dateRangeLabel ? (
-                    <div className="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-zinc-500">
-                      {column.dateRangeLabel}
-                    </div>
-                  ) : null}
-                  <div className="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-zinc-600">
-                    Total sales
-                  </div>
-                </th>
-              ))}
+              {periodColumns.flatMap(column=>['Normal sales',...(includeRtc?['RTC']:[]),...(includeWastage?['Wastage']:[])].map(feed=><th key={`${column.periodKey}-${feed}`} scope="col" className={`px-3 py-2 text-right align-bottom ${feed==='RTC'?'bg-violet-50':feed==='Wastage'?'bg-amber-50':'bg-blue-50'}`}><div className="font-semibold">{column.title} · {feed}</div><div className="mt-1 text-[11px] font-normal text-zinc-600">{column.dateRangeLabel}</div><div className="mt-1 text-[10px] font-normal">Period total (units)</div></th>))}
               {dailySalesLabels.map((label, index) => (
                 <th key={`day-${index}`} className="px-3 py-2 text-right whitespace-nowrap bg-blue-50/80">
                   {label}
                 </th>
               ))}
               <th className="px-3 py-2 text-right">Calculated Sold Qty</th>
-              <th className="px-3 py-2 text-right">Wastage</th>
-              <th className="px-3 py-2 text-right">RTC</th>
+              <th className="px-3 py-2 text-right">Forecast Wastage (average)</th>
+              <th className="px-3 py-2 text-right">Forecast RTC</th>
               <th className="px-3 py-2 text-right">Shortfall Days</th>
               <th className="px-3 py-2 text-right">Suggested Order Qty</th>
               <th className="px-3 py-2 text-right">Order Qty</th>
@@ -218,14 +208,18 @@ export function OrderSheetResultsTable({
           <tbody className="[&>tr:nth-child(even)]:bg-zinc-50/60">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={14 + supplierColumns.length + periodLabels.length + dailySalesLabels.length + (showStoreColumn ? 1 : 0)} className="px-3 py-8 text-center text-zinc-500">
+                <td colSpan={columnCount} className="px-3 py-8 text-center text-zinc-500">
                   No products match the current filters.
                 </td>
               </tr>
             ) : (
-              visible.map((item) => (
-                <tr key={item.orderItemId} className="hover:bg-blue-50/60 focus-within:bg-blue-50/60">
-                  <td className="sticky left-0 z-10 bg-white px-3 py-2">
+              <>
+              {windowStart>0&&<tr aria-hidden="true"><td colSpan={columnCount} className="!border-0 !p-0" style={{height:windowStart*ORDER_GRID_ROW_HEIGHT}} /></tr>}
+              {visible.map((item,windowIndex) => (
+
+                <tr key={item.orderItemId} aria-rowindex={(currentPage-1)*pageSize+windowStart+windowIndex+2} style={{height:ORDER_GRID_ROW_HEIGHT}} className="hover:bg-blue-50/60 focus-within:bg-blue-50/60">
+                  <td className="sticky left-0 z-10 bg-emerald-50 px-2 py-2 text-right text-xs tabular-nums text-zinc-600">{(currentPage-1)*pageSize+windowStart+windowIndex+1}</td>
+                  <td className="sticky left-14 z-10 bg-white px-3 py-2">
                     <input
                       type="checkbox"
                       checked={item.selected}
@@ -234,8 +228,8 @@ export function OrderSheetResultsTable({
                       }
                     />
                   </td>
-                  <td className="sticky left-11 z-10 min-w-28 max-w-28 break-all bg-white px-3 py-2 font-medium">{item.itemCode}</td>
-                  <td className="min-w-[280px] max-w-[280px] whitespace-normal bg-white px-3 py-2 lg:sticky lg:left-[156px] lg:z-10">{item.productName}</td>
+                  <td className="sticky left-[100px] z-10 min-w-28 max-w-28 break-all bg-white px-3 py-2 font-medium" title={item.itemCode}><span className="block max-w-24 truncate">{item.itemCode}</span></td>
+                  <td className="min-w-[280px] max-w-[280px] whitespace-normal bg-white px-3 py-2 lg:sticky lg:left-[212px] lg:z-10" title={item.productName}><div className="line-clamp-3">{item.productName}</div></td>
                   {showStoreColumn ? (
                     <td className="px-3 py-2" title={item.storeName ?? undefined}>
                       {item.storeCode ?? "—"}
@@ -251,17 +245,13 @@ export function OrderSheetResultsTable({
                         key={`${item.orderItemId}-${supplier.supplierId}`}
                         className={`px-3 py-2 ${quote?.isCheapest ? "bg-emerald-50/80" : ""}`}
                       >
-                        <SupplierQuoteCell quote={quote} />
+                        <SupplierQuoteCell quote={quote} colour={supplierColour(supplier.code)} />
                       </td>
                     );
                   })}
-                  <td className="px-3 py-2">{item.departmentName ?? "—"}</td>
+                  <td className="max-w-32 px-3 py-2" title={item.departmentName??undefined}><div className="line-clamp-3">{item.departmentName ?? "—"}</div></td>
                   <td className="px-3 py-2 text-right tabular-nums">{item.currentStock}</td>
-                  {item.periodSales.map((sale, index) => (
-                    <td key={`${item.orderItemId}-${index}`} className="px-3 py-2 text-right tabular-nums">
-                      {formatDecimal(parseDbDecimal(sale), 2)}
-                    </td>
-                  ))}
+                  {periodColumns.flatMap((column,index)=>[<td key={`${column.periodKey}-sales`} className="whitespace-nowrap bg-blue-50/30 px-3 py-2 text-right tabular-nums">{formatDecimal(item.periodSales[index]??'0',2)}</td>,...(includeRtc?[<td key={`${column.periodKey}-rtc`} className="whitespace-nowrap bg-violet-50/30 px-3 py-2 text-right tabular-nums" title={`RTC: ${column.startDate} to ${column.endDate}`}>{item.periodRtc?.[index]!=null?formatDecimal(item.periodRtc[index],4):'Recalculate'}</td>]:[]),...(includeWastage?[<td key={`${column.periodKey}-wastage`} className="whitespace-nowrap bg-amber-50/30 px-3 py-2 text-right tabular-nums" title={`Wastage: ${column.startDate} to ${column.endDate}`}>{item.periodWastage?.[index]!=null?formatDecimal(item.periodWastage[index],4):'Recalculate'}</td>]:[])])}
                   {item.dailySales.map((sale, index) => (
                     <td
                       key={`${item.orderItemId}-day-${index}`}
@@ -300,7 +290,8 @@ export function OrderSheetResultsTable({
                       value={item.orderQty}
                       inputMode="decimal"
                       data-order-quantity
-                      onKeyDown={event=>{if(!['Enter','ArrowDown','ArrowUp'].includes(event.key))return;event.preventDefault();const inputs=Array.from(event.currentTarget.closest('table')!.querySelectorAll<HTMLInputElement>('input[data-order-quantity]'));const index=inputs.indexOf(event.currentTarget);const next=inputs[index+(event.key==='ArrowUp'||(event.key==='Enter'&&event.shiftKey)?-1:1)];next?.focus();next?.select();}}
+                      data-order-index={windowStart+windowIndex}
+                      onKeyDown={event=>{if(!['Enter','ArrowDown','ArrowUp'].includes(event.key))return;event.preventDefault();focusQuantity(windowStart+windowIndex+(event.key==='ArrowUp'||(event.key==='Enter'&&event.shiftKey)?-1:1));}}
                       aria-label={`Order quantity for ${item.productName} at ${item.storeName ?? item.storeCode}`}
                       onChange={(event) =>
                         onOrderQtyChange(item.orderItemId, event.target.value)
@@ -312,7 +303,9 @@ export function OrderSheetResultsTable({
                   <td className="px-3 py-2 text-right tabular-nums">{item.cheapestNetPrice ? `£${formatDecimal(item.cheapestNetPrice,4)}` : "Needs price"}</td>
                   <td className="px-3 py-2 text-right tabular-nums" aria-live="polite">{item.estimatedLineCost !== null && item.estimatedLineCost !== undefined ? `£${formatDecimal(item.estimatedLineCost,2)}` : "—"}</td>
                 </tr>
-              ))
+              ))}
+              {windowEnd<pageRows.length&&<tr aria-hidden="true"><td colSpan={columnCount} className="!border-0 !p-0" style={{height:(pageRows.length-windowEnd)*ORDER_GRID_ROW_HEIGHT}} /></tr>}
+              </>
             )}
           </tbody>
         </table>
@@ -321,18 +314,13 @@ export function OrderSheetResultsTable({
   );
 }
 
-function SupplierQuoteCell({ quote }: { quote?: OrderItemSupplierQuote }) {
-  if (!quote?.supplierProductCode && !quote?.netPrice && !quote?.caseSize) {
-    return <span className="text-zinc-400">—</span>;
-  }
-  return (
-    <div className="space-y-0.5">
-      <p className="font-medium text-zinc-900">{quote.supplierProductCode ?? "—"}</p>
-      {quote.netPrice || quote.caseSize ? (
-        <p className="text-xs text-zinc-500">
-          {[quote.netPrice, quote.caseSize].filter(Boolean).join(" · ")}
-        </p>
-      ) : null}
-    </div>
-  );
+function supplierColour(code:string){
+ if(/^MM$/i.test(code))return 'text-blue-800 bg-blue-50/40';
+ if(/^SP$/i.test(code))return 'text-violet-800 bg-violet-50/40';
+ if(/^WAB(?:AR)?$/i.test(code))return 'text-amber-900 bg-amber-50/40';
+ return 'text-zinc-800';
+}
+function SupplierQuoteCell({quote,colour}:{quote?:OrderItemSupplierQuote;colour:string}){
+ if(!quote?.supplierProductCode&&!quote?.netPrice&&!quote?.caseSize)return <span className="text-zinc-400">—</span>;
+ return <div className="space-y-0.5"><p className={`whitespace-nowrap text-base font-semibold tabular-nums ${colour}`}>{quote.netPrice?`£${formatDecimal(quote.netPrice,4)}`:'Needs price'}</p><p className="max-w-32 truncate font-mono text-xs text-zinc-600" title={quote.supplierProductCode??undefined}>{quote.supplierProductCode??'Unmapped'}</p>{quote.caseSize&&<p className="text-[10px] text-zinc-500">Case {quote.caseSize}</p>}</div>;
 }

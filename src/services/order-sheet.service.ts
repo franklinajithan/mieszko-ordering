@@ -1,3 +1,4 @@
+import {readPeriodMovements} from "@/utils/period-movements";
 import { orderSheetGenerateSchema } from "@/validators/schemas";
 import { InputError } from "@/utils/input-error";
 import { getLatestBookStockSummary } from "@/services/book-stock/apply-book-stock-to-order.service";
@@ -562,6 +563,7 @@ export async function buildOrderSheetResult(orderId: number): Promise<OrderSheet
         : [],
       calculatedSoldQty:
         breakdown?.calculatedSoldQty ?? row.item.highestSoldQty,
+      ...readPeriodMovements(row.item.calculationBreakdown,periodCount),
       wastageQty: breakdown?.wastageQty ?? "0",
       rtcQty: breakdown?.rtcQty ?? "0",
       shortfallDays: breakdown?.shortfallDays ?? 0,
