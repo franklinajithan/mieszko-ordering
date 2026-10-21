@@ -264,7 +264,7 @@ describe('operator import retry',()=>{
   });
 });
 
-it.each([['6',true],['6 x 1L',true],['1kg',true],['24pcs',true],['0',false],['0x12',false],['unknown',false],[null,false]] as const)('validates case-size reference %s without changing unit-price rules',async(value,expected)=>{
+it.each([['6',true],['6 x 1L',true],['1kg',true],['24pcs',true],['20 s',true],["20's",true],['20s',true],['0',false],['0x12',false],['unknown',false],[null,false]] as const)('validates case-size reference %s without changing unit-price rules',async(value,expected)=>{
  const {validCaseSize}=await import('./operations/data-quality.service');expect(validCaseSize(value)).toBe(expected);
 });
 

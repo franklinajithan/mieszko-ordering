@@ -39,7 +39,7 @@ export function SavedOrder({ result, includeRtc, includeWastage, comment: initia
       <div className="flex gap-3"><button disabled={busy} onClick={()=>void save()} className="rounded border px-4 py-2">Save changes</button><button disabled={busy} onClick={()=>void save(true)} className="rounded bg-emerald-700 px-4 py-2 text-white">Save and export</button></div>
       {message ? <p role="status">{message}</p> : null}
       <SupplierOrderPanel orderId={result.orderId} beforeGenerate={persistDraft} revision={JSON.stringify(items.map(item=>[item.orderItemId,item.orderQty,item.selected]))} />
-      <fieldset disabled={busy}>
+      <fieldset className="min-w-0" disabled={busy}>
         <OrderSheetResultsPanel result={result} items={items} includeRtc={includeRtc} includeWastage={includeWastage} showStoreColumn
           onToggleSelected={(id,selected)=>setItems(current=>current.map(item=>item.orderItemId===id?previewOrderItem(item,{selected}):item))}
           onToggleAll={selected=>setItems(current=>current.map(item=>previewOrderItem(item,{selected})))}

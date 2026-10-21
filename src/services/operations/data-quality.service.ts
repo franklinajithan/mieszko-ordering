@@ -6,7 +6,7 @@ import {todayIso} from '@/utils/order-sheet-form';
 import type {QualityFilters,QualityIssue} from '@/types/operations';
 export function validCaseSize(value:string|null):boolean {
   if (!value?.trim()) return false;
-  return value.trim().split(/\s*[x×*]\s*/i).every(part=>/^\d+(?:\.\d+)?\s*(?:kg|g|ml|l|pcs|pc|units?)?$/i.test(part)&&Number.parseFloat(part)>0);
+  return value.trim().split(/\s*[x×*]\s*/i).every(part=>/^\d+(?:\.\d+)?\s*(?:kg|g|ml|l|pcs|pc|units?|s|'s)?$/i.test(part)&&Number.parseFloat(part)>0);
 }
 /** Read-only findings; possible duplicates are never merged or assigned invented prices. */
 export async function getQualityIssues(filters:QualityFilters={},day=todayIso()):Promise<QualityIssue[]> {
