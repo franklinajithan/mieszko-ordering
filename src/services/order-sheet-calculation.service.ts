@@ -373,6 +373,8 @@ export async function calculateOrderSheet(
     // contained in normal sales. Combine only when the user enables RTC.
     const baseSoldQty = aggregatePeriodSales(salesDecimals, options.soldQtyMethod);
     const rtcByDate = rtcByProductAndDate.get(storeProduct.id);
+    const periodRtc = periods.map(period=>decimalToDb(sumQtyInDateRange(rtcByDate,period.startDate,period.endDate)));
+    const periodWastage = periods.map(period=>decimalToDb(sumQtyInDateRange(wastageByProductAndDate.get(storeProduct.id),period.startDate,period.endDate)));
     const rtcQty = options.includeRtc
       ? aggregatePeriodSales(
           periods.map((period) => sumQtyInDateRange(rtcByDate, period.startDate, period.endDate)),
@@ -508,6 +510,8 @@ export async function calculateOrderSheet(
         demandIncludesWastage: options.includeWastage,
         stockAtClientDelivery: decimalToDb(stockAtClientDelivery),
         physicalStockIncludingFuture: decimalToDb(currentStock),
+        periodRtc,
+        periodWastage,
         wastageQty: decimalToDb(wastageQty),
         rtcQty: decimalToDb(rtcQty),
         calculatedSoldQty: decimalToDb(baseSoldQty),

@@ -1,3 +1,4 @@
+import {readPeriodMovements} from "@/utils/period-movements";
 import ExcelJS from "exceljs";
 import { parseDbDecimal } from "@/utils/decimal";
 import { orderRepository, storeRepository, supplierRepository } from "@/repositories";
@@ -52,6 +53,7 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
     "Product name",
     "Department",
     ...Array.from({ length: periodCount }, (_, index) => `Period ${index + 1} sales`),
+    ...metadata.comparisonPeriods.flatMap((period,index)=>[...(metadata.includeRtc?[`Period ${index+1} RTC (${period.startDate} to ${period.endDate})`]:[]),...(metadata.includeWastage?[`Period ${index+1} Wastage (${period.startDate} to ${period.endDate})`]:[])]),
     "Highest sold",
     "Book stock",
     "Received not posted",
@@ -75,6 +77,8 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
 
   const headerRow = sheet.addRow(headers);
   headerRow.font = { bold: true };
+  headerRow.height=60;
+  headerRow.eachCell(cell=>{cell.alignment={vertical:"middle",wrapText:true};});
   sheet.views = [{ state: "frozen", ySplit: headerRow.number }];
 
   for (const { item, storeProduct, product, orderDepartmentName } of items) {
@@ -91,12 +95,14 @@ export async function exportOrderToExcel(orderId: number): Promise<Buffer> {
       ({ supplier }) => supplier.id === item.cheapestSupplierId,
     );
 
+    const movement=readPeriodMovements(item.calculationBreakdown,periodCount);
     sheet.addRow([
       storeNames.get(storeProduct.storeId) ?? String(storeProduct.storeId),
       storeProduct.storeProductCode,
       product.name,
       orderDepartmentName ?? product.department,
       ...periodSalesList(item.periodSales, periodCount).map(Number),
+      ...metadata.comparisonPeriods.flatMap((_,index)=>[...(metadata.includeRtc?[movement.periodRtc?.[index]==null?null:Number(movement.periodRtc[index])]:[]),...(metadata.includeWastage?[movement.periodWastage?.[index]==null?null:Number(movement.periodWastage[index])]:[])]),
       Number(item.highestSoldQty),
       Number(item.bookStockQty),
       Number(item.receivedNotPostedQty),

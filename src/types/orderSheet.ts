@@ -106,6 +106,8 @@ export type OrderSheetItem = {
   calculationMethod?:string;
   stockStages?:Array<{stage:string;eventDate:string;stockBefore:string;forecastSales:string;shortage:string;deliveryAdded:string;stockAfter:string}>;
   periodSales: string[];
+  periodRtc?: string[];
+  periodWastage?: string[];
   dailySales: string[];
   calculatedSoldQty: string;
   wastageQty: string;
