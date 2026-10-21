@@ -49,7 +49,7 @@ function looksLikeItemCode(code: string): boolean {
   const value = code.trim();
   if (!value || isJunkCode(value)) return false;
   // MSP item codes: numeric, X…, M00…, etc.
-  return /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value) && !/\s{2,}/.test(value);
+  return /^[\p{L}\p{N}][\p{L}\p{N}._/-]*$/u.test(value) && !/\s{2,}/.test(value);
 }
 
 export function isMspStockAdjustmentReport(

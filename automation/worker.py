@@ -298,7 +298,7 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
             return publish_partial_report(conn, job, rows, resolved, filename, details, source_sha256)
         rows = resolved
         fingerprint = row_fingerprint(rows)
-        details = {'data_sha256': fingerprint, 'source_sha256': source_sha256, 'zero_activity': source == 'wastage' and not rows}
+        details = {'data_sha256': fingerprint, 'source_sha256': source_sha256, 'zero_activity': source == 'wastage' and not rows, 'activity': 'Zero wastage' if source == 'wastage' and not rows else 'Imported'}
         # Only the latest overlapping import describes the current database state.
         # An older matching fingerprint must not suppress a legitimate correction.
         previous = conn.execute("""SELECT id, imported_at, details->>'data_sha256', details->>'duplicate_of'
@@ -511,6 +511,7 @@ def process_job(conn, config, job):
         mapping_type = feed.get('mapping_type', 'store_product_code')
         mapping = feed['mapping']
         raw_rows = None
+        verified_zero_wastage = False
         if mapping.get('store'):
             # App parsers emit only code/date/quantity. Validate report identity
             # before normalization discards the original store column.
@@ -521,7 +522,9 @@ def process_job(conn, config, job):
             normalized = folder / 'normalized.json'
             app_dir = Path(config['app_directory']).resolve()
             normalized_result = subprocess.run([config.get('node_executable', 'node'), '--import', 'tsx',
-                str(app_dir / 'automation/normalize-report.ts'), '--input', str(output), '--output', str(normalized),
+                str(app_dir / 'automation/normalize-report.ts'), '--store-code', identity[0], '--store-name',
+                str(conn.execute('SELECT name FROM stores WHERE id=%s', (store_id,)).fetchone()[0]),
+                '--store-names', json.dumps([row[0] for row in conn.execute('SELECT name FROM stores').fetchall()]), '--input', str(output), '--output', str(normalized),
                 '--source', source, '--start', start, '--end', end, '--erp', store.get('erp', 'msp')],
                 cwd=app_dir, check=False, timeout=600, stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE, text=True)
@@ -533,6 +536,10 @@ def process_job(conn, config, job):
                 safe_messages = (
                     'Report columns not detected',
                     'Report date differs from requested date',
+                    'Report contains another store',
+                    'Wastage report must cover one valid day',
+                    'Empty file is not a recognized Wastage report',
+                    'Downloaded file is a login page',
                     'Report row date differs from requested date',
                     'Invalid requested dates',
                     'Sales report columns not detected',
@@ -545,12 +552,13 @@ def process_job(conn, config, job):
             if envelope.get('source') != source:
                 raise ValueError('Normalizer returned the wrong feed')
             review_descriptions = envelope.get('product_descriptions', {})
+            verified_zero_wastage = source == 'wastage' and envelope.get('zero_activity_verified') is True
             raw_rows = envelope['rows']
             mapping_type = envelope['mapping_type']
             mapping = {'code': 'Code', 'quantity': 'Qty', 'date': 'Date'}
         elif raw_rows is None:
             raw_rows = read_rows(output, mapping)
-        prepared = prepare_rows(raw_rows, mapping, source, start, end, allow_empty=feed.get("allow_empty_report") is True or (source == "wastage" and bool(feed.get("normalize_with_app_parsers"))))
+        prepared = prepare_rows(raw_rows, mapping, source, start, end, allow_empty=feed.get("allow_empty_report") is True or verified_zero_wastage)
         stage_report(conn, (run_id, store_id, source, start, end), prepared, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
         result = import_report(conn, (run_id, store_id, source, start, end), prepared, output.name, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
         if result and result.get('details'):

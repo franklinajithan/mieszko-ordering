@@ -1,3 +1,4 @@
+import { isIsoDateString } from "@/utils/iso-date";
 import { parse } from "papaparse";
 import * as XLSX from "xlsx";
 import type { ParsedRow } from "@/types";
@@ -113,6 +114,7 @@ export async function parseWastageFileBuffer(
   buffer: ArrayBuffer | Buffer,
   fileName: string,
   erpType: "glopos" | "msp" = "msp",
+  identity?: { date?: string; storeName?: string; storeNames?: string[]; storeCode?: string },
 ): Promise<WastageFileParseResult> {
   assertNotRtcFile(fileName);
 
@@ -121,37 +123,63 @@ export async function parseWastageFileBuffer(
       ? buffer
       : Buffer.from(buffer as ArrayBuffer);
 
-  // MSP sometimes exports a valid-looking workbook containing only
-  // "No Records Available". A recognized Wastage report means zero activity.
-  if (erpType === "msp" && /\.(?:xls|xlsx)$/i.test(fileName)) {
-    const workbook = XLSX.read(asBuffer, { type: "buffer" });
-    const first = workbook.Sheets[workbook.SheetNames[0] ?? ""];
-    if (first) {
-      const cells = XLSX.utils.sheet_to_json<unknown[]>(first, {
-        header: 1, defval: "", raw: false,
-      });
-      if (cells.some((row) => row.some((value) =>
-        /\bNo Records Available\b/i.test(String(value ?? ""))
-      ))) {
-        const text = cells.flat().map(value => String(value ?? "")).join(" ");
-        if (!/wastage|stock\s*adjustment/i.test(text)) {
-          throw new Error("Empty file is not a recognized Wastage report");
-        }
-        const dates = [
-          ...[...text.matchAll(/\b(\d{2})[./-](\d{2})[./-](\d{4})\b/g)]
-            .map(match => `${match[3]}-${match[2]}-${match[1]}`),
-          ...[...text.matchAll(/\b\d{4}-\d{2}-\d{2}\b/g)].map(match => match[0]),
-        ];
-        if (new Set(dates).size > 1) {
-          throw new Error("Wastage zero-activity report must cover one day");
-        }
-        return {
-          headers: ["Item Code", "Qty"], rows: [], referenceColumn: "Item Code",
-          quantityColumn: "Qty", wastageDate: dates[0], emptyReport: true,
-          storeProductCodeMapped: true, gloposMapped: false, barcodeMapped: false,
-        };
-      }
+  if (/\.xlsx?$/i.test(fileName) && !(
+    asBuffer.subarray(0,2).toString() === "PK" || asBuffer.subarray(0,8).toString("hex") === "d0cf11e0a1b11ae1" ||
+    /<(?:html|table|\?xml|Workbook)\b/i.test(asBuffer.subarray(0,1000).toString())
+  )) throw new Error("Unreadable Wastage workbook; previous data retained");
+  // Inspect identity before a specialized parser discards report metadata.
+  const workbook = /\.csv$/i.test(fileName) ? null : XLSX.read(asBuffer, { type: "buffer", cellDates: true });
+  const grid = workbook ? XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[workbook.SheetNames[0] ?? ""] ?? {}, {header: 1, defval: "", raw: false}) : parse<unknown[]>(decodeText(buffer), {skipEmptyLines:true}).data;
+  const headerIndex = grid.findIndex(row => {
+    const headers = row.map(cellText);
+    const detected = detectWastageColumns(headers, erpType);
+    return !!detected.referenceColumn && !!detected.quantityColumn && detected.referenceColumn !== detected.quantityColumn;
+  });
+  const text = grid.flat().map(cellText).join(" ");
+  const metadataText = (headerIndex < 0 ? grid : grid.slice(0, headerIndex)).flat().map(cellText).join(" ");
+  if (/<(?:form|input)\b|password|sign in|log in/i.test(text + asBuffer.subarray(0, 500).toString())) {
+    throw new Error("Downloaded file is a login page, not a Wastage report");
+  }
+  const dates = [...grid.filter(row => !/created|printed|generated/i.test(row.map(cellText).join(" "))).flat().map(cellText).join(" ").matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b|\b(\d{1,2})[./-](\d{1,2})[./-](\d{4})\b/g)]
+    .map(m => m[1] ? `${m[1]}-${m[2]}-${m[3]}` : `${m[6]}-${m[5].padStart(2,"0")}-${m[4].padStart(2,"0")}`);
+  // Created/printed timestamps are not business dates. Only date-labelled rows count.
+  const reportDates = grid.filter(row => /date\s*(?:range)?\s*:|day\s*:/i.test(row.map(cellText).join(" ")) && !/created|printed|generated/i.test(row.map(cellText).join(" ")))
+    .flatMap(row => [...row.map(cellText).join(" ").matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b|\b(\d{1,2})[./-](\d{1,2})[./-](\d{4})\b/g)]
+      .map(m => m[1] ? `${m[1]}-${m[2]}-${m[3]}` : `${m[6]}-${m[5].padStart(2,"0")}-${m[4].padStart(2,"0")}`));
+  const businessDates = reportDates.length ? reportDates : dates;
+  if (businessDates.some(day => !isIsoDateString(day)) || new Set(businessDates).size > 1) throw new Error("Wastage report must cover one valid day");
+  if (identity?.date && businessDates[0] && identity.date !== businessDates[0]) throw new Error("Report date differs from requested date");
+  if (identity?.storeNames?.length) {
+    const mentioned = identity.storeNames.filter(name => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(metadataText));
+    if (mentioned.some(name => name.toLowerCase() !== identity.storeName?.toLowerCase())) throw new Error("Report contains another store");
+  }
+  const codes:Record<string,string>={HNS:"0365",PVL:"0766",EAS:"0650",HYS:"0665",GRV:"0566",WTF:"0602",STR:"0388"};
+  if (identity?.storeCode) {
+
+    const expected=codes[identity.storeCode]??identity.storeCode;
+    const markers=[...metadataText.matchAll(/\b(?:store|branch)\s*(?:code)?\s*[:=-]\s*([A-Z]{3}|\d{4})\b/gi)].map(m=>m[1]);
+    if(markers.some(code=>(codes[code.toUpperCase()]??code)!==expected))throw new Error("Report contains another store");
+  }
+  if (headerIndex >= 0 && (identity?.storeName || identity?.storeCode)) {
+    const storeColumn=grid[headerIndex].map(cellText).findIndex(header=>/^(?:store|branch)(?:\s*(?:code|name))?$/i.test(header));
+    if(storeColumn>=0)for(const row of grid.slice(headerIndex+1)){
+      const marker=cellText(row[storeColumn]);
+      if(marker && marker.toLowerCase()!==identity.storeName?.toLowerCase() && marker!==(codes[identity.storeCode??""]??identity.storeCode))throw new Error("Report contains another store");
     }
+  }
+  const noRecords = grid.some(row => row.some(value => /^no records available[.!]?$/i.test(cellText(value))));
+  const emptyRow = (row: unknown[]) => row.every(value => !cellText(value) || /^no records available[.!]?$/i.test(cellText(value)));
+  const emptyFooter = (row: unknown[]) => {
+    const values=row.map(cellText).filter(Boolean);
+    if (/^(?:created|printed|generated)\b/i.test(values[0]??"")) return true;
+    return /^(?:grand\s*)?total(?:s|\s*[:=-])?$/i.test(values[0]??"") && values.slice(1).every(value=>/^[-+]?0(?:[.,]0+)?$/.test(value));
+  };
+  const headerOnly = headerIndex >= 0 && grid.slice(headerIndex + 1).every(row => emptyRow(row) || emptyFooter(row));
+  if (noRecords || headerOnly) {
+    if (!/wastage|stock\s*adjustment/i.test(text) && !headerOnly) throw new Error("Empty file is not a recognized Wastage report");
+    if (/\bsales\b|\brtc\b|sold\s*(?:qty|quantity)|sales\s*date|rtc\s*qty|price\s*override|book\s*stock|current\s*stock|stock\s*valuation|supplier\s*price|unit\s*price|net\s*price/i.test(text)) throw new Error("Empty file is not a recognized Wastage report");
+    if (noRecords && headerIndex >= 0 && grid.slice(headerIndex + 1).some(row => !emptyRow(row) && !emptyFooter(row))) throw new Error("Wastage report contains conflicting data and empty markers");
+    return { headers: ["Item Code", "Qty"], rows: [], referenceColumn: "Item Code", quantityColumn: "Qty", wastageDate: businessDates[0], emptyReport: true, storeProductCodeMapped: true, gloposMapped: false, barcodeMapped: false };
   }
 
   const stockVariance = await tryParseGloposStockVarianceWastageReport(
@@ -166,6 +194,7 @@ export async function parseWastageFileBuffer(
       quantityColumn: stockVariance.quantityColumn,
       wastageDate: stockVariance.wastageDate ?? undefined,
       duplicateRows: stockVariance.duplicateRows,
+      skippedExcludedReasonRows: stockVariance.skippedNonWastageRows,
       storeProductCodeMapped: false,
       gloposMapped: true,
       barcodeMapped: true,
@@ -213,8 +242,11 @@ export async function parseWastageFileBuffer(
   const rows = reasonColumn
     ? flat.rows.filter(row => !isExcludedWastageReason(row[reasonColumn] ?? ""))
     : flat.rows;
+  if (!rows.length && flat.rows.length) throw new Error("No valid wastage rows found; previous data retained");
+  if (!flat.rows.length && (!detected.referenceColumn || !detected.quantityColumn)) throw new Error("Empty file is not a recognized Wastage report");
   return {
     ...flat,
+    emptyReport: !flat.rows.length,
     rows,
     skippedExcludedReasonRows: flat.rows.length - rows.length,
     referenceColumn: detected.referenceColumn ?? undefined,

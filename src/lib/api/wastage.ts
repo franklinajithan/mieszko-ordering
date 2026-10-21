@@ -69,3 +69,5 @@ export function listWastageSummaries(
 > {
   return apiRequest(`/imports/wastage?storeId=${storeId}`);
 }
+
+export function importWastageReportFile(form:FormData):Promise<ActionResult<ImportResult & {message:string;zeroActivity:boolean}>> { return apiFormRequest("/imports/wastage",form); }

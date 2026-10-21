@@ -87,7 +87,7 @@ for (const source of Object.keys(tables) as Feed[])
       .getByRole("button", { name: "Partial / needs review", exact: false })
       .click();
     await expect(
-      page.getByText("Partial — unmatched products pending"),
+      page.getByText("Imported — unmatched products awaiting review"),
     ).toBeVisible();
     await page.goto("/");
     await expect(
