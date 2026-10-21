@@ -10,7 +10,7 @@ export const GET = route(async request => {
     feeds: (params.get('feeds') ?? '').split(','),
     startDate: params.get('from'), endDate: params.get('to'),
   });
-  if (!parsed.success) return apiError('Choose stores, report feeds and a valid completed date range.');
+  if (!parsed.success) return apiError(parsed.error.issues.map(issue=>issue.message).join(' '));
   return apiOk(await getDailyImportProgress(parsed.data));
 });
 

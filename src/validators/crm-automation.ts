@@ -43,7 +43,8 @@ export function londonToday(): string {
 }
 
 export const historicalMovementSchema = z.object({
-  storeIds: z.array(z.number().int().positive()).min(1).max(7),
+  // Stores are selected from the catalogue; adding a store must not disable recovery.
+  storeIds: z.array(z.number().int().positive().safe()).min(1).transform(ids => [...new Set(ids)]),
   feeds: z.array(z.enum(movementFeeds)).min(1).max(3),
   startDate: z.string(),
   endDate: z.string(),

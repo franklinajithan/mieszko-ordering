@@ -8,7 +8,8 @@ export const GET = route(async request => {
  const params = new URL(request.url).searchParams;
  const scope = historicalMovementSchema.safeParse({storeIds:(params.get('stores')??'').split(',').map(Number),feeds:(params.get('feeds')??'').split(','),startDate:params.get('from'),endDate:params.get('to')});
  const options = paging.safeParse(Object.fromEntries(params));
- if (!scope.success || !options.success) return apiError('Choose stores, movement feeds and up to 366 completed report dates.');
+ if (!scope.success) return apiError(scope.error.issues.map(issue=>issue.message).join(' '));
+ if (!options.success) return apiError('Choose a valid coverage page and missing-report filter.');
  return apiOk(await getReportCoverage(scope.data,options.data.page,options.data.missingOnly==='true'));
 });
 const command = z.object({storeId:z.number().int().positive().safe(),feed:z.enum(movementFeeds),day:z.string()});

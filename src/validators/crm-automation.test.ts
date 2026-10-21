@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { crmStoreSettingsSchema, dailyImportDates, historicalImportDates, historicalImportBatches, londonToday, queueMovementSchema } from './crm-automation';
+import { crmStoreSettingsSchema, dailyImportDates, historicalImportDates, historicalImportBatches, londonToday, historicalMovementSchema, queueMovementSchema } from './crm-automation';
 
 describe('daily CRM report contracts', () => {
   it('splits the office June to October backfill into bounded daily batches without gaps', () => {
@@ -38,4 +38,13 @@ describe('daily CRM report contracts', () => {
   it.each(['file:///tmp/report','javascript:alert(1)','http://user:password@crm.example/','http://crm.example/?password=x','http://crm.example/#secret',''])('rejects credentials and invalid URLs', crmUrl => {
     expect(crmStoreSettingsSchema.safeParse({crmUrl,nightlyEnabled:false}).success).toBe(false);
   });
+});
+
+it('accepts more than seven stores for coverage, progress and daily recovery without duplicating stores',()=>{
+ const storeIds=Array.from({length:12},(_,index)=>index+1);
+ const input={storeIds:[...storeIds,1],feeds:['rtc','wastage'],startDate:'2026-01-01',endDate:'2026-01-03'};
+ expect(historicalMovementSchema.parse(input).storeIds).toEqual(storeIds);
+ expect(queueMovementSchema.parse(input).storeIds).toEqual(storeIds);
+ expect(queueMovementSchema.safeParse({...input,endDate:'2026-02-01'}).success).toBe(false);
+ for(const invalid of [[],[0],[-1],[1.2],[Number.MAX_SAFE_INTEGER+1]])expect(historicalMovementSchema.safeParse({...input,storeIds:invalid}).success).toBe(false);
 });
