@@ -10,6 +10,7 @@ const ids=[1,2,3,4,5,6,7,8,9];
 const headers={origin:'http://127.0.0.1:3100'};
 test.beforeEach(async()=>{
  await sql.unsafe(readFileSync('tests/fixtures/seven-stores.sql','utf8'));
+ await sql.unsafe('TRUNCATE orders RESTART IDENTITY CASCADE');
  await sql`INSERT INTO stores(id,name,code) VALUES(8,'Eighth Store','0008'),(9,'Ninth Store','0009')`;
  await sql`INSERT INTO store_products(id,store_id,product_id,store_product_code) VALUES(81,8,1,'10001'),(91,9,1,'10001')`;
  await sql`INSERT INTO book_stock(store_product_id,book_stock_date,book_stock_qty,imported_at) VALUES(81,'2026-10-08',0,'2026-10-08T08:00:00Z'),(91,'2026-10-08',0,'2026-10-08T08:00:00Z')`;
