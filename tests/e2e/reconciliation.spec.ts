@@ -201,8 +201,9 @@ test("worker: reconcile a retained complete report through approval without down
       },
     );
   run();
-  const [failedRun] = await sql`SELECT * FROM data_import_runs`;
-  expect(failedRun.status).toBe("failed");
+  const [reviewRun] = await sql`SELECT * FROM data_import_runs`;
+  expect(reviewRun.status).toBe("success");
+  expect(reviewRun.details.has_unmatched_products).toBe(true);
   expect(await sql`SELECT * FROM crm_report_stage`).not.toHaveLength(0);
   expect(
     Number(
@@ -252,7 +253,7 @@ test("worker: reconcile a retained complete report through approval without down
   const [retry] =
     await sql`SELECT * FROM data_import_runs ORDER BY id DESC LIMIT 1`;
   expect(retry.status).toBe("success");
-  expect(retry.details.reused_stage_of).toBe(Number(failedRun.id));
+  expect(retry.details.reused_stage_of).toBe(Number(reviewRun.id));
   await request.post("/api/unmatched-products");
   expect(await sql`SELECT * FROM data_import_runs`).toHaveLength(2);
   expect(
