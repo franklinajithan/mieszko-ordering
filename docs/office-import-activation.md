@@ -56,7 +56,7 @@ Excel export control and saves the resulting file. For popups, use a `popup` ste
   decorative footer lines. Use `header_row` and `sheet` for XLSX headers; more
   complex CRM layouts require a normalization adapter. Existing browser parsers
   remain available for interactive imports.
-- Unknown codes, invalid quantities and invalid dates fail the whole automated import. Empty files fail by default. Only set `allow_empty_report: true` after verifying the CRM can produce a complete, valid zero-activity report; it is never allowed for Book Stock. A successful zero-row movement job records coverage in the audit table. Previous data remains intact. No fuzzy matching is performed.
+- Matching movement rows are saved while unknown products remain staged for review and replay. Invalid quantities/dates and unsuccessful downloads remain errors. Parser-validated empty Wastage and RTC reports succeed with zero rows and dated audit coverage; complete replacements clear earlier quantities for that store/day. Normal Sales, Book Stock and supplier prices retain their existing empty-report rules. Raw custom feeds still require explicit `allow_empty_report: true` after verification (never for Book Stock). Failed validation preserves previous data. No fuzzy matching is performed. See [RTC zero-activity handling](rtc-zero-activity-release.md).
 
 ## Run one controlled test after approval
 

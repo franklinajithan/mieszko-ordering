@@ -8,6 +8,7 @@ type StatusRow = {
   source_start_date?:string|null;
   source_end_date?:string|null;
   latest_run_id: number | string | null;
+  zero_activity?:boolean;
   latest_data_date: string | null;
   latest_data_updated_at: string | null;
   duplicate_of?: string | null;
@@ -140,6 +141,7 @@ export function DataOperationsStatus() {
                     {phase>=0&&phase<4?<p className="text-xs text-zinc-500">Downloaded rows: {item?.downloaded_row_count??'Waiting for report'}</p>:null}
                     {interrupted?<p role="status" className="text-xs text-red-800">Worker may be interrupted (over 2 hours). Check the office worker and diagnostic log before marking the attempt failed and retrying.</p>:null}
                     {interrupted&&item?.latest_run_id?<details className="mt-2 text-xs"><summary className="cursor-pointer">Recover interrupted import</summary><p>Stop/check the office worker first. Recovery retains the previous data and marks this attempt failed; it does not run the CRM.</p><label className="mt-2 flex items-start gap-1"><input type="checkbox" checked={recoveryConfirmed===String(item.latest_run_id)} onChange={e=>setRecoveryConfirmed(e.target.checked?String(item.latest_run_id):null)} />I have checked that the office worker is stopped</label><button className="mt-2 rounded border p-1" disabled={queueingStore!==null||loading||recoveryConfirmed!==String(item.latest_run_id)} onClick={()=>void recoverImport(item.latest_run_id!,store.id)}>Mark interrupted attempt failed</button></details>:null}
+                    <p className="text-xs text-emerald-700">{item?.zero_activity?(key==="rtc"?"Zero RTC activity · Report date available":"Zero wastage · Report date available"):null}</p>
                     <p className="mt-1 text-xs text-zinc-600">Latest data date: {item?.latest_data_date ?? "No data"}</p>
                     <p className="text-xs text-zinc-500">Data updated: {dateLabel(item?.latest_data_updated_at ?? null)}</p>
                     <p className="mt-1 text-xs text-zinc-600">Last worker success: {dateLabel(item?.last_successful_import_at ?? null)}</p>

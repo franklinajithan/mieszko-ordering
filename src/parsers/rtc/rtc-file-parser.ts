@@ -1,3 +1,4 @@
+import {inspectRtcReport, type RtcReportIdentity} from './rtc-report-validation';
 import { parse } from "papaparse";
 import * as XLSX from "xlsx";
 import type { ParsedRow } from "@/types";
@@ -89,6 +90,7 @@ export type RtcFileParseResult = {
   duplicateRows?: number;
   /** True when this is a Price Override / RTC Sales History barcode report. */
   barcodeMapped: boolean;
+  emptyReport?: boolean;
 };
 
 /** Parse an RTC CSV/XLSX — safe for browser and server. */
@@ -96,7 +98,10 @@ export async function parseRtcFileBuffer(
   buffer: ArrayBuffer | Buffer,
   fileName: string,
   erpType: "glopos" | "msp" = "msp",
+  identity?: RtcReportIdentity,
 ): Promise<RtcFileParseResult> {
+  const empty=inspectRtcReport(buffer,fileName,erpType,identity);
+  if(empty)return {...empty,headers:["EAN","Qty"],rows:[],referenceColumn:"EAN",quantityColumn:"Qty",barcodeMapped:true};
   const gloposRtc = await tryParseGloposRtcHistoryReport(buffer, fileName);
   if (gloposRtc) {
     return {
@@ -115,6 +120,7 @@ export async function parseRtcFileBuffer(
     ? parseFlatCsv(buffer)
     : parseFlatSpreadsheet(buffer);
   const detected = detectRtcColumns(flat.headers, erpType);
+  if(!flat.rows.length)throw new Error("Empty file is not a recognized RTC report");
   return {
     ...flat,
     referenceColumn: detected.referenceColumn ?? undefined,

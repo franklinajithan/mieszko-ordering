@@ -14,7 +14,7 @@ export const GET = route(async request => {
   }
   const rows = await db.execute(sql`SELECT r.id::int AS id, r.source_type AS feed,
     r.source_start_date::text AS report_date, s.name AS store_name,
-    ${queueState} AS status, (r.source_type='wastage' AND r.status='success' AND r.details->>'zero_activity'='true') AS zero_activity, r.downloaded_row_count, r.imported_row_count,
+    ${queueState} AS status, (r.source_type IN ('wastage','rtc') AND r.status='success' AND r.details->>'zero_activity'='true') AS zero_activity, r.downloaded_row_count, r.imported_row_count,
     r.error_message
     FROM data_import_runs r
     LEFT JOIN stores s ON s.id=r.store_id

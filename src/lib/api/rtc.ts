@@ -8,6 +8,7 @@ export type RtcParseResult = FilePreview & {
   referenceColumn?: string;
   quantityColumn?: string;
   rtcDate?: string;
+  emptyReport?: boolean;
   duplicateRows?: number;
   mappingType?: "store_product_code" | "barcode";
   matchedCount?: number;
@@ -84,3 +85,5 @@ export function listRtcSummaries(
 > {
   return apiRequest(`/imports/rtc?storeId=${storeId}`);
 }
+
+export function importRtcReportFile(form:FormData){return apiFormRequest<ImportResult & {message:string;zeroActivity:boolean}>("/imports/rtc",form);}

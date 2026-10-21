@@ -4,6 +4,7 @@ export type RtcPreviewState = FilePreview & {
   referenceColumn?: string;
   quantityColumn?: string;
   rtcDate?: string;
+  emptyReport?: boolean;
   duplicateRows?: number;
   mappingType?: "store_product_code" | "barcode";
   matchedCount?: number;

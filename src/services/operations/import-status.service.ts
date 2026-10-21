@@ -20,8 +20,8 @@ async function loadImportStatusRows():Promise<ImportStatusRow[]>{
         FROM book_stock d JOIN store_products sp ON sp.id=d.store_product_id GROUP BY sp.store_id
       )
       SELECT s.id AS store_id, s.code AS store_code, s.name AS store_name,
-             source.source_type, CASE WHEN source.source_type<>'book_stock' AND last_success.imported_row_count=0 AND (actual.business_date IS NULL OR last_success.source_end_date>=actual.business_date::date) THEN last_success.source_end_date::text ELSE actual.business_date END AS latest_data_date, actual.updated_at AS latest_data_updated_at,
-             r.id AS latest_run_id, ${queueState} AS status, r.started_at, r.completed_at, r.imported_at,
+             source.source_type, CASE WHEN source.source_type<>'book_stock' AND last_success.imported_row_count=0 AND (actual.business_date IS NULL OR last_success.source_end_date>=actual.business_date::date) THEN last_success.source_end_date::text ELSE actual.business_date END AS latest_data_date, CASE WHEN last_success.imported_row_count=0 AND (actual.business_date IS NULL OR last_success.source_end_date>=actual.business_date::date) THEN last_success.imported_at ELSE actual.updated_at END AS latest_data_updated_at,
+             (r.status='success' AND source.source_type IN ('rtc','wastage') AND r.details->>'zero_activity'='true') AS zero_activity, r.id AS latest_run_id, ${queueState} AS status, r.started_at, r.completed_at, r.imported_at,
              r.imported_row_count, r.downloaded_row_count,r.downloaded_at,r.source_start_date::text,r.source_end_date::text, r.error_message, r.details->>'duplicate_of' AS duplicate_of,
              last_success.id AS last_successful_run_id,
              last_success.imported_at AS last_successful_import_at,
