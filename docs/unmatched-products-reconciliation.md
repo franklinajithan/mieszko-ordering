@@ -18,7 +18,7 @@ Supplier Code is an optional audit reference. The system does not invent a suppl
 
 Approved product-code aliases and barcodes are scoped to a store. Database triggers coordinate Product Upload with reconciliation using the same store advisory locks as the worker, enforce mapping store identity, and prevent canonical product codes from colliding with aliases.
 
-Normal Sales, RTC and Wastage now save matching rows immediately for new report dates while retaining unresolved identifiers and the full validated report in staging. The queue displays **Partial / needs review**, saved and rejected row counts, and the remaining unknown identifiers. Movement imports with unmatched products complete with `success` and a review flag in the audit table. Matching rows are saved and unresolved identifiers are added to Unmatched Products atomically. The queue displays these as imported with unmatched products, separately from actual failures. Book Stock remains atomic.
+Normal Sales, RTC and Wastage now save matching rows immediately for new report dates while retaining unresolved identifiers and the full validated report in staging. The queue displays **Imported — unmatched products awaiting review**, saved and rejected row counts, and the remaining unknown identifiers. Movement imports with unmatched products complete with `success` and a review flag in the audit table. Matching rows are saved and unresolved identifiers are added to Unmatched Products atomically. The queue displays these as imported with unmatched products, separately from actual failures. Book Stock remains atomic.
 
 `crm_partial_publications` records ownership and the exact fingerprint of each partially published store/feed/day. An improved mapping triggers a retained-stage replay that recomputes the known subtotal and replaces that owned day; it never adds quantities to an existing subtotal. Resolving the final identifier atomically writes the complete report and clears partial ownership. Multiple CRM identifiers mapped to one product are summed before persistence, so retries cannot duplicate sales, RTC or wastage quantities.
 
@@ -32,7 +32,7 @@ Failed reports retain validated normalized rows with row count, mapping type, or
 
 Descriptions are retained where parsers supply them. Original historical failures often contain only identifier arrays, without descriptions or transaction counts. These fields remain unavailable when the source did not record them; job counts are not misrepresented as transaction counts. Exact matching against a newly uploaded master resolves identifiers without guessing.
 
-Parsing errors stay outside the identifier queue. Existing empty-Wastage and wrong-date checks remain enforced. No change was made to infer dates from a filename or treat an empty report as valid.
+Parsing errors stay outside the identifier queue. Recognized zero-activity Wastage reports record successful coverage; wrong store/date and unreadable reports remain errors. See [zero-wastage handling and office update commands](zero-wastage-release.md).
 
 ## Release from the office Windows PC
 

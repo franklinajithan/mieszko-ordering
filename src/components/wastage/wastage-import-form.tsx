@@ -2,15 +2,10 @@
 
 import { useState, type ChangeEvent } from "react";
 import {
-  importWastageChunk,
-  matchRtcBarcodes,
+  importWastageReportFile,
   parseWastageFile,
-  WASTAGE_IMPORT_CHUNK_SIZE,
 } from "@/lib/api";
-import {
-  WASTAGE_ITEM_CODE_COLUMN,
-  WASTAGE_QTY_COLUMN,
-} from "@/lib/import-config";
+import {detectWastageColumns} from "@/parsers/file-parser";
 import { ImportSummary } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
@@ -18,10 +13,6 @@ import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { WastageListPage } from "@/components/wastage/wastage-list-page";
-import { detectWastageColumns } from "@/parsers/file-parser";
-import { parseWastageFileBuffer } from "@/parsers/wastage/wastage-file-parser";
-import { prepareWastageImport } from "@/services/wastage/wastage-import-prepare";
-import { remapRtcBarcodeRowsToStoreProductCodes } from "@/services/rtc/rtc-import-prepare";
 import type { ImportResult } from "@/types";
 import type { StoreOption } from "@/types/store";
 import type {
@@ -34,29 +25,11 @@ import {
   resolveStoreErpType,
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
-import { decimalToDb } from "@/utils/decimal";
-import { formatSpreadsheetBarcode } from "@/utils/barcode";
-
-function mergeMatchResults(a: ImportResult, b: ImportResult): ImportResult {
-  return {
-    ...a,
-    matchedRows: a.matchedRows + b.matchedRows,
-    unmatchedRows: a.unmatchedRows + b.unmatchedRows,
-    errors: [...a.errors, ...b.errors].slice(0, 50),
-  };
-}
-
-function chunkRows<T>(rows: T[], size: number): T[][] {
-  const batches: T[][] = [];
-  for (let i = 0; i < rows.length; i += size) {
-    batches.push(rows.slice(i, i + size));
-  }
-  return batches;
-}
 
 export function WastageImportForm({ stores }: { stores: StoreOption[] }) {
   const [preview, setPreview] = useState<WastagePreviewState | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [importMessage,setImportMessage]=useState<string|null>(null);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [storeId, setStoreId] = useState("");
@@ -161,181 +134,15 @@ export function WastageImportForm({ stores }: { stores: StoreOption[] }) {
       setError("Select a wastage date");
       return;
     }
-    if (
-      preview?.matchedCount !== undefined &&
-      preview.matchedCount === 0
-    ) {
-      setError(
-        "No file products matched this store's catalog. Import or update products for this store, then preview again.",
-      );
-      return;
-    }
-    if (!(await validateSelectedFile(file))) {
-      return;
-    }
-
-    const store = stores.find((s) => String(s.id) === storeId);
-    const storeName = store?.name ?? "";
-    const erpType = store?.erpType === "glopos" ? "glopos" : "msp";
-    setError(null);
-    setResult(null);
-
+    if (!(await validateSelectedFile(file))) return;
+    setError(null);setResult(null);setImportMessage(null);
+    setProgress({processed:0,total:1,fileName:file.name,storeName:stores.find(s=>String(s.id)===storeId)?.name??"",done:false});
     try {
-      const parsed = await parseWastageFileBuffer(
-        await file.arrayBuffer(),
-        file.name,
-        erpType,
-      );
-      const qtyColumn =
-        quantityColumn ||
-        parsed.quantityColumn ||
-        detectWastageColumns(parsed.headers, erpType).quantityColumn ||
-        WASTAGE_QTY_COLUMN;
-
-      let importRows = parsed.rows;
-      let codeColumn =
-        referenceColumn ||
-        parsed.referenceColumn ||
-        detectWastageColumns(parsed.headers, erpType).referenceColumn ||
-        WASTAGE_ITEM_CODE_COLUMN;
-      let prepResult: ImportResult = {
-        totalRows: parsed.rows.length,
-        matchedRows: 0,
-        unmatchedRows: 0,
-        invalidRows: 0,
-        duplicateRows: parsed.duplicateRows ?? 0,
-        errors: [],
-      };
-
-      const useBarcodeLookup =
-        parsed.barcodeMapped || mappingType === "barcode";
-
-      if (useBarcodeLookup) {
-        const barcodeColumn = parsed.referenceColumn || referenceColumn;
-        if (!barcodeColumn || !qtyColumn) {
-          setError("Could not detect barcode / quantity columns.");
-          return;
-        }
-        const barcodes = parsed.rows
-          .map((row) => formatSpreadsheetBarcode(row[barcodeColumn]).trim())
-          .filter(Boolean);
-        const matched = await matchRtcBarcodes({
-          storeId: Number(storeId),
-          barcodes,
-        });
-        if (!matched.success) {
-          setError(matched.error);
-          return;
-        }
-        const remapped = remapRtcBarcodeRowsToStoreProductCodes({
-          barcodeColumn,
-          quantityColumn: qtyColumn,
-          rows: parsed.rows,
-          matches: matched.data,
-        });
-        if (!remapped.rows.length) {
-          setError(
-            remapped.unmatchedBarcodes.length
-              ? `No store products found for file barcodes (${remapped.unmatchedBarcodes.length} unmatched). Add barcodes to this store's catalog, then try again.`
-              : "No wastage product rows found in the file.",
-          );
-          return;
-        }
-        importRows = remapped.rows;
-        codeColumn = WASTAGE_ITEM_CODE_COLUMN;
-        prepResult = {
-          ...prepResult,
-          totalRows: remapped.rows.length,
-          unmatchedRows: remapped.unmatchedBarcodes.length,
-          duplicateRows: parsed.duplicateRows ?? 0,
-        };
-      } else {
-        if (!codeColumn || !qtyColumn) {
-          setError("Could not detect product code / quantity columns.");
-          return;
-        }
-
-        const prepared = prepareWastageImport({
-          referenceColumn: codeColumn,
-          quantityColumn: qtyColumn,
-          rows: parsed.rows,
-        });
-        if (!prepared.rows.length) {
-          setError("No valid wastage rows found in the file.");
-          setResult(prepared.result);
-          return;
-        }
-        importRows = prepared.rows.map((row) => ({
-          [codeColumn]: row.reference,
-          [qtyColumn]: decimalToDb(row.qty),
-          __productName: row.productName ?? "",
-          __rowNumber: String(row.rowNumber),
-        }));
-        prepResult = prepared.result;
-      }
-
-      const slimRows = importRows.map((row) => ({
-        [codeColumn]: row[codeColumn] ?? "",
-        [qtyColumn]: row[qtyColumn] ?? "",
-        __productName: row.__productName ?? "",
-        __rowNumber: row.__rowNumber ?? "",
-      }));
-
-      const batches = chunkRows(slimRows, WASTAGE_IMPORT_CHUNK_SIZE);
-      const totalRows = slimRows.length;
-      setProgress({
-        processed: 0,
-        total: totalRows,
-        fileName: file.name,
-        storeName,
-        done: false,
-      });
-
-      let aggregated: ImportResult = {
-        ...prepResult,
-        matchedRows: 0,
-        unmatchedRows: prepResult.unmatchedRows,
-        duplicateRows: prepResult.duplicateRows ?? parsed.duplicateRows ?? 0,
-      };
-      let processed = 0;
-
-      for (const batch of batches) {
-        const chunk = await importWastageChunk({
-          storeId: Number(storeId),
-          wastageDate,
-          referenceColumn: codeColumn,
-          quantityColumn: qtyColumn,
-          fileName: file.name,
-          rows: batch,
-        });
-        if (!chunk.success) {
-          setError(chunk.error);
-          reportErpMismatch(chunk.error);
-          setProgress(null);
-          return;
-        }
-        aggregated = mergeMatchResults(aggregated, chunk.data);
-        processed += batch.length;
-        setProgress({
-          processed,
-          total: totalRows,
-          fileName: file.name,
-          storeName,
-          done: processed >= totalRows,
-        });
-      }
-
-      setProgress(null);
-      setResult(aggregated);
-      setPreview(null);
-      if (aggregated.matchedRows === 0 && aggregated.totalRows > 0) {
-        setError(
-          useBarcodeLookup
-            ? "Import finished but no products matched. Ensure each file barcode exists on this store's catalog."
-            : "Import finished but no products matched. Ensure each item code exists on this store's catalog.",
-        );
-      }
-      setListRefreshKey((key) => key + 1);
+      const form=new FormData();form.set("file",file);form.set("storeId",storeId);form.set("wastageDate",wastageDate);
+      form.set("referenceColumn",referenceColumn);form.set("quantityColumn",quantityColumn);form.set("mappingType",mappingType);
+      const imported=await importWastageReportFile(form);
+      if(!imported.success)throw new Error(imported.error);
+      setResult(imported.data);setImportMessage(imported.data.message);setPreview(null);setProgress(null);setListRefreshKey(key=>key+1);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Import failed";
       setError(message);
@@ -344,9 +151,6 @@ export function WastageImportForm({ stores }: { stores: StoreOption[] }) {
     }
   }
 
-  const progressPercent = progress
-    ? Math.round((progress.processed / Math.max(1, progress.total)) * 100)
-    : 0;
   const mappedReport = Boolean(preview?.mappingType);
 
   return (
@@ -426,29 +230,15 @@ export function WastageImportForm({ stores }: { stores: StoreOption[] }) {
               <p className="text-sm text-zinc-600">
                 {progress.fileName} · {progress.storeName}
               </p>
-              <div
-                className="h-3 overflow-hidden rounded-full bg-zinc-200"
-                role="progressbar"
-                aria-label="Wastage import progress"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={progressPercent}
-              >
-                <div
-                  className={`h-full rounded-full transition-[width] duration-300 ${
-                    progress.done ? "bg-emerald-500" : "bg-emerald-600"
-                  }`}
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
+              <progress aria-label="Wastage import progress" className="h-3 w-full" />
               <p className="text-sm text-zinc-600">
-                Saved {progress.processed.toLocaleString()} of{" "}
-                {progress.total.toLocaleString()} wastage rows · {progressPercent}%
+                Validating the complete report and saving quantities and coverage together.
               </p>
             </div>
           ) : result ? (
             <div className="space-y-3">
               <h3 className="font-semibold text-zinc-900">Last import result</h3>
+              {importMessage && <p role="status">{importMessage}</p>}
               <ImportSummary result={result} />
             </div>
           ) : preview ? (
@@ -575,9 +365,7 @@ export function WastageImportForm({ stores }: { stores: StoreOption[] }) {
               <Button
                 type="button"
                 onClick={onImport}
-                disabled={
-                  preview.matchedCount !== undefined && preview.matchedCount === 0
-                }
+                disabled={!wastageDate}
               >
                 Import wastage
               </Button>

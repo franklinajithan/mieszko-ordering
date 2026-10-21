@@ -1,3 +1,6 @@
+import {db} from "@/db";
+import {sql} from "drizzle-orm";
+import {validateWastageReport} from "./wastage-report-import.service";
 import {recordUnmatchedIdentifiers} from '@/services/operations/import-observations.service';
 import type {
   FilePreview,
@@ -51,6 +54,7 @@ function catalogCodeKey(code: string): string {
 }
 
 export type WastageParseResult = FilePreview & {
+  emptyReport?: boolean;
   referenceColumn?: string;
   quantityColumn?: string;
   wastageDate?: string;
@@ -127,6 +131,10 @@ export async function buildStockVarianceWastagePreviewWithStoreProductCodes(
 export async function parseWastageImportFile(
   input: ParseImportFileInput,
 ): Promise<WastageParseResult> {
+  if(input.storeId){
+    const parsed=await validateWastageReport({...input,storeId:input.storeId});
+    if(parsed.emptyReport)return {headers:parsed.headers,rows:[],referenceColumn:parsed.referenceColumn,quantityColumn:parsed.quantityColumn,wastageDate:parsed.wastageDate,emptyReport:true};
+  }
   if (/rtc|price\s*override/i.test(input.fileName)) {
     throw new Error(
       "This looks like an RTC / Price Override file. Use the RTC import page for that report, or upload an MSP Stock Adjustment / GloPOS WastageReport.",
@@ -519,12 +527,17 @@ export async function listWastageSummariesForStore(
   storeId: number,
 ): Promise<WastageStoreSummary[]> {
   const rows = await wastageRepository.listDateSummariesForStore(storeId);
-  return rows.map((row) => ({
+  const zeroDays=await db.execute(sql`SELECT source_start_date::text AS day,max(imported_at)::text AS updated FROM data_import_runs
+    WHERE store_id=${storeId} AND source_type='wastage' AND status='success' AND details->>'zero_activity'='true'
+      AND source_start_date=source_end_date GROUP BY source_start_date`);
+  const summaries=rows.map((row) => ({
     wastageDate: row.wastageDate,
     itemCount: row.itemCount,
     totalWastageQty: String(row.totalWastageQty),
     lastUpdated: String(row.lastUpdated),
   }));
+  for(const zero of zeroDays)if(!summaries.some(row=>row.wastageDate===zero.day))summaries.push({wastageDate:String(zero.day),itemCount:0,totalWastageQty:"0",lastUpdated:String(zero.updated)});
+  return summaries.sort((a,b)=>b.wastageDate.localeCompare(a.wastageDate));
 }
 
 export async function deleteWastageForStoreDate(
