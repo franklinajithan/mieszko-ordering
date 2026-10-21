@@ -65,7 +65,7 @@ export async function exportDairyWorkbook(orderId:number) {
    const sheet=workbook.addWorksheet(uniqueName(stores.length===1?label:`${store.name} ${label}`));
    const headers=['ProductCode',...result.supplierColumns.map(s=>`${s.code} Code`),'InnerEan','ItemName1','ItemGroupName',
     ...result.comparisonPeriods.map(p=>`${dayLabel(p.startDate)}-${dayLabel(p.endDate)}`),...dailyDates,
-    ...result.comparisonPeriods.flatMap(p=>[...(settings.includeRtc?[`RTC ${dayLabel(p.startDate)}-${dayLabel(p.endDate)}`]:[]),...(settings.includeWastage?[`Wastage ${dayLabel(p.startDate)}-${dayLabel(p.endDate)}`]:[])]),
+    ...(settings.includeWastage?result.comparisonPeriods.map(p=>`Wastage ${dayLabel(p.startDate)}-${dayLabel(p.endDate)}`):[]),...(settings.includeRtc?result.comparisonPeriods.map(p=>`RTC ${dayLabel(p.startDate)}-${dayLabel(p.endDate)}`):[]),
     methodLabel,settings.includeRtc?'RTC':'RTC (not used)',settings.includeWastage?'Wastage':'Wastage (not used)',
     settings.includeBookStock?`Book Stock ${dayLabel(stockDate)}`:'Book Stock (not used)','Not Posted Delivery',
     'Book Stock with Delivery','Current Book Stock',settings.includeFutureDeliveries?'Future Delivery':'Future Delivery (not used)',
@@ -79,7 +79,7 @@ export async function exportDairyWorkbook(orderId:number) {
    for(const item of rows.filter(row=>hasActivity(row)!==noMovement)) {
     const quotes=result.supplierColumns.map(s=>item.supplierQuotes.find(q=>q.supplierId===s.supplierId));
     const values:ExcelJS.CellValue[]=[item.itemCode,...quotes.map(q=>q?.supplierProductCode??''),item.barcode??'',item.productName,item.departmentName??'',
-     ...item.periodSales.map(Number),...item.dailySales.map(Number),...result.comparisonPeriods.flatMap((_,index)=>[...(settings.includeRtc?[item.periodRtc?.[index]==null?null:Number(item.periodRtc[index])]:[]),...(settings.includeWastage?[item.periodWastage?.[index]==null?null:Number(item.periodWastage[index])]:[])]),Number(item.calculatedSoldQty),settings.includeRtc?Number(item.rtcQty):null,settings.includeWastage?Number(item.wastageQty):null,
+     ...item.periodSales.map(Number),...item.dailySales.map(Number),...(settings.includeWastage?result.comparisonPeriods.map((_,index)=>item.periodWastage?.[index]==null?null:Number(item.periodWastage[index])):[]),...(settings.includeRtc?result.comparisonPeriods.map((_,index)=>item.periodRtc?.[index]==null?null:Number(item.periodRtc[index])):[]),Number(item.calculatedSoldQty),settings.includeRtc?Number(item.rtcQty):null,settings.includeWastage?Number(item.wastageQty):null,
      settings.includeBookStock?Number(item.bookStockQty??0):null,settings.includeBookStock?Number(item.receivedNotPostedQty??0):null,
      null,null,settings.includeFutureDeliveries?Number(item.futureDeliveryQty??0):null,
      Number(item.forecastMovementQty??0),Number(item.shortageQty??0),Number(item.projectedStockQty??0),item.coverageDemandQty==null?null:Number(item.coverageDemandQty),Number(item.suggestedOrderQty),Number(item.orderQty),

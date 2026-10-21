@@ -166,7 +166,7 @@ export function OrderSheetResultsTable({
       <p className="text-xs text-zinc-500">Scroll the grid horizontally for supplier prices and quantities. Select the suggested quantity for its explanation.</p>
       <div ref={viewportRef} onScroll={handleGridScroll} className="max-h-[65vh] overflow-auto overscroll-contain rounded-xl border border-zinc-300" role="region" aria-label="Order product grid" tabIndex={0}>
         <table aria-label="Order products" aria-rowcount={filtered.length+1} className="w-max min-w-full border-separate border-spacing-0 text-left text-sm [&_th]:border-b [&_th]:border-r [&_th]:border-zinc-200 [&_td]:border-b [&_td]:border-r [&_td]:border-zinc-200">
-          <colgroup><col style={{width:56}} /><col style={{width:44}} /><col style={{width:112}} /><col style={{width:280}} />{showStoreColumn&&<col style={{width:130}} />}<col style={{width:170}} />{supplierColumns.map(supplier=><col key={supplier.supplierId} style={{width:140}} />)}<col style={{width:130}} /><col style={{width:120}} />{periodColumns.flatMap((_,index)=>Array.from({length:periodFeedCount},(__,feed)=><col key={`period-${index}-${feed}`} style={{width:150}} />))}{dailySalesLabels.map((_,index)=><col key={`day-${index}`} style={{width:110}} />)}{Array.from({length:8},(_,index)=><col key={`quantity-${index}`} style={{width:130}} />)}</colgroup>
+          <colgroup><col style={{width:56}} /><col style={{width:44}} /><col style={{width:112}} /><col style={{width:280}} />{showStoreColumn&&<col style={{width:130}} />}<col style={{width:170}} />{supplierColumns.map(supplier=><col key={supplier.supplierId} style={{width:140}} />)}<col style={{width:130}} /><col style={{width:120}} />{periodColumns.map((_,index)=><col key={`sales-${index}`} style={{width:150}} />)}{dailySalesLabels.map((_,index)=><col key={`day-${index}`} style={{width:110}} />)}{Array.from({length:periodColumns.length*(periodFeedCount-1)},(_,index)=><col key={`movement-${index}`} style={{width:150}} />)}{Array.from({length:8},(_,index)=><col key={`quantity-${index}`} style={{width:130}} />)}</colgroup>
           <thead ref={headerRef} className="sticky top-0 z-20 bg-zinc-100 text-xs font-semibold text-zinc-600 [&_th]:min-w-28">
             <tr className="h-28">
               <th scope="col" className="sticky left-0 z-30 !min-w-14 bg-emerald-100 px-2 py-3 text-right">Row</th>
@@ -189,12 +189,14 @@ export function OrderSheetResultsTable({
               ))}
               <th className="px-3 py-2">Department</th>
               <th className="px-3 py-2 text-right">Current Stock</th>
-              {periodColumns.flatMap(column=>['Normal sales',...(includeRtc?['RTC']:[]),...(includeWastage?['Wastage']:[])].map(feed=><th key={`${column.periodKey}-${feed}`} scope="col" className={`px-3 py-2 text-right align-bottom ${feed==='RTC'?'bg-violet-50':feed==='Wastage'?'bg-amber-50':'bg-blue-50'}`}><div className="font-semibold">{column.title} · {feed}</div><div className="mt-1 text-[11px] font-normal text-zinc-600">{column.dateRangeLabel}</div><div className="mt-1 text-[10px] font-normal">Period total (units)</div></th>))}
+              {periodColumns.map(column=><th key={`${column.periodKey}-Normal sales`} scope="col" className="px-3 py-2 text-right align-bottom bg-blue-50"><div className="font-semibold">{column.title} · Normal sales</div><div className="mt-1 text-[11px] font-normal text-zinc-600">{column.dateRangeLabel}</div><div className="mt-1 text-[10px] font-normal">Period total (units)</div></th>)}
               {dailySalesLabels.map((label, index) => (
                 <th key={`day-${index}`} className="px-3 py-2 text-right whitespace-nowrap bg-blue-50/80">
                   {label}
                 </th>
               ))}
+              {includeWastage&&periodColumns.map(column=><th key={`${column.periodKey}-Wastage`} scope="col" className="px-3 py-2 text-right align-bottom bg-amber-50"><div className="font-semibold">{column.title} · Wastage</div><div className="mt-1 text-[11px] font-normal text-zinc-600">{column.dateRangeLabel}</div><div className="mt-1 text-[10px] font-normal">Period total (units)</div></th>)}
+              {includeRtc&&periodColumns.map(column=><th key={`${column.periodKey}-RTC`} scope="col" className="px-3 py-2 text-right align-bottom bg-violet-50"><div className="font-semibold">{column.title} · RTC</div><div className="mt-1 text-[11px] font-normal text-zinc-600">{column.dateRangeLabel}</div><div className="mt-1 text-[10px] font-normal">Period total (units)</div></th>)}
               <th className="px-3 py-2 text-right">Calculated Sold Qty</th>
               <th className="px-3 py-2 text-right">Forecast Wastage (average)</th>
               <th className="px-3 py-2 text-right">Forecast RTC</th>
@@ -251,7 +253,7 @@ export function OrderSheetResultsTable({
                   })}
                   <td className="max-w-32 px-3 py-2" title={item.departmentName??undefined}><div className="line-clamp-3">{item.departmentName ?? "—"}</div></td>
                   <td className="px-3 py-2 text-right tabular-nums">{item.currentStock}</td>
-                  {periodColumns.flatMap((column,index)=>[<td key={`${column.periodKey}-sales`} className="whitespace-nowrap bg-blue-50/30 px-3 py-2 text-right tabular-nums">{formatDecimal(item.periodSales[index]??'0',2)}</td>,...(includeRtc?[<td key={`${column.periodKey}-rtc`} className="whitespace-nowrap bg-violet-50/30 px-3 py-2 text-right tabular-nums" title={`RTC: ${column.startDate} to ${column.endDate}`}>{item.periodRtc?.[index]!=null?formatDecimal(item.periodRtc[index],4):'Recalculate'}</td>]:[]),...(includeWastage?[<td key={`${column.periodKey}-wastage`} className="whitespace-nowrap bg-amber-50/30 px-3 py-2 text-right tabular-nums" title={`Wastage: ${column.startDate} to ${column.endDate}`}>{item.periodWastage?.[index]!=null?formatDecimal(item.periodWastage[index],4):'Recalculate'}</td>]:[])])}
+                  {periodColumns.map((column,index)=><td key={`${column.periodKey}-sales`} className="whitespace-nowrap bg-blue-50/30 px-3 py-2 text-right tabular-nums">{formatDecimal(item.periodSales[index]??'0',2)}</td>)}
                   {item.dailySales.map((sale, index) => (
                     <td
                       key={`${item.orderItemId}-day-${index}`}
@@ -260,6 +262,8 @@ export function OrderSheetResultsTable({
                       {formatDecimal(parseDbDecimal(sale), 2)}
                     </td>
                   ))}
+                  {includeWastage&&periodColumns.map((column,index)=><td key={`${column.periodKey}-wastage`} className="whitespace-nowrap bg-amber-50/30 px-3 py-2 text-right tabular-nums" title={`Wastage: ${column.startDate} to ${column.endDate}`}>{item.periodWastage?.[index]!=null?formatDecimal(item.periodWastage[index],4):'Recalculate'}</td>)}
+                  {includeRtc&&periodColumns.map((column,index)=><td key={`${column.periodKey}-rtc`} className="whitespace-nowrap bg-violet-50/30 px-3 py-2 text-right tabular-nums" title={`RTC: ${column.startDate} to ${column.endDate}`}>{item.periodRtc?.[index]!=null?formatDecimal(item.periodRtc[index],4):'Recalculate'}</td>)}
                   <td className="px-3 py-2 text-right tabular-nums">{item.calculatedSoldQty}</td>
                   <td
                     className={`px-3 py-2 text-right tabular-nums ${includeWastage ? "" : "text-zinc-400"}`}
