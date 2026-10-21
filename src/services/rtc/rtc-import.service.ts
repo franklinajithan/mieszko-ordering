@@ -1,3 +1,7 @@
+import {db} from '@/db';
+import {sql} from 'drizzle-orm';
+import {parseRtcFileBuffer} from '@/parsers/rtc/rtc-file-parser';
+import {validateMovementReport} from '@/services/movement-report-import.service';
 import {recordUnmatchedIdentifiers} from '@/services/operations/import-observations.service';
 import type { FilePreview, ImportResult, ParsedRow, SalesMappingType } from "@/types";
 import { decimalToDb } from "@/utils/decimal";
@@ -25,6 +29,7 @@ export type RtcParseResult = FilePreview & {
   referenceColumn?: string;
   quantityColumn?: string;
   rtcDate?: string;
+  emptyReport?: boolean;
   duplicateRows?: number;
   mappingType?: "store_product_code" | "barcode";
   matchedCount?: number;
@@ -36,6 +41,8 @@ export type RtcParseResult = FilePreview & {
 export async function parseRtcImportFile(
   input: ParseImportFileInput,
 ): Promise<RtcParseResult> {
+  const parsed=input.storeId?await validateMovementReport({...input,storeId:input.storeId},'rtc'):await parseRtcFileBuffer(input.buffer,input.fileName);
+  if(parsed.emptyReport)return {...parsed,mappingType:'barcode'};
   const gloposRtc = await tryParseGloposRtcHistoryReport(
     input.buffer,
     input.fileName,
@@ -232,12 +239,15 @@ export async function listRtcSummariesForStore(
   storeId: number,
 ): Promise<RtcStoreSummary[]> {
   const rows = await rtcSalesRepository.listDateSummariesForStore(storeId);
-  return rows.map((row) => ({
+  const summaries=rows.map((row) => ({
     rtcDate: row.rtcDate,
     itemCount: row.itemCount,
     totalRtcQty: String(row.totalRtcQty),
     lastUpdated: String(row.lastUpdated),
   }));
+  const zeroDays=await db.execute(sql`SELECT source_start_date::text AS day,max(imported_at)::text AS updated FROM data_import_runs WHERE store_id=${storeId} AND source_type='rtc' AND status='success' AND details->>'zero_activity'='true' AND source_start_date=source_end_date GROUP BY source_start_date`);
+  for(const zero of zeroDays)if(!summaries.some(row=>row.rtcDate===zero.day))summaries.push({rtcDate:String(zero.day),itemCount:0,totalRtcQty:'0',lastUpdated:String(zero.updated)});
+  return summaries.sort((a,b)=>b.rtcDate.localeCompare(a.rtcDate));
 }
 
 export async function deleteRtcForStoreDate(

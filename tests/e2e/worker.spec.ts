@@ -58,10 +58,10 @@ test('API: supplier-price import works using one database connection',async({req
  expect(response.status()).toBe(200);expect((await response.json()).data.matchedRows).toBe(1);
 });
 
-test('worker: empty reports fail safely and an explicit retry succeeds',async()=>{
+test('worker: validated empty movement reports succeed and empty sales can be retried',async()=>{
  const config=configFor([1],{command:['python','tests/support/fixture-crm.py','--output','{output}','--source','{source}','--start','{start}','--store','{store_id}','--empty']});
  run(config,['--enqueue-date','2026-10-07']);
- const failed=await sql`SELECT id,source_type,status FROM data_import_runs ORDER BY id`;expect(failed.filter(row=>row.source_type!=='wastage').every(row=>row.status==='failed')).toBe(true);expect(failed.find(row=>row.source_type==='wastage')?.status).toBe('success');
+ const failed=await sql`SELECT id,source_type,status FROM data_import_runs ORDER BY id`;expect(failed.filter(row=>!['wastage','rtc'].includes(row.source_type)).every(row=>row.status==='failed')).toBe(true);expect(failed.filter(row=>['wastage','rtc'].includes(row.source_type)).every(row=>row.status==='success')).toBe(true);
  const normal=failed.find(row=>row.source_type==='normal_sales')!;
  const good=configFor([1]);run(good,['--retry-run',String(normal.id)]);
  const last=(await sql`SELECT status,details FROM data_import_runs ORDER BY id DESC LIMIT 1`)[0];expect(last.status).toBe('success');expect(last.details.retry_of).toBe(Number(normal.id));

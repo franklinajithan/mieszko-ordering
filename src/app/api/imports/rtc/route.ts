@@ -1,3 +1,4 @@
+import {importMovementReport} from '@/services/movement-report-import.service';
 import { z } from "zod";
 import { storeRepository } from "@/repositories";
 import {
@@ -46,6 +47,13 @@ export const DELETE = route(async (req) => {
 });
 
 export const POST = route(async (req) => {
+  if(req.headers.get('content-type')?.includes('multipart/form-data')){
+    const form=await req.formData();const file=form.get('file');
+    const storeId=idSchema.parse(form.get('storeId'));
+    const date=z.string().date().parse(form.get('rtcDate'));
+    if(!(file instanceof File))return apiError('No file uploaded');
+    return apiOk(await importMovementReport({storeId,date,fileName:file.name,buffer:Buffer.from(await file.arrayBuffer()),referenceColumn:String(form.get('referenceColumn')??''),quantityColumn:String(form.get('quantityColumn')??''),mappingType:String(form.get('mappingType')??'')},'rtc'));
+  }
   const parsed = await parseJson(req, chunkSchema);
   if (!parsed.ok) return parsed.response;
 
