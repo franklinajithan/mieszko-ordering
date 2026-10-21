@@ -62,7 +62,7 @@ async function refreshInTransaction(tx: Executor) {
   FROM data_import_runs r CROSS JOIN LATERAL (VALUES
    ('Barcode',r.details->'unmatched_barcodes'),('Product code',r.details->'unknown_product_codes')) v(kind,items)
   CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(v.items)='array' THEN v.items ELSE '[]'::jsonb END) j(value)
-  WHERE r.status='failed' AND r.store_id IS NOT NULL AND jsonb_typeof(j.value) IN ('string','number')
+  WHERE (r.status='failed' OR r.details->>'has_unmatched_products'='true') AND r.store_id IS NOT NULL AND jsonb_typeof(j.value) IN ('string','number')
  ) INSERT INTO crm_product_identifiers(store_id,kind,identifier)
  SELECT store_id,kind,identifier FROM extracted WHERE length(identifier)>0
  ON CONFLICT(store_id,kind,identifier) DO NOTHING`);
@@ -73,7 +73,7 @@ async function refreshInTransaction(tx: Executor) {
    ('Barcode',r.details->'unmatched_barcodes'),('Product code',r.details->'unknown_product_codes')) v(kind,items)
   CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(v.items)='array' THEN v.items ELSE '[]'::jsonb END) j(value)
   JOIN crm_product_identifiers i ON i.store_id=r.store_id AND i.kind=v.kind AND i.identifier=btrim(j.value #>> '{}')
-  WHERE r.status='failed'
+  WHERE (r.status='failed' OR r.details->>'has_unmatched_products'='true')
   ON CONFLICT(identifier_id,run_id) DO UPDATE SET transaction_count=EXCLUDED.transaction_count`);
   await tx.execute(sql`WITH descriptions AS (
   SELECT DISTINCT ON (i.id) i.id,r.details->'unmatched_product_descriptions'->>i.identifier AS name
@@ -103,7 +103,7 @@ async function queueResolvedReports(tx: Executor) {
  FROM data_import_runs r JOIN crm_identifier_occurrences o ON o.run_id=r.id
  JOIN crm_product_identifiers i ON i.id=o.identifier_id
  JOIN stores s ON s.id=r.store_id AND s.is_active
- WHERE r.status='failed' AND r.source_type IN ('normal_sales','rtc','wastage')
+ WHERE (r.status='failed' OR r.details->>'has_unmatched_products'='true') AND r.source_type IN ('normal_sales','rtc','wastage')
  AND r.source_start_date IS NOT NULL AND r.source_end_date IS NOT NULL
  AND NOT (r.details ? 'queue_control') AND NOT(r.details ? 'reconciliation_retry_id')
  AND NOT EXISTS(SELECT 1 FROM data_import_runs n WHERE n.store_id=r.store_id AND n.source_type=r.source_type

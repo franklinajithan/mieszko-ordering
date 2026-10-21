@@ -38,7 +38,7 @@ export function DownloadQueue(){
  }
  const data=result?.query===query?result.data:null;
  const counts=data?.counts??{};
- const count=(key:string)=>key==='processing'?['downloading','downloaded','importing'].reduce((n,s)=>n+(counts[s]??0),0):key==='completed'?(counts.success??0):key==='all'?Object.values(counts).reduce((n,v)=>n+v,0):counts[key]??0;
+ const count=(key:string)=>key==='processing'?['downloading','downloaded','importing'].reduce((n,s)=>n+(counts[s]??0),0):key==='completed'?((counts.success??0)+(counts.partial??0)):key==='all'?Object.values(counts).reduce((n,v)=>n+v,0):counts[key]??0;
  return <div className="space-y-4">
   <div className="flex flex-wrap gap-3"><Button onClick={()=>router.push('/automation')}>New download / CRM settings</Button><Button variant="outline" onClick={()=>router.push('/operations')}>Office Operations</Button><Button variant="outline" disabled={loading} onClick={()=>setRefresh(n=>n+1)}>Refresh queue</Button></div>
   <p className="text-sm">Queued reports wait for the Ubuntu worker and an enabled report feed. This screen refreshes every 5 seconds while visible. Closing it does not stop the worker. Book Stock remains manual.</p>

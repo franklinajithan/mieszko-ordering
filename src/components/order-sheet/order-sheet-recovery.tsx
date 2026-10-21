@@ -52,7 +52,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
      const response=await fetch(`/api/automation/coverage?${params}`,{cache:"no-store"});
      const body=await response.json() as ApiResponse<Coverage>;
      if(!response.ok || !body.success)throw new Error(body.error || "Coverage scan failed");
-     for(const row of body.data.rows)if(!(row.status==="unverified"&&row.has_rows))found.set(key(row),row);
+     for(const row of body.data.rows)if(row.status!=="partial"&&!(row.status==="unverified"&&row.has_rows))found.set(key(row),row);
      pages=body.data.pages;page++;
     } while(page<=pages);
    }
@@ -167,7 +167,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
      setJobIds([]);
      if(refreshAfterCompletion.current){
       refreshAfterCompletion.current=false;
-      const unsuccessful=body.data.jobs.filter(job=>job.status!=="success");
+      const unsuccessful=body.data.jobs.filter(job=>!["success","partial"].includes(job.status));
       setMessage(unsuccessful.length?`${unsuccessful.length} recovery job(s) did not complete successfully. Rechecking gaps; review failed or unmatched imports before retrying.`:"All recovery jobs completed. Verifying saved reports and refreshing order warnings...");
       const completedScope=generationScope.current;
       generationScope.current="";
@@ -183,8 +183,8 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
  },[jobIds]);
  const eligible=rows.filter(row=>row.can_download);
  const processingJobs=jobs.filter(job=>["queued","downloading","downloaded","importing"].includes(job.status)).length;
- const completedJobs=jobs.filter(job=>job.status==="success").length;
- const problemJobs=jobs.filter(job=>["failed","partial","paused","cancelled","resumed"].includes(job.status)).length;
+ const completedJobs=jobs.filter(job=>["success","partial"].includes(job.status)).length;
+ const problemJobs=jobs.filter(job=>["failed","paused","cancelled","resumed"].includes(job.status)).length;
  const finishedJobs=completedJobs+problemJobs;
  const completionPercent=jobs.length?Math.round(finishedJobs/jobs.length*100):0;
  return <section className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-slate-900" aria-label="Mieszko intelligent data recovery">
@@ -208,7 +208,7 @@ export function OrderSheetRecovery({form,scanRequest=0,onRecoveryFinished}:{form
   {stale&&rows.length>0&&<p role="alert">Selections changed. Scan again before approving downloads.</p>}
   {failures.length>0&&<div role="alert" className="mt-2 text-red-700">{failures.map(f=><p key={f}>{f}</p>)}</div>}
   {jobCheckError&&<p role="alert" className="mt-2 text-red-700">{jobCheckError}</p>}
-  {jobs.length>0&&<div className="mt-3 rounded border bg-white p-3"><p className="font-semibold">Recovery job progress · refreshed every 10 seconds</p><p className="mt-1 text-slate-600">{processingJobs} in progress · {completedJobs} completed · {problemJobs} need attention</p><div role="progressbar" aria-label="Recovery jobs finished" aria-valuemin={0} aria-valuemax={100} aria-valuenow={completionPercent} className="mt-2 h-2 overflow-hidden rounded bg-slate-200"><div className="h-full bg-blue-600 transition-all" style={{width:`${completionPercent}%`}} /></div><p className="mt-1 text-xs text-slate-600">{finishedJobs} of {jobs.length} jobs finished ({completionPercent}%)</p><ul className="mt-2 space-y-1">{jobs.slice(0,100).map(job=><li key={job.id}>#{job.id} · {job.store_name} · {job.report_date} · {job.feed.replaceAll("_"," ")} · <strong>{job.status}</strong> · downloaded {job.downloaded_row_count??0} rows · imported {job.imported_row_count??0} rows{job.error_message?" · "+job.error_message:""}</li>)}</ul>{jobs.length>100&&<p className="mt-2">Showing the first 100 reports. <a href="/downloads" className="text-blue-700 underline">View the full download queue</a></p>}</div>}
+  {jobs.length>0&&<div className="mt-3 rounded border bg-white p-3"><p className="font-semibold">Recovery job progress · refreshed every 10 seconds</p><p className="mt-1 text-slate-600">{processingJobs} in progress · {completedJobs} completed · {jobs.filter(job=>job.status==="partial").length} with unmatched products · {problemJobs} failed or stopped</p><div role="progressbar" aria-label="Recovery jobs finished" aria-valuemin={0} aria-valuemax={100} aria-valuenow={completionPercent} className="mt-2 h-2 overflow-hidden rounded bg-slate-200"><div className="h-full bg-blue-600 transition-all" style={{width:`${completionPercent}%`}} /></div><p className="mt-1 text-xs text-slate-600">{finishedJobs} of {jobs.length} jobs finished ({completionPercent}%)</p><ul className="mt-2 space-y-1">{jobs.slice(0,100).map(job=><li key={job.id}>#{job.id} · {job.store_name} · {job.report_date} · {job.feed.replaceAll("_"," ")} · <strong>{job.status==="partial"?"Imported · unmatched products":job.status}</strong> · downloaded {job.downloaded_row_count??0} rows · imported {job.imported_row_count??0} rows{job.error_message?" · "+job.error_message:""}</li>)}</ul>{jobs.length>100&&<p className="mt-2">Showing the first 100 reports. <a href="/downloads" className="text-blue-700 underline">View the full download queue</a></p>}</div>}
   <p className="mt-3 text-slate-600">Automatic downloads cover configured Normal Sales, RTC and Wastage reports. Missing book stock can be refreshed by the office worker after approval. Supplier prices require a separate upload.</p>
   <p className="mt-2 flex flex-wrap gap-3"><a href="/book-stock" className="text-blue-700 underline">Refresh or upload book stock</a><a href="/supplier-prices" className="text-blue-700 underline">Upload missing supplier prices</a></p>
   {rows.length>0&&<div className="mt-3">

@@ -298,12 +298,12 @@ def import_report(conn, job, rows, filename, mapping_type="store_product_code", 
             return publish_partial_report(conn, job, rows, resolved, filename, details, source_sha256)
         rows = resolved
         fingerprint = row_fingerprint(rows)
-        details = {'data_sha256': fingerprint, 'source_sha256': source_sha256}
+        details = {'data_sha256': fingerprint, 'source_sha256': source_sha256, 'zero_activity': source == 'wastage' and not rows}
         # Only the latest overlapping import describes the current database state.
         # An older matching fingerprint must not suppress a legitimate correction.
         previous = conn.execute("""SELECT id, imported_at, details->>'data_sha256', details->>'duplicate_of'
             FROM data_import_runs WHERE store_id=%s AND source_type=%s
-            AND source_start_date<=%s AND source_end_date>=%s AND status='success'
+            AND source_start_date<=%s AND source_end_date>=%s AND status='success' AND COALESCE(details->>'has_unmatched_products','false')<>'true'
             ORDER BY imported_at DESC NULLS LAST, id DESC LIMIT 1""",
             (store_id, source, end, start)).fetchone()
         unchanged = previous and previous[2] == fingerprint
@@ -370,7 +370,7 @@ def publish_partial_report(conn, job, original, resolved, filename, details, sou
         owner = conn.execute('SELECT run_id,data_sha256 FROM crm_partial_publications WHERE store_id=%s AND source_type=%s AND report_date=%s FOR UPDATE',
                              (store_id, source, day)).fetchone()
         complete = conn.execute("""SELECT id FROM data_import_runs WHERE store_id=%s AND source_type=%s
-            AND status='success' AND source_start_date<=%s AND source_end_date>=%s LIMIT 1""",
+            AND status='success' AND COALESCE(details->>'has_unmatched_products','false')<>'true' AND source_start_date<=%s AND source_end_date>=%s LIMIT 1""",
             (store_id, source, day, day)).fetchone()
         current_hash = row_fingerprint({(pid, d): qty for pid, d, qty in current})
         if complete or (current and (not owner or owner[1] != current_hash)) or (owner and owner[0] > run_id):
@@ -386,19 +386,27 @@ def publish_partial_report(conn, job, original, resolved, filename, details, sou
             (store_id, source, day, run_id, row_fingerprint(matched), len(matched)))
         published.append(str(day))
         saved += len(matched)
-    details.update({'partial_import': bool(published), 'partial_import_version': 1,
+    details.update({'has_unmatched_products': True, 'partial_import': bool(published), 'partial_import_version': 1,
                     'partial_published_dates': published, 'protected_complete_dates': protected,
                     'matched_staged_rows': len(resolved), 'source_sha256': source_sha256})
     unknown_set = set(details.get('unmatched_barcodes', details.get('unknown_product_codes', [])))
+    # Persist review items in the same transaction as matching quantities.
+    kind = 'Barcode' if 'unmatched_barcodes' in details else 'Product code'
+    conn.execute("""INSERT INTO crm_product_identifiers(store_id,kind,identifier)
+        SELECT %s,%s,unnest(%s::text[]) ON CONFLICT(store_id,kind,identifier) DO NOTHING""",
+        (store_id, kind, sorted(unknown_set)))
+    conn.execute("""INSERT INTO crm_identifier_occurrences(identifier_id,run_id)
+        SELECT id,%s FROM crm_product_identifiers WHERE store_id=%s AND kind=%s AND identifier=ANY(%s::text[])
+        ON CONFLICT(identifier_id,run_id) DO NOTHING""", (run_id,store_id,kind,sorted(unknown_set)))
     pending_rows = sum(1 for code, _ in original if code in unknown_set)
-    message = f'{saved} matched product/date rows saved; {len(details.get("unmatched_barcodes", details.get("unknown_product_codes", [])))} unmatched identifiers pending review. Report incomplete.'
+    message = f'{saved} matched product/date rows saved; {len(details.get("unmatched_barcodes", details.get("unknown_product_codes", [])))} unmatched identifiers moved to Unmatched Products. Import completed with review items.'
     if protected:
         message += ' Earlier complete or manually edited data retained for protected dates; matched rows remain staged there.'
-    conn.execute("""UPDATE data_import_runs SET status='failed',completed_at=now(),
+    conn.execute("""UPDATE data_import_runs SET status='success',completed_at=now(),
         imported_at=CASE WHEN %s>0 THEN clock_timestamp() ELSE NULL END,
-        imported_row_count=%s,rejected_row_count=%s,source_file_name=%s,error_message=%s,
+        imported_row_count=%s,rejected_row_count=%s,source_file_name=%s,error_message=NULL,
         details=details || %s::jsonb WHERE id=%s""",
-        (saved, saved, pending_rows, filename, message, json.dumps(details), run_id))
+        (saved, saved, pending_rows, filename, json.dumps({**details, "review_message": message}), run_id))
     return {'status': 'partial' if published else 'pending', 'saved': saved, 'details': details, 'message': message}
 
 
@@ -429,7 +437,7 @@ def reuse_validated_stage(conn, job):
     parent = conn.execute("""SELECT p.id,p.details,p.source_file_name,p.source_file_path FROM data_import_runs r
         JOIN data_import_runs p ON p.id=CASE WHEN (r.details->>'retry_of') ~ '^[0-9]+$'
             THEN (r.details->>'retry_of')::bigint ELSE NULL END
-        WHERE r.id=%s AND r.details->>'reuse_validated_stage'='true' AND p.status='failed'
+        WHERE r.id=%s AND r.details->>'reuse_validated_stage'='true' AND (p.status='failed' OR p.details->>'has_unmatched_products'='true')
           AND p.store_id=%s AND p.source_type=%s AND p.source_start_date=%s AND p.source_end_date=%s""",
         (run_id, store_id, source, start, end)).fetchone()
     if not parent:
@@ -542,7 +550,7 @@ def process_job(conn, config, job):
             mapping = {'code': 'Code', 'quantity': 'Qty', 'date': 'Date'}
         elif raw_rows is None:
             raw_rows = read_rows(output, mapping)
-        prepared = prepare_rows(raw_rows, mapping, source, start, end, allow_empty=feed.get("allow_empty_report") is True)
+        prepared = prepare_rows(raw_rows, mapping, source, start, end, allow_empty=feed.get("allow_empty_report") is True or (source == "wastage" and bool(feed.get("normalize_with_app_parsers"))))
         stage_report(conn, (run_id, store_id, source, start, end), prepared, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
         result = import_report(conn, (run_id, store_id, source, start, end), prepared, output.name, mapping_type, hashlib.sha256(output.read_bytes()).hexdigest())
         if result and result.get('details'):

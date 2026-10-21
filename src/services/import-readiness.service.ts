@@ -30,7 +30,7 @@ export async function getImportCoverage(input:{storeIds:number[];comparisonPerio
       const incomplete=await db.execute(sql`SELECT store_id,report_date::text AS day FROM crm_partial_publications
         WHERE source_type=${source} AND store_id IN (${sql.join(input.storeIds.map(id=>sql`${id}`),sql`,`)})
         AND report_date BETWEEN ${sorted[0]}::date AND ${sorted.at(-1)}::date`);
-      for(const row of incomplete)if(dates.has(String(row.day))){present.delete(`${row.store_id}:${row.day}`);partial.push({storeId:Number(row.store_id),date:String(row.day)});}
+      for(const row of incomplete)if(dates.has(String(row.day))){present.add(`${row.store_id}:${row.day}`);partial.push({storeId:Number(row.store_id),date:String(row.day)});}
     } catch (error) {
       const cause=error as {code?:string;cause?:{code?:string}};
       if ((cause.code??cause.cause?.code)!=='42P01') throw error;
@@ -38,5 +38,5 @@ export async function getImportCoverage(input:{storeIds:number[];comparisonPerio
     const missing=input.storeIds.flatMap(storeId=>[...dates].filter(day=>!present.has(`${storeId}:${day}`)).map(day=>({storeId,date:day})));
     return {source,label:feed.label,expectedStoreDays:dates.size*input.storeIds.length,availableStoreDays:dates.size*input.storeIds.length-missing.length,missing,partial};
   }));
-  return {coverage,warnings:[...coverage.filter(row=>row.missing.length).map(row=>`${row.label}: no recorded activity or missing import for ${row.missing.length} store/date combinations (${row.missing.slice(0,4).map(item=>`store ${item.storeId} ${item.date}`).join(', ')}). Verify reports before using zero demand.`),...coverage.filter(row=>row.partial.length).map(row=>`${row.label}: ${row.partial.length} partial store/date reports contain saved matching rows but still have unmatched products. Quantities are incomplete; review Unmatched Products before relying on totals.`)]};
+  return {coverage,warnings:[...coverage.filter(row=>row.missing.length).map(row=>`${row.label}: no recorded activity or missing import for ${row.missing.length} store/date combinations (${row.missing.slice(0,4).map(item=>`store ${item.storeId} ${item.date}`).join(', ')}). Verify reports before using zero demand.`),...coverage.filter(row=>row.partial.length).map(row=>`${row.label}: ${row.partial.length} partial store/date reports contain saved matching rows but still have unmatched products. Matched quantities are available for ordering; unmatched items are excluded until reviewed in Unmatched Products.`)]};
 }

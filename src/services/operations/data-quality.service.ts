@@ -73,7 +73,7 @@ async function loadQualityIssues(filters:QualityFilters,day:string):Promise<Qual
 
  }
  const failures=await db.execute(sql`SELECT r.id::text,r.store_id,s.name,r.source_type,r.details FROM data_import_runs r LEFT JOIN stores s ON s.id=r.store_id
-   WHERE r.status='failed' AND NOT(r.details ? 'queue_control') AND (${filters.storeId??null}::integer IS NULL OR r.store_id=${filters.storeId??null})
+   WHERE (r.status='failed' OR r.details->>'has_unmatched_products'='true') AND NOT(r.details ? 'queue_control') AND (${filters.storeId??null}::integer IS NULL OR r.store_id=${filters.storeId??null})
    AND NOT EXISTS(SELECT 1 FROM data_import_runs ok WHERE ok.status='success' AND (ok.details->>'retry_of'=r.id::text
      OR (ok.store_id=r.store_id AND ok.source_type=r.source_type AND ok.id>r.id
        AND ok.source_start_date<=r.source_start_date AND ok.source_end_date>=r.source_end_date))) ORDER BY r.id DESC`);
@@ -88,6 +88,7 @@ async function loadQualityIssues(filters:QualityFilters,day:string):Promise<Qual
     issues.push({id:`${row.id}:${type}:${code}`,type,severity:'error',storeId:row.store_id==null?null:Number(row.store_id),storeName:String(row.name??'Unassigned store'),supplierId:null,supplierName:null,productId:null,itemCode:String(code),productName:null,message:`Unmatched identifier in ${row.source_type} attempt #${row.id}.`,action:'Verify the source code/barcode and map it to the correct store product, then retry.',href:'/products'});
    }
   }
+  if(details.has_unmatched_products===true||details.partial_import===true)continue;
   issues.push({id:`failed:${row.id}`,type:'import_failure',severity:'error',storeId:row.store_id==null?null:Number(row.store_id),storeName:String(row.name??'Unassigned store'),supplierId:null,supplierName:null,productId:null,itemCode:null,productName:null,message:details.partial_import===true?`${row.source_type} import #${row.id} is partial: matching rows saved; unmatched products remain.`:`${row.source_type} import #${row.id} failed.`,action:'Review import monitoring, resolve the source error and retry.',href:'/operations'});
  }
  const observed=await db.execute(sql`SELECT o.*,s.name FROM import_quality_observations o JOIN stores s ON s.id=o.store_id

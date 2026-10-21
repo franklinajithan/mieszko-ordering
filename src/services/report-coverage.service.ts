@@ -42,15 +42,15 @@ export async function getReportCoverage(input: Scope, page = 1, missingOnly = tr
   const attempts = (grouped.get(`${store.id}:${feed}`) ?? []).filter(run => String(run.from_date)<=day && String(run.to_date)>=day);
   const active = attempts.find(run => ['queued','downloading','downloaded','importing'].includes(String(run.status)));
   const isPartial = partialDays.has(`${store.id}:${feed}:${day}`);
-  const available = !isPartial && attempts.some(run => run.status==='success'); // Includes verified zero reports and prior data retained after a failed retry.
+  const available = isPartial || attempts.some(run => run.status==='success'||run.status==='partial'); // Includes verified zero reports and prior data retained after a failed retry.
   const latest = active ?? attempts[0];
   const hasRows = savedDays.has(`${store.id}:${feed}:${day}`);
-  const status = active ? String(active.status) : available ? 'success' : isPartial ? 'partial' : latest ? String(latest.status) : hasRows ? 'unverified' : 'missing';
+  const status = active ? String(active.status) : isPartial ? 'partial' : available ? 'success' : latest ? String(latest.status) : hasRows ? 'unverified' : 'missing';
   const paused = ['paused','resumed'].includes(status);
   const canDownload = !available && !active && !paused && !!store.configured;
-  const reason = available ? (active ? 'Saved report available; another attempt is in progress.' : 'Complete report saved.')
+  const reason = isPartial ? 'Matched items imported; remaining identifiers are in Unmatched Products.' : available ? (active ? 'Saved report available; another attempt is in progress.' : 'Complete report saved.')
    : active ? 'Waiting for download or import to finish.'
-   : status==='partial' ? 'Matching products saved; unmatched products need review.'
+
    : paused ? 'Paused by operator. Resume from Download Queue.'
    : hasRows ? 'Saved rows exist; a complete report is not recorded for this date.'
    : `Report data is not available for ${day}.`;
@@ -80,7 +80,7 @@ export async function downloadMissingReport(storeId: number, feed: Scope['feeds'
   const attempts = await tx.execute(sql`SELECT r.id::int,${queueState} AS status FROM data_import_runs r
    WHERE r.store_id=${storeId} AND r.source_type=${feed} AND ((r.source_start_date<=${day}::date AND r.source_end_date>=${day}::date)
     OR (r.status IN ('queued','downloading','downloaded','importing') AND (r.source_start_date IS NULL OR r.source_end_date IS NULL))) ORDER BY r.id DESC`);
-  if (attempts.some(row => row.status==='success')) return {message:'This date already has a completed report. Refresh coverage.',runId:null};
+  if (attempts.some(row => ['success','partial'].includes(String(row.status)))) return {message:'This date already has a completed report. Refresh coverage.',runId:null};
   const active = attempts.find(row => ['queued','downloading','downloaded','importing'].includes(String(row.status)));
   if (active) return {message:`This report is already queued or processing as job #${active.id}.`,runId:Number(active.id)};
   if (attempts[0] && ['paused','resumed'].includes(String(attempts[0].status))) throw new InputError('This report was paused. Use Resume in Download Queue.');
