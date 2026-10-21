@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import * as XLSX from "xlsx";
 import type { ParsedRow } from "@/types";
 import { formatSpreadsheetBarcode } from "@/utils/barcode";
 import { Decimal } from "@/utils/decimal";
@@ -15,6 +16,38 @@ export type GloposRtcHistoryParseResult = {
 };
 
 class RtcHistoryDateError extends Error {}
+
+/** CRM's Excel export can contain BIFF8/HTML even when saved as report.xlsx. */
+async function loadRtcWorkbook(buffer: ArrayBuffer | Uint8Array | Buffer) {
+  const bytes = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : buffer;
+  const workbook = new ExcelJS.Workbook();
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer);
+    return workbook;
+  }
+  const signature = Array.from(bytes.subarray(0, 8), byte => byte.toString(16).padStart(2, "0")).join("");
+  const prefix = new TextDecoder().decode(bytes.subarray(0, 1000));
+  if (signature !== "d0cf11e0a1b11ae1" && !/<(?:html|table|\?xml|Workbook)\b/i.test(prefix)) {
+    throw new Error("Not an Excel RTC report");
+  }
+  if (/<(?:form|input)\b|password|sign in|log in/i.test(prefix)) {
+    throw new Error("Downloaded RTC file is a login page");
+  }
+  const legacy = XLSX.read(bytes, {type: "array", cellDates: true, cellNF: true});
+  const name = legacy.SheetNames[0];
+  if (!name) throw new Error("Workbook has no worksheets");
+  const sheet = workbook.addWorksheet("RTC");
+  for (const [address, cell] of Object.entries(legacy.Sheets[name])) {
+    if (address.startsWith("!")) continue;
+    const position = XLSX.utils.decode_cell(address);
+    const target = sheet.getRow(position.r + 1).getCell(position.c + 1);
+    if (cell.t === "e") throw new Error("RTC report contains an Excel cell error");
+    // Preserve zero-padded identifiers; quantities still retain exact raw values.
+    target.value = cell.t === "n" && /^0+$/.test(cell.z ?? "") && cell.w
+      ? cell.w : cell.v ?? null;
+  }
+  return workbook;
+}
 
 function cellText(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return "";
@@ -149,8 +182,7 @@ export async function parseGloposRtcHistoryReport(
   fileName: string,
 ): Promise<GloposRtcHistoryParseResult> {
   void fileName;
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer);
+  const workbook = await loadRtcWorkbook(buffer);
   const sheet = workbook.worksheets[0];
   if (!sheet) throw new Error("Workbook has no worksheets");
 
