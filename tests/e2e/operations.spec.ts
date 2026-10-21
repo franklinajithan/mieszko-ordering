@@ -112,7 +112,7 @@ test('trace and table: separate stock components, demand, saved stages, keyboard
  await sql.unsafe("INSERT INTO not_posted_deliveries(store_product_id,quantity,file_name) VALUES(11,2,'receipt.xlsx');INSERT INTO future_deliveries(store_product_id,quantity,file_name,expected_delivery_date) VALUES(11,5,'arrival.xlsx','2026-10-09');");
  const result=await generate(request,{includeFutureDeliveries:true});const milk=result.items.find((i:{storeProductId:number})=>i.storeProductId===11);
  expect([milk.bookStockQty,milk.receivedNotPostedQty,milk.futureDeliveryQty,milk.coverageDemandQty,milk.projectedStockQty,milk.suggestedOrderQty]).toEqual(['20.0000','2.0000','5.0000','16.5000','16.0000','0.5000']);
- await page.goto(`/orders/${result.orderId}`);await page.getByRole('button',{name:'Explain suggested quantity for MLEKPOL Milk 1L'}).click();const explanation=page.getByRole('region',{name:'Suggested quantity explanation'});await expect(explanation.getByText('Saved stock movement timeline',{exact:true})).toBeVisible();await expect(explanation.getByText('Coverage forecast demand',{exact:true})).toBeVisible();
+ await page.goto(`/orders/${result.orderId}`);await page.getByRole('button',{name:'Explain suggested quantity for MLEKPOL Milk 1L'}).click();const explanation=page.getByRole('region',{name:'Suggested quantity explanation'});await expect(explanation.getByText('Saved stock movement timeline',{exact:true})).toBeVisible();await expect(explanation.getByText('Coverage forecast demand',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Close explanation',exact:true}).click();await expect(page.getByRole('button',{name:'Explain suggested quantity for MLEKPOL Milk 1L'})).toBeFocused();
  const quantity=page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Hounslow'});await quantity.focus();await quantity.press('Enter');await expect(page.getByRole('textbox',{name:'Order quantity for Natural Yogurt 200G at Hounslow'})).toBeFocused();
  await page.getByRole('combobox',{name:'Order table page size'}).selectOption('50');await page.reload();await expect(page.getByRole('combobox',{name:'Order table page size'})).toHaveValue('50');
  await page.getByRole('combobox',{name:'Order table store'}).selectOption('0365');const another=await generate(request,{storeIds:[2]});await page.goto(`/orders/${another.orderId}`);await expect(page.getByRole('textbox',{name:'Order quantity for MLEKPOL Milk 1L at Perivale'})).toBeVisible();
@@ -132,4 +132,44 @@ test('recovery: operator confirmation, age and state guards retain data and requ
 test('office migration is repeatable in the disposable database',async()=>{
  const migration=readFileSync('migrations/manual/2026-10-16-office-operations.sql','utf8');await sql.unsafe(migration);await sql.unsafe(migration);
  expect((await sql`SELECT column_name FROM information_schema.columns WHERE table_name='supplier_orders' AND column_name='exported_at'`)).toHaveLength(1);
+});
+
+
+test('validation grid groups unpriced products once and explains blockers in a dismissible popup',async({request,page})=>{
+ const order=await generate(request);
+ await sql`UPDATE order_items SET final_order_qty=2,cheapest_supplier_id=NULL,cheapest_net_price=NULL,price_status='check_missing_price',warning='Master Media: no valid unit price for this product.' WHERE order_id=${order.orderId} AND store_product_id=11`;
+ const report=(await(await request.get(`/api/orders/${order.orderId}/validation`)).json()).data;
+ const milk=report.issues.filter((issue:{itemCode:string})=>issue.itemCode==='10001');
+ expect(milk.map((issue:{code:string})=>issue.code)).toEqual(['missing_quote']);expect(milk[0]).toMatchObject({productName:'MLEKPOL Milk 1L',storeName:'Hounslow'});
+ expect(milk[0].details).toContain('Master Media');
+ expect((await request.post(`/api/orders/${order.orderId}/supplier-orders`,{data:{acknowledgeWarnings:true}})).status()).toBe(400);
+ await page.goto(`/orders/${order.orderId}`);await page.getByRole('button',{name:'Review pre-order validation',exact:true}).click();
+ const grid=page.getByRole('region',{name:'Validation review grid'});await expect(grid.getByRole('cell',{name:'10001',exact:true})).toHaveCount(1);
+ await page.getByRole('textbox',{name:'Search validation items'}).fill('10001');await expect(grid.getByRole('row')).toHaveCount(2);
+ await grid.screenshot({path:'test-results/validation-review-grid.png'});const review=grid.getByRole('button',{name:'Review 10001 Hounslow'});await review.click();
+ const popup=page.getByRole('dialog',{name:'Review 10001 — MLEKPOL Milk 1L'});await expect(popup.getByText('No valid supplier quote',{exact:true})).toBeVisible();await expect(popup.getByText(/Master Media: no valid unit price/)).toBeVisible();await expect(popup.getByRole('link')).toHaveAttribute('href','/supplier-prices');await page.screenshot({path:'test-results/validation-review-popup.png'});
+ await popup.press('Escape');await expect(popup).not.toBeVisible();await expect(review).toBeFocused();
+ await page.getByRole('combobox',{name:'Validation severity'}).selectOption('blocking');await expect(grid.getByRole('cell',{name:'10001',exact:true})).toBeVisible();
+});
+
+test('order grid keeps identifiers visible while scrolling and quantity details stay in a modal',async({request,page})=>{
+ const order=await generate(request);await page.goto(`/orders/${order.orderId}`);
+ const grid=page.getByRole('region',{name:'Order product grid'});const table=grid.getByRole('table',{name:'Order products',exact:true});
+ expect(await grid.evaluate(element=>element.scrollWidth>element.clientWidth)).toBe(true);
+ const code=table.getByRole('cell',{name:'10001',exact:true});const before=await code.boundingBox();await grid.evaluate(element=>{element.scrollLeft=700;});const after=await code.boundingBox();expect(Math.abs(before!.x-after!.x)).toBeLessThan(2);
+ const explain=page.getByRole('button',{name:'Explain suggested quantity for MLEKPOL Milk 1L'});await explain.click();const popup=page.getByRole('dialog',{name:'Why this quantity? — MLEKPOL Milk 1L'});await expect(popup.getByRole('columnheader',{name:'Net unit price',exact:true})).toBeVisible();await expect(popup.getByText('Coverage forecast demand',{exact:true})).toBeVisible();
+ await popup.press('Escape');await expect(popup).not.toBeVisible();await expect(explain).toBeFocused();
+ await page.getByRole('combobox',{name:'Sort order products'}).selectOption('product');
+ await page.screenshot({path:'test-results/order-grid-desktop.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});await expect(grid).toBeVisible();await explain.click();await expect(popup).toBeVisible();expect((await popup.boundingBox())!.width).toBeLessThan(391);await page.screenshot({path:'test-results/order-grid-mobile-popup.png'});await popup.press('Escape');
+});
+
+
+test('validation keeps a changed valid-mapping price blocked until recalculation',async({request})=>{
+ const order=await generate(request);
+ await sql`UPDATE supplier_prices pr SET net_price=net_price+1 WHERE pr.supplier_product_id IN (SELECT m.id FROM supplier_products m JOIN store_products sp ON sp.product_id=m.product_id JOIN order_items i ON i.store_product_id=sp.id AND i.cheapest_supplier_id=m.supplier_id WHERE i.order_id=${order.orderId} AND sp.id=11)`;
+ const report=(await(await request.get(`/api/orders/${order.orderId}/validation`)).json()).data;
+ const issues=report.issues.filter((issue:{itemCode:string})=>issue.itemCode==='10001');expect(issues.some((issue:{code:string})=>issue.code==='missing_mapping')).toBe(false);expect(issues.find((issue:{code:string})=>issue.code==='invalid_price').details).toContain('Current valid unit price on 2026-10-08');
+ expect((await request.post(`/api/orders/${order.orderId}/supplier-orders`,{data:{acknowledgeWarnings:true}})).status()).toBe(400);
+ await generate(request,{orderId:order.orderId});const fresh=(await(await request.get(`/api/orders/${order.orderId}/validation`)).json()).data;expect(fresh.blockingCount).toBe(0);
 });
