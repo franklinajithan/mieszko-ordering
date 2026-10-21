@@ -306,3 +306,11 @@ The installed timer also queues eligible temporary download failures from the la
 ### Check missing report dates
 
 The Download Queue and CRM date-range progress now include a chronological coverage panel, a completed-report progress bar and per-date download actions, including dates with no existing job. The worker processes waiting movement reports by earliest report date, then job ID. See [Download Queue coverage](download-queue.md#missing-report-dates-and-progress) for status meanings, protection of completed data, and stage progress. Deploy the updated worker as well as rebuilding the website.
+
+### RTC export format compatibility
+
+The RTC history parser accepts real Excel 97–2003 BIFF8 XLS and HTML-table Excel exports as well as XLSX. The downloaded file's bytes determine its format: the worker saves its configured filename, so `report.xlsx` can still contain a legacy XLS export. Previously the XLSX-only history reader rejected those bytes, and the flat-file fallback treated the report title as column headers, yielding `Report columns not detected` even though the CRM viewer displayed transactions.
+
+After deploying this parser to both the office app and Linux worker using the release workflow above, retry the affected RTC job from Download Queue. The retry creates a new audit record, validates the report/transaction dates, resolves EAN barcodes and preserves prior quantities on failure. Repeated successful imports do not add the quantities again. Normal price overrides remain excluded when the report includes a Reason column. This change does not automatically treat empty RTC reports as zero activity.
+
+A CRM viewer screenshot proves the selected store/report exists, not the bytes downloaded by another store's failed job. The Hayes screenshot from 20 October cannot establish the actual format or contents of Eastham job #909; inspect that job's exported file if it still fails after updating the worker.
