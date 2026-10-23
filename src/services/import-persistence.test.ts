@@ -32,6 +32,7 @@ beforeAll(async () => {
     INSERT INTO supplier_products(id,product_id,supplier_id,supplier_code) VALUES (1,1,1,'MILK'),(2,2,1,'BUTTER');
     INSERT INTO supplier_prices(supplier_id,supplier_product_id,supplier_code,net_price,case_size,effective_date) VALUES (1,1,'MILK',2,'6','2026-10-01'),(1,2,'BUTTER',3,'6x1','2026-10-01');
   `);
+  await client.exec(readFileSync('migrations/manual/2026-10-16-crm-store-settings.sql', 'utf8'));
   for (const name of ['data-import-runs', 'book-stock-staging']) await client.exec(readFileSync(`migrations/manual/2026-10-15-${name}.sql`, 'utf8'));
 }, 30000);
 beforeEach(async () => { await client.exec('TRUNCATE import_quality_observations, data_import_runs, book_stock, book_stock_import_stage, not_posted_deliveries, daily_sales, rtc_sales, wastage, orders RESTART IDENTITY CASCADE'); });

@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { ReportCoverage } from "@/components/operations/report-coverage";
+import { londonToday } from "@/validators/crm-automation";
+import { importFreshness } from "@/utils/import-freshness";
 import {withReadTimeout} from '@/utils/read-timeout';
 
 type StatusRow = {
+  erp_type?: string;
+  crm_configured?: boolean;
+  review_message?: string | null;
+  unmatched_identifier_count?: string | number | null;
   downloaded_row_count?:number|null;
   source_start_date?:string|null;
   source_end_date?:string|null;
@@ -28,11 +35,17 @@ type Response = { success: boolean; configured?: boolean; rows?: StatusRow[]; me
 const sources = [
   ["normal_sales", "Normal sales"], ["rtc", "RTC sales"], ["wastage", "Wastage"], ["book_stock", "Book stock"],
 ] as const;
+function yesterdayInLondon() {
+  return new Date(Date.parse(londonToday() + "T00:00:00Z") - 86400000).toISOString().slice(0, 10);
+}
 function dateLabel(value: string | null) {
-  return value ? new Date(value).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "Never";
+  return value ? new Date(value).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/London" }) : "Never";
 }
 export function DataOperationsStatus() {
   const reading = useRef(false);
+  const [coverageOpen, setCoverageOpen] = useState(false);
+  const [coverageFrom, setCoverageFrom] = useState(yesterdayInLondon);
+  const [coverageTo, setCoverageTo] = useState(yesterdayInLondon);
   const [data, setData] = useState<Response | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,11 +120,11 @@ export function DataOperationsStatus() {
     return () => clearInterval(timer);
   }, []);
   const rows = data?.rows ?? [];
-  const stores = [...new Map(rows.map(row => [row.store_id, { id: row.store_id, name: row.store_name, code: row.store_code }])).values()];
+  const stores = [...new Map(rows.map(row => [row.store_id, { id: row.store_id, name: row.store_name, code: row.store_code, configured: row.crm_configured, erp: row.erp_type }])).values()];
   return (
     <section className="space-y-3" aria-label="Live data import monitoring">
-      <div className="flex items-center justify-between gap-3">
-        <div><h3 className="text-lg font-semibold">Import monitoring</h3><p className="text-xs text-zinc-500">Latest attempt and last successful import are tracked separately.</p></div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h3 className="text-lg font-semibold">Import monitoring</h3><p className="text-xs text-zinc-500">Report dates show freshness. Matched sales are saved; unmatched products remain available for review.</p></div>
         <button type="button" onClick={() => void refresh()} disabled={loading} className="rounded-lg border bg-white px-3 py-2 text-sm disabled:opacity-50">{loading ? "Checking…" : "Refresh status"}</button>
       </div>
       {queueMessage ? <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{queueMessage} Queueing a job does not mean its data has been updated.</p> : null}
@@ -119,25 +132,23 @@ export function DataOperationsStatus() {
       {!loading && data?.configured === false ? <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{data.message ?? "Office database migration required. Import monitoring is not active."}</p> : null}
       {!loading && data?.configured && stores.length === 0 ? <p className="text-sm text-zinc-500">No active stores found.</p> : null}
       {data?.configured && stores.length > 0 ? (
-        <div className="overflow-x-auto rounded-xl border bg-white">
+        <div className="max-h-[650px] overflow-auto rounded-xl border bg-white">
           <table className="min-w-[850px] w-full text-left text-sm">
-            <thead className="bg-zinc-50"><tr><th className="p-3">Store</th>{sources.map(([key,label]) => <th key={key} className="p-3">{label}</th>)}</tr></thead>
+            <thead className="sticky top-0 z-10 bg-zinc-50"><tr><th scope="col" className="sticky left-0 z-20 bg-zinc-50 p-3">Store</th>{sources.map(([key,label]) => <th key={key} scope="col" className="p-3">{label}</th>)}</tr></thead>
             <tbody>{stores.map(store => (
               <tr key={store.id} className="border-t align-top">
-                <th className="p-3 font-semibold">{store.name}<div className="text-xs font-normal text-zinc-500">{store.code}</div><button type="button" onClick={() => void requestBookStock(store.id)} disabled={queueingStore !== null || loading} className="mt-2 rounded border px-2 py-1 text-xs font-normal disabled:opacity-50">{queueingStore === store.id ? "Queuing…" : "Refresh book stock"}</button></th>
+                <th scope="row" className="sticky left-0 z-[1] w-40 bg-white p-3 font-semibold">{store.name}<div className="text-xs font-normal text-zinc-500">{store.code}</div><button type="button" onClick={() => void requestBookStock(store.id)} disabled={queueingStore !== null || loading || store.configured === false || store.erp !== "msp"} className="mt-2 rounded border px-2 py-1 text-xs font-normal disabled:opacity-50">{queueingStore === store.id ? "Queuing…" : "Refresh book stock"}</button>{store.configured === false || store.erp !== "msp" ? <a href="/automation" className="mt-2 block text-xs font-normal text-blue-700 underline">Configure store downloads</a> : null}</th>
                 {sources.map(([key]) => {
                   const item = rows.find(row => row.store_id === store.id && row.source_type === key);
                   const failed = item?.status === "failed";
-                  const ageHours = item?.last_successful_import_at
-                    ? (Date.now() - new Date(item.last_successful_import_at).getTime()) / 3600000
-                    : null;
-                  const stale = ageHours !== null && ageHours > (key === "book_stock" ? 24 : 36);
-                  const statusLabel = failed ? "Latest attempt failed" : item?.duplicate_of ? "Duplicate report retained" : item?.status === "success" ? "Last attempt succeeded" : item?.status ?? "No automated runs recorded";
+                  const freshness = importFreshness(item?.latest_data_date ?? null, key, londonToday());
+                  const partial = item?.status === "partial";
+                  const statusLabel = failed ? "Latest attempt failed" : partial ? "Completed · product review" : item?.duplicate_of ? "Duplicate report retained" : item?.status === "success" ? "Last attempt succeeded" : item?.status ?? (item?.latest_data_date ? "Saved data · no worker history" : "No report recorded");
                   const phase=['queued','downloading','downloaded','importing','success'].indexOf(item?.status??'');
                   const interrupted=phase>0&&phase<4&&!!item?.started_at&&(Date.now()-Date.parse(item.started_at))>2*3600000;
-                  return <td key={key} className="p-3">
+                  return <td key={key} className="min-w-56 p-3">
                     <p className={`font-medium ${failed ? "text-red-700" : item?.status === "success" ? "text-emerald-700" : "text-amber-700"}`}>{statusLabel}</p>
-                    {phase>=0?<progress aria-label={`${store.name} ${key} import progress`} max={4} value={phase} className="mt-1 h-2 w-full" />:null}
+                    {phase>=0&&phase<4?<progress aria-label={`${store.name} ${key} import progress`} max={4} value={phase} className="mt-1 h-2 w-full" />:null}
                     {phase>=0&&phase<4?<p className="text-xs text-zinc-500">Downloaded rows: {item?.downloaded_row_count??'Waiting for report'}</p>:null}
                     {interrupted?<p role="status" className="text-xs text-red-800">Worker may be interrupted (over 2 hours). Check the office worker and diagnostic log before marking the attempt failed and retrying.</p>:null}
                     {interrupted&&item?.latest_run_id?<details className="mt-2 text-xs"><summary className="cursor-pointer">Recover interrupted import</summary><p>Stop/check the office worker first. Recovery retains the previous data and marks this attempt failed; it does not run the CRM.</p><label className="mt-2 flex items-start gap-1"><input type="checkbox" checked={recoveryConfirmed===String(item.latest_run_id)} onChange={e=>setRecoveryConfirmed(e.target.checked?String(item.latest_run_id):null)} />I have checked that the office worker is stopped</label><button className="mt-2 rounded border p-1" disabled={queueingStore!==null||loading||recoveryConfirmed!==String(item.latest_run_id)} onClick={()=>void recoverImport(item.latest_run_id!,store.id)}>Mark interrupted attempt failed</button></details>:null}
@@ -146,7 +157,8 @@ export function DataOperationsStatus() {
                     <p className="text-xs text-zinc-500">Data updated: {dateLabel(item?.latest_data_updated_at ?? null)}</p>
                     <p className="mt-1 text-xs text-zinc-600">Last worker success: {dateLabel(item?.last_successful_import_at ?? null)}</p>
                     <p className="text-xs text-zinc-500">Rows: {item?.last_successful_row_count ?? "Not reported"}</p>
-                    {stale ? <p className="mt-1 text-xs font-medium text-amber-700">Last success older than {key === "book_stock" ? "24" : "36"} hours</p> : null}
+                    {freshness !== "current" ? <p className="mt-1 text-xs font-medium text-amber-700">{freshness === "missing" ? "Report required" : "Report date is out of date"}</p> : null}
+                    {partial ? <details className="mt-2 text-xs"><summary className="cursor-pointer text-amber-800">Why product review?</summary><p className="mt-1 max-w-64">{item?.review_message ?? "Matching rows were saved. Unmatched products need mapping; the import is not a download failure."}</p>{item?.unmatched_identifier_count != null ? <p>{item.unmatched_identifier_count} unmatched identifiers</p> : null}<a href="/unmatched-products" className="mt-1 block text-blue-700 underline">Review unmatched products</a></details> : null}
                     {!item?.last_successful_import_at ? <p className="mt-1 text-xs text-amber-700">No successful worker import recorded</p> : null}
                     {failed ? <p className="mt-1 max-w-56 break-words text-xs text-red-700">{item?.error_message ?? "Import failed"}</p> : null}
                     {failed?<details className="mt-2 text-xs"><summary className="cursor-pointer">Import error details</summary><p>Attempt #{item?.latest_run_id} · {item?.source_start_date??'Date not captured'} to {item?.source_end_date??'Date not captured'}</p><a className="text-blue-700 underline" href={`/api/data-operations/diagnostics?storeId=${store.id}`}>Download safe diagnostic log</a></details>:null}
@@ -157,6 +169,11 @@ export function DataOperationsStatus() {
           </table>
         </div>
       ) : null}
+      {data?.configured && stores.length > 0 && coverageFrom && coverageTo ? <details onToggle={e => setCoverageOpen(e.currentTarget.open)} className="rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold">Check missing report dates and download</summary>
+        <p className="my-3 text-sm text-zinc-600">Choose dates and review missing reports before requesting downloads. Existing reports, including verified zero activity, are retained. Book stock is refreshed manually above.</p>
+        <div className="mb-3 flex flex-wrap gap-3"><label className="text-sm">From <input className="rounded border p-2" type="date" value={coverageFrom} onChange={e => setCoverageFrom(e.target.value)} /></label><label className="text-sm">To <input className="rounded border p-2" type="date" value={coverageTo} onChange={e => setCoverageTo(e.target.value)} /></label></div>
+        {coverageOpen ? <ReportCoverage storeIds={stores.filter(store => store.erp === "msp").map(store => store.id)} feeds={["normal_sales", "rtc", "wastage"]} from={coverageFrom} to={coverageTo} onQueued={() => void refresh()} /> : null}
+      </details> : null}
     </section>
   );
 }

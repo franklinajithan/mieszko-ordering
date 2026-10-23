@@ -22,7 +22,7 @@ export async function GET() {
   } catch (error) {
     const pgCode = postgresErrorCode(error);
     if (pgCode === "42P01") {
-      return NextResponse.json({ success: true, configured: false, rows: [], message: "Apply migrations/manual/2026-10-15-data-import-runs.sql on the office PostgreSQL database." }, {
+      return NextResponse.json({ success: true, configured: false, rows: [], message: "Apply the data-import-runs and CRM store-settings migrations on the office PostgreSQL database." }, {
         headers: { "Cache-Control": "no-store" },
       });
     }
