@@ -46,8 +46,9 @@ subdirectory and the ZIP files. The default worker file permissions allow access
 by the worker user. If the web app runs in a container or as a different user,
 mount the directory read-only and grant that service account read access.
 Enable the directory only on the private office Ordering deployment. The web
-service must run as the weekly worker user from the deployed checkout to use
-**Redownload week**. The scheduled job and manual reruns share a lock, so only
+service must run as the weekly worker user and have
+`WEEKLY_WASTAGE_WORKER_DIRECTORY` set to the weekly systemd service’s working
+directory to use **Redownload week**. The scheduled job and manual reruns share a lock, so only
 one weekly export can run at a time.
 
 Open **Overview → Weekly Wastage**. The page refreshes every 15 seconds and shows
