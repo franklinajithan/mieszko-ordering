@@ -231,3 +231,13 @@ worker_dir=$(systemctl show mieszko-import-worker.service -p WorkingDirectory --
 
 Use `--store-id` to limit the backfill to one store. Backfill skips PDFs that
 are already available and does not create or modify import runs.
+
+For **Run PDF export** in the web app, set
+`DAILY_WASTAGE_WORKER_DIRECTORY` in the Ordering web service to the import
+worker service's working directory. Run the web service as the worker account
+so it can use the worker's Python, protected configuration and download archive.
+The manual run only requests native PDFs for active MSP stores with saved Nibua
+addresses. It can run for a date without a previous Excel import. Files and
+progress are stored in `.manual-pdfs` inside the download archive. A repeat run
+skips PDFs already available. **Download all PDFs** saves separate PDF files
+and may require allowing multiple downloads in the browser.

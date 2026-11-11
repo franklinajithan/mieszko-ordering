@@ -5,6 +5,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { expect, test, vi } from "vitest";
 import { GET } from "@/app/api/daily-wastage/[date]/[storeId]/route";
+import { GET as getProgress, POST as startRun } from "@/app/api/daily-wastage/[date]/run/route";
 import { listDailyWastage } from "./daily-wastage.service";
 
 vi.mock("server-only", () => ({}));
@@ -65,6 +66,24 @@ test("lists stores by report date and downloads the original bytes even when mat
     expect((await download(date, "2")).status).toBe(404);
     expect((await download(date, "3")).status).toBe(404);
     expect((await download("2026-02-30", "1")).status).toBe(400);
+    const manual = path.join(root, ".manual-pdfs", date);
+    await mkdir(path.join(manual, "3"), { recursive: true });
+    await writeFile(path.join(manual, "3", "report.pdf"), original);
+    const status = {
+      state: "running", message: "Preparing the Nibua export.", updatedAt: Date.now(),
+      stores: [{ id: 3, name: "Hounslow", state: "complete", step: "PDF saved" }],
+    };
+    await writeFile(path.join(manual, "status.json"), JSON.stringify(status));
+
+    expect((await listDailyWastage(date)).stores.find(store => store.storeId === 3)?.filename)
+      .toBe("Wastage_Hounslow_2026-11-10.pdf");
+    expect(Buffer.from(await (await download(date, "3")).arrayBuffer())).toEqual(original);
+    const context = { params: Promise.resolve({ date }) };
+    const progress = await getProgress(new Request("http://localhost"), context);
+    expect(await progress.json()).toEqual(status);
+    const crossOrigin = new Request("http://localhost", { method: "POST", headers: { Origin: "http://other.test" } });
+    expect((await startRun(crossOrigin, context)).status).toBe(403);
+
   } finally {
     vi.unstubAllEnvs();
     await db.close();
