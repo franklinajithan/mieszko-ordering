@@ -8,6 +8,8 @@ import { z } from "zod";
 import { getDb } from "@/db/client";
 import { dataImportRuns as runs, stores } from "@/db/schema";
 
+import { todayIso } from "@/utils/order-sheet-form";
+
 export const dailyWastageDate = z.iso.date();
 
 function downloadFilename(store: string, date: string) {
@@ -53,7 +55,7 @@ async function openPdfFile(filePath: string) {
         const signature = Buffer.alloc(5);
         const { bytesRead } = await file.read(signature, 0, signature.length, 0);
         if (bytesRead === signature.length && signature.toString("ascii") === "%PDF-") {
-          return { file, size: stat.size };
+          return { file, size: stat.size, savedAt: stat.mtime };
         }
       }
     } catch (error) {
@@ -68,6 +70,42 @@ async function openPdfFile(filePath: string) {
   return null;
 }
 
+// Completed-day archive PDFs take priority. Before one exists, serve the latest snapshot.
+async function openStorePdf(root: string, date: string, storeId: number, sources: (string | null)[]) {
+  let best: (NonNullable<Awaited<ReturnType<typeof openPdfFile>>> & { final: boolean }) | null = null;
+  try {
+    const manual = await openManualPdf(root, date, storeId);
+    if (manual) best = { ...manual, final: false };
+
+    for (const source of new Set(sources)) {
+      const archived = await openPdf(root, source);
+      if (!archived) continue;
+      const final = todayIso(archived.savedAt) > date;
+      if (!best || (final && !best.final) || (final === best.final && archived.savedAt > best.savedAt)) {
+        const previous = best;
+        best = { ...archived, final };
+        await previous?.file.close();
+      } else {
+        await archived.file.close();
+      }
+    }
+    return best;
+  } catch (error) {
+    await best?.file.close();
+    throw error;
+  }
+}
+
+function storeReports(date: string, storeId?: number) {
+  return getDb()
+    .select({ storeId: stores.id, name: stores.name, source: runs.sourceFilePath })
+    .from(stores)
+    .leftJoin(runs, and(eq(runs.storeId, stores.id), reportsForDay(date)))
+    .where(and(or(eq(stores.isActive, true), isNotNull(runs.id)),
+      storeId === undefined ? undefined : eq(stores.id, storeId)))
+    .orderBy(asc(stores.name), desc(runs.downloadedAt), desc(runs.id));
+}
+
 export async function listDailyWastage(date: string) {
   if (!process.env.DAILY_WASTAGE_DOWNLOAD_DIRECTORY) {
     return { state: "disabled" as const, stores: [] };
@@ -75,26 +113,26 @@ export async function listDailyWastage(date: string) {
   try {
     const root = await dailyWastageArchiveRoot();
     if (!root) return { state: "unavailable" as const, stores: [] };
-    const candidates = await getDb()
-      .select({ storeId: stores.id, name: stores.name, source: runs.sourceFilePath })
-      .from(stores)
-      .leftJoin(runs, and(eq(runs.storeId, stores.id), reportsForDay(date)))
-      .where(or(eq(stores.isActive, true), isNotNull(runs.id)))
-      .orderBy(asc(stores.name), desc(runs.downloadedAt), desc(runs.id));
-
-    const results = new Map<number, { storeId: number; name: string; filename: string | null }>();
+    const candidates = await storeReports(date);
+    const grouped = new Map<number, { name: string; sources: (string | null)[] }>();
     for (const candidate of candidates) {
-      if (results.get(candidate.storeId)?.filename) continue;
-      const original = await openPdf(root, candidate.source)
-        ?? await openManualPdf(root, date, candidate.storeId);
-      await original?.file.close();
-      results.set(candidate.storeId, {
-        storeId: candidate.storeId,
-        name: candidate.name,
-        filename: original ? downloadFilename(candidate.name, date) : null,
+      const store = grouped.get(candidate.storeId);
+      if (store) store.sources.push(candidate.source);
+      else grouped.set(candidate.storeId, { name: candidate.name, sources: [candidate.source] });
+    }
+
+    const results = [];
+    for (const [storeId, { name, sources }] of grouped) {
+      const report = await openStorePdf(root, date, storeId, sources);
+      await report?.file.close();
+      results.push({
+        storeId,
+        name,
+        filename: report ? downloadFilename(name, date) : null,
+        final: report?.final ?? false,
       });
     }
-    return { state: "ready" as const, stores: [...results.values()] };
+    return { state: "ready" as const, stores: results };
   } catch {
     return { state: "unavailable" as const, stores: [] };
   }
@@ -103,20 +141,8 @@ export async function listDailyWastage(date: string) {
 export async function openDailyWastage(date: string, storeId: number) {
   const root = await dailyWastageArchiveRoot();
   if (!root) return null;
-  const candidates = await getDb()
-    .select({ source: runs.sourceFilePath, name: stores.name })
-    .from(runs)
-    .innerJoin(stores, eq(runs.storeId, stores.id))
-    .where(and(eq(runs.storeId, storeId), reportsForDay(date)))
-    .orderBy(desc(runs.downloadedAt), desc(runs.id));
-
-  for (const candidate of candidates) {
-    const original = await openPdf(root, candidate.source);
-    if (original) return { ...original, name: downloadFilename(candidate.name, date) };
-  }
-  const [store] = await getDb().select({ name: stores.name }).from(stores)
-    .where(and(eq(stores.id, storeId), eq(stores.isActive, true)));
-  if (!store) return null;
-  const original = await openManualPdf(root, date, storeId);
-  return original ? { ...original, name: downloadFilename(store.name, date) } : null;
+  const candidates = await storeReports(date, storeId);
+  if (!candidates.length) return null;
+  const report = await openStorePdf(root, date, storeId, candidates.map(candidate => candidate.source));
+  return report ? { ...report, name: downloadFilename(candidates[0].name, date) } : null;
 }

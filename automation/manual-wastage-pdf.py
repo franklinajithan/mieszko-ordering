@@ -50,8 +50,8 @@ def run(args, folder, status):
         day = args.date.isoformat()
         for store in status['stores']:
             store_id = store['id']
-            if store_id in args.skip:
-                store.update(state='complete', step='PDF already available')
+            if store_id in args.keep_final:
+                store.update(state='complete', step='Final PDF already available')
                 publish(folder, status)
                 continue
 
@@ -69,7 +69,7 @@ def run(args, folder, status):
                 output = store_folder / 'report.pdf'
                 download(crm['crm_url'], crm_store_code(crm['code']), 'wastage', day, day,
                          output, progress=progress, pdf_only=True)
-                store.update(state='complete', step='PDF saved')
+                store.update(state='complete', step='Fresh PDF saved')
             except Exception as error:
                 store.update(state='failed', step=f"{store['step']} ({type(error).__name__})")
             publish(folder, status)
@@ -83,7 +83,7 @@ def main():
     parser.add_argument('--worker-directory', required=True, type=Path)
     parser.add_argument('--archive', required=True, type=Path)
     parser.add_argument('--date', required=True, type=date.fromisoformat)
-    parser.add_argument('--skip', type=int, nargs='*', default=[])
+    parser.add_argument('--keep-final', type=int, nargs='*', default=[])
     args = parser.parse_args()
     if args.date > london_today():
         parser.error('Select today or an earlier date')

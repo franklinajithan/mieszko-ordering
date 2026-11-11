@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
@@ -33,7 +33,11 @@ test("lists stores by report date and downloads the original bytes even when mat
       INSERT INTO stores VALUES (1, 'Hayes', true), (2, 'Watford', true), (3, 'Hounslow', true);
     `);
     await mkdir(path.join(root, "10"));
-    await writeFile(path.join(root, "10", "report.pdf"), original);
+    const archived = path.join(root, "10", "report.pdf");
+    const daytime = new Date("2026-11-10T12:00:00Z");
+    const overnight = new Date("2026-11-11T02:00:00Z");
+    await writeFile(archived, original);
+    await utimes(archived, overnight, overnight);
     await mkdir(path.join(root, "11"));
     await writeFile(path.join(root, "11", "report.xls"), "Existing Excel export");
     await writeFile(path.join(root, "11", "report.pdf"), "<html>Invalid PDF</html>");
@@ -52,9 +56,9 @@ test("lists stores by report date and downloads the original bytes even when mat
     expect(await listDailyWastage(date)).toEqual({
       state: "ready",
       stores: [
-        { storeId: 1, name: "Hayes", filename: "Wastage_Hayes_2026-11-10.pdf" },
-        { storeId: 3, name: "Hounslow", filename: null },
-        { storeId: 2, name: "Watford", filename: null },
+        { storeId: 1, name: "Hayes", filename: "Wastage_Hayes_2026-11-10.pdf", final: true },
+        { storeId: 3, name: "Hounslow", filename: null, final: false },
+        { storeId: 2, name: "Watford", filename: null, final: false },
       ],
     });
     expect((await listDailyWastage("2026-11-09")).stores.find((store) => store.storeId === 3)?.filename).toBe("Wastage_Hounslow_2026-11-09.pdf");
@@ -69,6 +73,22 @@ test("lists stores by report date and downloads the original bytes even when mat
     const manual = path.join(root, ".manual-pdfs", date);
     await mkdir(path.join(manual, "3"), { recursive: true });
     await writeFile(path.join(manual, "3", "report.pdf"), original);
+    const snapshot = Buffer.from("%PDF-1.7\nrefreshed at 18:00\n%%EOF\n");
+    await mkdir(path.join(manual, "1"));
+    const manualHayes = path.join(manual, "1", "report.pdf");
+    await writeFile(manualHayes, snapshot);
+    const evening = new Date("2026-11-10T18:00:00Z");
+    await utimes(manualHayes, evening, evening);
+    await utimes(archived, daytime, daytime);
+    expect((await listDailyWastage(date)).stores.find(store => store.storeId === 1)?.final).toBe(false);
+    expect(Buffer.from(await (await download(date, "1")).arrayBuffer())).toEqual(snapshot);
+
+    await utimes(archived, overnight, overnight);
+    const lateManual = new Date("2026-11-11T09:00:00Z");
+    await utimes(manualHayes, lateManual, lateManual);
+    expect((await listDailyWastage(date)).stores.find(store => store.storeId === 1)?.final).toBe(true);
+    expect(Buffer.from(await (await download(date, "1")).arrayBuffer())).toEqual(original);
+
     const status = {
       state: "running", message: "Preparing the Nibua export.", updatedAt: Date.now(),
       stores: [{ id: 3, name: "Hounslow", state: "complete", step: "PDF saved" }],

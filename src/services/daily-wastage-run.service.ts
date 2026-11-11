@@ -48,10 +48,10 @@ export async function startDailyWastageRun(date: string) {
   if (!worker || !path.isAbsolute(worker) || !archive) return false;
   const reports = await listDailyWastage(date);
   if (reports.state !== "ready") return false;
-  const saved = reports.stores.filter(store => store.filename).map(store => String(store.storeId));
+  const finalStores = reports.stores.filter(store => store.final).map(store => String(store.storeId));
   const child = spawn(path.join(worker, ".worker-runtime/venv/bin/python"), [
     path.join(process.cwd(), "automation/manual-wastage-pdf.py"),
-    "--worker-directory", worker, "--archive", archive, "--date", date, "--skip", ...saved,
+    "--worker-directory", worker, "--archive", archive, "--date", date, "--keep-final", ...finalStores,
   ], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
 
   return new Promise<boolean>(resolve => {
