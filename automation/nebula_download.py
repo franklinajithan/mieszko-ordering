@@ -273,13 +273,29 @@ def export_report(context, page, frame, output, timeout, progress=None, *, pdf_o
     wait_for(page, find_export, 'Report export control did not become ready', timeout)
 
     downloads = []
+    pdf_responses = []
+    capture_pdf = False
+
+    def track_response(response):
+        if not capture_pdf or not response.ok:
+            return
+        headers = response.headers
+        content_type = headers.get('content-type', '').split(';', 1)[0].strip().lower()
+        disposition = headers.get('content-disposition', '').lower()
+        if content_type == 'application/pdf' and not disposition.startswith('attachment'):
+            pdf_responses.append(response)
 
     def track(new_page):
-        new_page.on('download', downloads.append)
+        def track_download(artifact):
+            is_pdf = artifact.suggested_filename.lower().endswith('.pdf')
+            if capture_pdf or not is_pdf:
+                downloads.append(artifact)
+        new_page.on('download', track_download)
 
     for existing in context.pages:
         track(existing)
     context.on('page', track)
+    context.on('response', track_response)
 
     def save_export(label, name, destination, export_timeout):
         def find_option():
@@ -305,18 +321,30 @@ def export_report(context, page, frame, output, timeout, progress=None, *, pdf_o
                 if attempt == 2:
                     raise CrmExportError('crm_export', f'{label} export menu did not open after three attempts') from None
 
+        nonlocal capture_pdf
         downloads.clear()
+        pdf_responses.clear()
+        capture_pdf = label == 'PDF'
         progress(f'Downloading {label}')
-        option.click(timeout=min(export_timeout, 10000))
-        artifact = wait_for(page, lambda: downloads[0] if downloads else None,
-                            f'CRM {label} download did not complete', export_timeout)
-        if artifact.failure():
-            raise ValueError(f'CRM {label} download failed')
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         partial = destination.with_name(destination.name + '.part')
         try:
-            artifact.save_as(str(partial))
+            option.click(timeout=min(export_timeout, 10000))
+            wait_for(page, lambda: downloads or pdf_responses,
+                     f'CRM {label} download did not complete', export_timeout)
+            if pdf_responses and not downloads:
+                # Some ReportViewer versions open PDFs inline in a viewer tab.
+                try:
+                    partial.write_bytes(pdf_responses[0].body())
+                except Exception:
+                    if not downloads:
+                        wait_for(page, lambda: downloads, 'CRM PDF download did not complete', min(export_timeout, 5000))
+            if downloads:
+                artifact = downloads[0]
+                if artifact.failure():
+                    raise ValueError(f'CRM {label} download failed')
+                artifact.save_as(str(partial))
             if not partial.stat().st_size:
                 raise ValueError('CRM returned an empty report file')
             if label == 'PDF':
@@ -325,6 +353,7 @@ def export_report(context, page, frame, output, timeout, progress=None, *, pdf_o
                         raise ValueError('CRM did not return a PDF file')
             partial.replace(destination)
         finally:
+            capture_pdf = False
             partial.unlink(missing_ok=True)
         progress(f'{label} download complete')
 
@@ -332,14 +361,14 @@ def export_report(context, page, frame, output, timeout, progress=None, *, pdf_o
     if pdf_only:
         save_export('PDF', pdf_name, output, timeout)
         return
-    excel_name = re.compile(r'^Excel(?:\s*\((?:97[-–]2003|\.xlsx?|Open XML)\)|\s+97[-–]2003)?\s*$', re.I)
-    save_export('Excel', excel_name, output, timeout)
     if pdf_output is not None:
         try:
             save_export('PDF', pdf_name, pdf_output, min(timeout, 60000))
         except Exception:
-            # Excel is already saved for the import. Keep PDF failures separate.
-            progress('The PDF export was unavailable; the Excel export was saved')
+            # A PDF failure must not stop the existing Excel import.
+            progress('The PDF export was unavailable; continuing with Excel')
+    excel_name = re.compile(r'^Excel(?:\s*\((?:97[-–]2003|\.xlsx?|Open XML)\)|\s+97[-–]2003)?\s*$', re.I)
+    save_export('Excel', excel_name, output, timeout)
 
 
 @contextmanager
