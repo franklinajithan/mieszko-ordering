@@ -17,7 +17,9 @@ completed Monday–Sunday's Item Sales, RTC, Wastage and Daily Sales by Departme
 exports. It creates a processed workbook per store and one combined summary in
 `~/Mieszko/Weekly Wastage/Weekly Waste DD.MM.YYYY - DD.MM.YYYY/`. Failed stores
 are retried three times total. The dated folder is published only when all
-stores pass summary validation. A rerun skips an already published week.
+stores pass summary validation. A scheduled run reuses a published week. Use **Redownload week** on a report
+card to fetch all source reports again. The page shows each store’s progress.
+The previous ZIP stays available until the replacement passes validation.
 
 To run the previous completed week on demand and view the results in the journal:
 
@@ -43,7 +45,10 @@ the web service. The web app needs read access to that directory, its `.status`
 subdirectory and the ZIP files. The default worker file permissions allow access
 by the worker user. If the web app runs in a container or as a different user,
 mount the directory read-only and grant that service account read access.
-Enable the directory only on the private office Ordering deployment.
+Enable the directory only on the private office Ordering deployment. The web
+service must run as the weekly worker user from the deployed checkout to use
+**Redownload week**. The scheduled job and manual reruns share a lock, so only
+one weekly export can run at a time.
 
 Open **Overview → Weekly Wastage**. The page refreshes every 15 seconds and shows
 each run and store status. A completed run offers one ZIP containing the combined

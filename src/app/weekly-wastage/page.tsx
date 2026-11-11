@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Download, Settings2 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { getWeeklyWastageRuns, type WeeklyWastageRun } from "@/services/weekly-wastage.service";
+import { RedownloadWeek } from "./redownload";
 import { RefreshWastageStatus } from "./refresh";
 
 export const dynamic = "force-dynamic";
@@ -39,13 +40,14 @@ function Run({ run }: { run: WeeklyWastageRun }) {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Status value={stale ? "interrupted" : run.state} />
-          {run.state === "complete" && (
+          <RedownloadWeek week={run.start} running={run.state === "running" && !stale} />
+          {run.hasZip && (
             <a
               className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
               href={`/api/weekly-wastage/${run.start}/zip`}
               aria-label={`Download ZIP for week starting ${day.format(new Date(run.start))}`}
             >
-              <Download aria-hidden="true" size={16} /> Download ZIP
+              <Download aria-hidden="true" size={16} /> {run.state === "complete" ? "Download ZIP" : "Download previous ZIP"}
             </a>
           )}
         </div>

@@ -1,9 +1,11 @@
 import "server-only";
 
+import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { open, readdir, readFile, realpath } from "node:fs/promises";
+import { access, open, readdir, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { addDaysIso, todayIso } from "@/utils/order-sheet-form";
 
 const date = z.iso.date();
 const status = z.object({
@@ -18,7 +20,7 @@ const status = z.object({
   updatedAt: z.iso.datetime({ offset: true }),
 });
 
-export type WeeklyWastageRun = z.infer<typeof status> & { stale: boolean };
+export type WeeklyWastageRun = z.infer<typeof status> & { stale: boolean; hasZip: boolean };
 
 function reportsRoot() {
   const root = process.env.WEEKLY_WASTAGE_DIRECTORY;
@@ -45,7 +47,9 @@ export async function getWeeklyWastageRuns() {
     const now = Date.now();
     const runs = await Promise.all(weeks.map(async week => {
       const run = await readStatus(root, week);
-      return { ...run, stale: run.state === "running" && now - Date.parse(run.updatedAt) > 18 * 60 * 60 * 1000 };
+      const archive = await openPublishedZip(root, run);
+      await archive?.file.close();
+      return { ...run, hasZip: Boolean(archive), stale: run.state === "running" && now - Date.parse(run.updatedAt) > 18 * 60 * 60 * 1000 };
     }));
     return { state: "ready" as const, runs };
   } catch (error) {
@@ -58,16 +62,12 @@ function folderDate(iso: string) {
   return iso.split("-").reverse().join(".");
 }
 
-export async function openWeeklyWastageZip(week: string) {
-  const root = reportsRoot();
-  if (!root || !date.safeParse(week).success) return null;
+async function openPublishedZip(root: string, run: z.infer<typeof status>) {
   try {
-    const run = await readStatus(root, week);
-    if (run.state !== "complete") return null;
     const base = await realpath(root);
     const folder = path.join(base, `Weekly Waste ${folderDate(run.start)} - ${folderDate(run.end)}`);
     if (await realpath(folder) !== folder) return null;
-    const file = await open(path.join(folder, "Weekly_Wastage.zip"), constants.O_RDONLY | constants.O_NOFOLLOW);
+    const file = await open(path.join(folder, "Weekly_Wastage.zip"), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const info = await file.stat();
       if (!info.isFile() || info.size === 0) {
@@ -82,4 +82,64 @@ export async function openWeeklyWastageZip(week: string) {
   } catch {
     return null;
   }
+}
+
+
+export async function openWeeklyWastageZip(week: string) {
+  const root = reportsRoot();
+  if (!root || !date.safeParse(week).success) return null;
+  try {
+    return await openPublishedZip(root, await readStatus(root, week));
+  } catch {
+    return null;
+  }
+}
+
+export async function redownloadWeeklyWastage(week: string) {
+  if (!date.safeParse(week).success || new Date(week).getUTCDay() !== 1 || addDaysIso(week, 6) >= todayIso()) {
+    return "invalid";
+  }
+  const root = reportsRoot();
+  if (!root) return "unavailable";
+  try {
+    await readStatus(root, week);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unavailable";
+  }
+
+  const app = process.cwd();
+  const python = path.join(app, ".worker-runtime/venv/bin/python");
+  try {
+    await access(python, constants.X_OK);
+  } catch {
+    return "unavailable";
+  }
+
+  return new Promise<"started" | "busy" | "unavailable">(resolve => {
+    const child = spawn(python, [
+      path.join(app, "automation/weekly_wastage_job.py"), "--redownload",
+      "--week-start", week, "--output", root,
+    ], { detached: true, stdio: ["ignore", "pipe", "inherit"] });
+    child.unref();
+    const timer = setTimeout(() => resolve("unavailable"), 10000);
+    let startup = "";
+    child.stdout.setEncoding("utf8");
+    function onData(chunk: string) {
+      startup += chunk;
+      const newline = startup.indexOf("\n");
+      if (newline === -1) return;
+      child.stdout.off("data", onData);
+      child.stdout.resume();
+      clearTimeout(timer);
+      const result = startup.slice(0, newline).trim();
+      resolve(result === "ready" ? "started" : result === "busy" ? "busy" : "unavailable");
+    }
+    child.stdout.on("data", onData);
+    for (const event of ["error", "close"] as const) {
+      child.once(event, () => {
+        clearTimeout(timer);
+        resolve("unavailable");
+      });
+    }
+  });
 }
