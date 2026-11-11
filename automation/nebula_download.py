@@ -331,7 +331,7 @@ def export_report(context, page, frame, output, timeout, progress=None, *, pdf_o
         partial = destination.with_name(destination.name + '.part')
         try:
             option.click(timeout=min(export_timeout, 10000))
-            wait_for(page, lambda: downloads or pdf_responses,
+            wait_for(page, lambda: downloads or pdf_responses or None,
                      f'CRM {label} download did not complete', export_timeout)
             if pdf_responses and not downloads:
                 # Some ReportViewer versions open PDFs inline in a viewer tab.
@@ -339,7 +339,7 @@ def export_report(context, page, frame, output, timeout, progress=None, *, pdf_o
                     partial.write_bytes(pdf_responses[0].body())
                 except Exception:
                     if not downloads:
-                        wait_for(page, lambda: downloads, 'CRM PDF download did not complete', min(export_timeout, 5000))
+                        wait_for(page, lambda: downloads or None, 'CRM PDF download did not complete', min(export_timeout, 5000))
             if downloads:
                 artifact = downloads[0]
                 if artifact.failure():
