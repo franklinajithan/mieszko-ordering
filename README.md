@@ -239,5 +239,7 @@ so it can use the worker's Python, protected configuration and download archive.
 The manual run only requests native PDFs for active MSP stores with saved Nibua
 addresses. It can run for a date without a previous Excel import. Files and
 progress are stored in `.manual-pdfs` inside the download archive. A repeat run
-skips PDFs already available. **Download all PDFs** saves separate PDF files
+replaces each snapshot after a successful export. Once a completed-day archive
+PDF exists, it takes priority over the snapshot and is kept on manual reruns.
+The nightly import schedule operates independently of manual PDF exports. **Download all PDFs** saves separate PDF files
 and may require allowing multiple downloads in the browser.

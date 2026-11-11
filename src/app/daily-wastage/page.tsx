@@ -42,7 +42,7 @@ export default async function DailyWastagePage({
                 <tr><th scope="col" className="px-4 py-3">Store</th><th scope="col" className="px-4 py-3">Wastage file</th></tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {archive.stores.map(({ storeId, name, filename }) => (
+                {archive.stores.map(({ storeId, name, filename, final }) => (
                   <tr key={storeId}>
                     <th scope="row" className="px-4 py-3 font-medium">{name}</th>
                     <td className="px-4 py-3">
@@ -53,6 +53,7 @@ export default async function DailyWastagePage({
                           <Download size={16} aria-hidden="true" /> {filename}
                         </a>
                       ) : <span className="text-zinc-600">No PDF available</span>}
+                      {filename && <span className="ml-3 text-xs text-zinc-600">{final ? "Final" : "Snapshot"}</span>}
                     </td>
                   </tr>
                 ))}

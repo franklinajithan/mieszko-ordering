@@ -16,7 +16,7 @@ with patch.object(sys, 'path', [str(AUTOMATION), *sys.path]):
 
 
 class ManualWastagePdfTests(unittest.TestCase):
-    def test_exports_missing_pdfs_and_keeps_per_store_progress(self):
+    def test_refreshes_snapshots_and_keeps_final_pdfs(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             archive = root / 'downloads'
@@ -31,8 +31,12 @@ class ManualWastagePdfTests(unittest.TestCase):
             conn = connect.return_value.__enter__.return_value
             conn.execute.return_value.fetchall.return_value = [(1, 'Hayes'), (2, 'Watford'), (3, 'Hounslow')]
             status = {'state': 'running', 'stores': [], 'message': ''}
-            args = SimpleNamespace(worker_directory=root, archive=archive, date=date(2026, 11, 10), skip=[1])
+            args = SimpleNamespace(worker_directory=root, archive=archive, date=date(2026, 11, 10), keep_final=[1])
             exports = []
+            (folder / '2').mkdir()
+            (folder / '2' / 'report.pdf').write_bytes(b'%PDF-1.7\nlast good Watford snapshot')
+            (folder / '3').mkdir()
+            (folder / '3' / 'report.pdf').write_bytes(b'%PDF-1.7\nprevious snapshot')
 
             def download(_url, code, feed, start, end, output, *, progress, pdf_only):
                 self.assertTrue(pdf_only)
@@ -58,4 +62,5 @@ class ManualWastagePdfTests(unittest.TestCase):
             self.assertEqual(status['stores'][1]['step'], 'Downloading PDF (ValueError)')
             self.assertEqual(status['state'], 'failed')
             self.assertFalse((folder / '1').exists())
+            self.assertEqual((folder / '2' / 'report.pdf').read_bytes(), b'%PDF-1.7\nlast good Watford snapshot')
             self.assertEqual((folder / '3' / 'report.pdf').read_bytes(), b'%PDF-1.7\nfixture')
