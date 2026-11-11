@@ -202,3 +202,19 @@ Review the prepared `migrations/manual/2026-10-16-office-operations.sql` before
 using these features with an existing office database. It has only been exercised
 in disposable databases. See `docs/office-operations-report.md` for completed
 features, exact results, workflow definitions, changed files and office blockers.
+
+### Daily wastage downloads
+
+On the private Ordering deployment, set `DAILY_WASTAGE_DOWNLOAD_DIRECTORY` in the
+web service environment to the daily worker's resolved `download_directory`
+(usually `<checkout>/automation/downloads`). Grant the web service read access.
+For a container, mount the archive read-only at the same absolute path recorded
+by the worker. Protect both `/daily-wastage` and `/api/daily-wastage/` with the
+deployment's private network or authentication controls.
+
+Open **Overview → Daily Wastage Files**. It starts on yesterday's UK report date.
+Each active store is listed, along with any inactive store with a retained
+report for that date. Downloads stream the saved workbook bytes using the
+worker's saved filename. A validated download is available even when product
+matching is pending. Missing files are shown per store and are never rebuilt
+from imported data.
