@@ -16,7 +16,7 @@ function downloadFilename(store: string, date: string) {
   return `Wastage_${name || "Store"}_${date}.pdf`;
 }
 
-async function archiveRoot() {
+export async function dailyWastageArchiveRoot() {
   const configured = process.env.DAILY_WASTAGE_DOWNLOAD_DIRECTORY;
   return configured && path.isAbsolute(configured) ? realpath(configured) : null;
 }
@@ -36,7 +36,14 @@ async function openPdf(root: string, source: string | null) {
   if (!source || !path.isAbsolute(source)) return null;
   const relative = path.relative(root, source);
   if (!/^\d+[\\/]report\.(xls|xlsx|csv)$/.test(relative)) return null;
-  const filePath = path.join(root, path.dirname(relative), "report.pdf");
+  return openPdfFile(path.join(root, path.dirname(relative), "report.pdf"));
+}
+
+async function openManualPdf(root: string, date: string, storeId: number) {
+  return openPdfFile(path.join(root, ".manual-pdfs", date, String(storeId), "report.pdf"));
+}
+
+async function openPdfFile(filePath: string) {
   try {
     if (await realpath(filePath) !== filePath) return null;
     const file = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -66,7 +73,7 @@ export async function listDailyWastage(date: string) {
     return { state: "disabled" as const, stores: [] };
   }
   try {
-    const root = await archiveRoot();
+    const root = await dailyWastageArchiveRoot();
     if (!root) return { state: "unavailable" as const, stores: [] };
     const candidates = await getDb()
       .select({ storeId: stores.id, name: stores.name, source: runs.sourceFilePath })
@@ -78,7 +85,8 @@ export async function listDailyWastage(date: string) {
     const results = new Map<number, { storeId: number; name: string; filename: string | null }>();
     for (const candidate of candidates) {
       if (results.get(candidate.storeId)?.filename) continue;
-      const original = await openPdf(root, candidate.source);
+      const original = await openPdf(root, candidate.source)
+        ?? await openManualPdf(root, date, candidate.storeId);
       await original?.file.close();
       results.set(candidate.storeId, {
         storeId: candidate.storeId,
@@ -93,7 +101,7 @@ export async function listDailyWastage(date: string) {
 }
 
 export async function openDailyWastage(date: string, storeId: number) {
-  const root = await archiveRoot();
+  const root = await dailyWastageArchiveRoot();
   if (!root) return null;
   const candidates = await getDb()
     .select({ source: runs.sourceFilePath, name: stores.name })
@@ -106,5 +114,9 @@ export async function openDailyWastage(date: string, storeId: number) {
     const original = await openPdf(root, candidate.source);
     if (original) return { ...original, name: downloadFilename(candidate.name, date) };
   }
-  return null;
+  const [store] = await getDb().select({ name: stores.name }).from(stores)
+    .where(and(eq(stores.id, storeId), eq(stores.isActive, true)));
+  if (!store) return null;
+  const original = await openManualPdf(root, date, storeId);
+  return original ? { ...original, name: downloadFilename(store.name, date) } : null;
 }

@@ -1,6 +1,8 @@
 import { Download } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { dailyWastageDate, listDailyWastage } from "@/services/daily-wastage.service";
+import { manualWastageEnabled } from "@/services/daily-wastage-run.service";
+import { WastageActions } from "./actions";
 import { addDaysIso, todayIso } from "@/utils/order-sheet-form";
 import { ReportDate } from "./report-date";
 
@@ -15,11 +17,15 @@ export default async function DailyWastagePage({
   const selected = dailyWastageDate.safeParse(query.date);
   const date = selected.data ?? addDaysIso(todayIso(), -1);
   const archive = await listDailyWastage(date);
+  const files = archive.stores.flatMap(store => store.filename ? [{ storeId: store.storeId, filename: store.filename }] : []);
 
   return (
     <AppShell title="Daily Wastage Files" description="Original Nibua wastage PDFs by store and report date.">
       <section className="max-w-4xl space-y-4">
         <ReportDate key={date} date={date} />
+        {archive.state === "ready" && (
+          <WastageActions key={date} date={date} files={files} manual={manualWastageEnabled()} />
+        )}
         {query.date !== undefined && !selected.success && (
           <p role="alert" className="text-sm text-red-800">Invalid report date. Showing yesterday’s files.</p>
         )}
