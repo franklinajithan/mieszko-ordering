@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import subprocess
 import sys
 import unittest
@@ -6,6 +7,7 @@ from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from zipfile import ZipFile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import weekly_wastage_job as job
@@ -59,6 +61,14 @@ class WeeklyWastageTest(unittest.TestCase):
             with (final / 'Weekly_Wastage_Summary.xlsx').open('rb') as stream:
                 book = load_workbook(stream, data_only=True)
                 self.assertIn('Weekly Summary', book.sheetnames)
+            status = json.loads((root / '.status' / '2026-11-09.json').read_text())
+            self.assertEqual(status['state'], 'complete')
+            self.assertEqual(status['stores']['Zero']['state'], 'complete')
+            with ZipFile(final / 'Weekly_Wastage.zip') as archive:
+                self.assertIsNone(archive.testzip())
+                self.assertEqual(len(archive.namelist()), 9)
+                self.assertIn('Weekly_Wastage_Summary.xlsx', archive.namelist())
+                self.assertIn('Hayes/Hayes_Wastage_fixture.xlsx', archive.namelist())
             for name, expected_cost in [('Hayes', 4), ('Zero', 0)]:
                 with (final / name / f'{name}_Wastage_fixture.xlsx').open('rb') as stream:
                     book = load_workbook(stream, data_only=True)
@@ -73,3 +83,6 @@ class WeeklyWastageTest(unittest.TestCase):
                 job.run_week(root, start, end, {'Hayes': ('unused', '0665')})
             self.assertEqual(process.call_count, 3)
             self.assertFalse(list(root.glob('Weekly Waste *')))
+            status = json.loads((root / '.status' / '2026-11-09.json').read_text())
+            self.assertEqual(status['state'], 'failed')
+            self.assertEqual(status['stores']['Hayes'], {'state': 'failed', 'attempt': 3})

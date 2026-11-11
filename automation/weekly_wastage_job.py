@@ -1,14 +1,16 @@
 """Generate the four weekly CRM exports, store workbooks and office summary."""
 import argparse
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 import fcntl
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory
+from zipfile import ZipFile
 
 from linux_worker import runtime_environment
 from nebula_download import (
@@ -112,43 +114,99 @@ def process_store(folder, name, url, code, start, end):
     ], check=True, timeout=900)
 
 
-def run_week(root, start, end, stores):
+def write_status(root, start, end, state, stores, stage):
+    status_dir = root / '.status'
+    status_dir.mkdir(exist_ok=True)
+    payload = {
+        'start': start.isoformat(), 'end': end.isoformat(), 'state': state,
+        'stage': stage, 'stores': stores, 'updatedAt': datetime.now(timezone.utc).isoformat(),
+    }
+    with NamedTemporaryFile(mode='w', dir=status_dir, delete=False) as handle:
+        temporary = Path(handle.name)
+        try:
+            json.dump(payload, handle)
+            handle.close()
+            temporary.replace(status_dir / f'{start.isoformat()}.json')
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def create_archive(folder):
+    output = folder / 'Weekly_Wastage.zip'
+    with NamedTemporaryFile(dir=folder, delete=False) as handle:
+        temporary = Path(handle.name)
+    try:
+        with ZipFile(temporary, 'w') as archive:
+            for workbook in sorted(folder.rglob('*.xlsx')):
+                archive.write(workbook, workbook.relative_to(folder))
+        temporary.replace(output)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def run_week(root, start, end, stores=None):
     from weekly_wastage.summary_workbook import build_summary
 
     period = f'{start:%d.%m.%Y} - {end:%d.%m.%Y}'
     final = root / f'Weekly Waste {period}'
     with (root / '.weekly-wastage.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if (final / 'Weekly_Wastage_Summary.xlsx').is_file():
-            print(f'Weekly summary already published: {final}', flush=True)
-            return
-        with TemporaryDirectory(prefix='.weekly-wastage-', dir=root) as temporary:
-            staged = Path(temporary) / final.name
-            staged.mkdir()
-            failures = []
-            for name, (url, code) in stores.items():
-                folder = staged / name
-                for attempt in range(1, 4):
-                    folder.mkdir()
-                    try:
-                        process_store(folder, name, url, code, start, end)
-                        break
-                    except Exception as exc:
-                        print(f'{name}: attempt {attempt}/3 failed ({type(exc).__name__})', flush=True)
-                        shutil.rmtree(folder)
-                        if attempt == 3:
-                            failures.append(name)
-            if failures:
-                raise ValueError('Weekly workbook could not be built for ' + ', '.join(failures))
-            _, errors, _, dept_errors, _, rtc_errors = build_summary(
-                staged, period, staged / 'Weekly_Wastage_Summary.xlsx',
-                '*_Wastage_*.xlsx', '*_Sales_*.xlsx', summary_title='Weekly Summary',
-            )
-            issues = errors + dept_errors + rtc_errors
-            if issues:
-                raise ValueError('Summary validation failed:\n' + '\n'.join(issues))
-            staged.rename(final)
-            print(f'Weekly summary published: {final}', flush=True)
+        progress = {}
+        try:
+            if (final / 'Weekly_Wastage_Summary.xlsx').is_file():
+                if not (final / 'Weekly_Wastage.zip').is_file():
+                    create_archive(final)
+                progress = {folder.name: {'state': 'complete', 'attempt': None}
+                            for folder in final.iterdir() if folder.is_dir()}
+                write_status(root, start, end, 'complete', progress, 'ZIP ready')
+                print(f'Weekly summary already published: {final}', flush=True)
+                return
+
+            write_status(root, start, end, 'running', progress, 'Loading store settings')
+            if stores is None:
+                env = runtime_environment(APP, os.environ)
+                os.environ.update(env)
+                stores = configured_stores(env['DATABASE_URL'])
+            progress = {name: {'state': 'waiting', 'attempt': None} for name in stores}
+
+            with TemporaryDirectory(prefix='.weekly-wastage-', dir=root) as temporary:
+                staged = Path(temporary) / final.name
+                staged.mkdir()
+                failures = []
+                for name, (url, code) in stores.items():
+                    folder = staged / name
+                    for attempt in range(1, 4):
+                        progress[name] = {'state': 'running', 'attempt': attempt}
+                        write_status(root, start, end, 'running', progress, 'Downloading and processing reports')
+                        folder.mkdir()
+                        try:
+                            process_store(folder, name, url, code, start, end)
+                            progress[name]['state'] = 'complete'
+                            break
+                        except Exception as exc:
+                            print(f'{name}: attempt {attempt}/3 failed ({type(exc).__name__})', flush=True)
+                            shutil.rmtree(folder)
+                            if attempt == 3:
+                                failures.append(name)
+                                progress[name]['state'] = 'failed'
+                if failures:
+                    raise ValueError('Weekly workbook could not be built for ' + ', '.join(failures))
+                write_status(root, start, end, 'running', progress, 'Building the combined workbook')
+                _, errors, _, dept_errors, _, rtc_errors = build_summary(
+                    staged, period, staged / 'Weekly_Wastage_Summary.xlsx',
+                    '*_Wastage_*.xlsx', '*_Sales_*.xlsx', summary_title='Weekly Summary',
+                )
+                issues = errors + dept_errors + rtc_errors
+                if issues:
+                    raise ValueError('Summary validation failed:\n' + '\n'.join(issues))
+                write_status(root, start, end, 'running', progress, 'Packaging the ZIP')
+                create_archive(staged)
+                staged.rename(final)
+                write_status(root, start, end, 'complete', progress, 'ZIP ready')
+                print(f'Weekly summary published: {final}', flush=True)
+        except Exception:
+            write_status(root, start, end, 'failed', progress, 'Check the Ubuntu worker log for details')
+            raise
 
 
 def main():
@@ -164,11 +222,9 @@ def main():
         if start.weekday() != 0 or end >= today:
             parser.error('--week-start must be the Monday of a completed week')
     try:
-        env = runtime_environment(APP, os.environ)
-        os.environ.update(env)
         root = args.output.expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
-        run_week(root, start, end, configured_stores(env['DATABASE_URL']))
+        run_week(root, start, end)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
