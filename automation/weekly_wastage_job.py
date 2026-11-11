@@ -78,16 +78,24 @@ def configured_stores(database_url):
                          options='-c default_transaction_read_only=on') as conn:
         rows = conn.execute("""SELECT id, name FROM stores
             WHERE is_active=true AND erp_type='msp' ORDER BY name""").fetchall()
-        config = {'store_settings_source': 'database', 'store_defaults': {}}
         stores = {}
         for store_id, name in rows:
             if not re.fullmatch(r"[\w][\w .'-]*", name) or name in stores:
                 raise ValueError('Active CRM store names must be unique and safe for file paths')
-            settings = get_store_config(conn, config, store_id)
-            stores[name] = (settings['crm_url'], crm_store_code(settings['code']))
+            stores[name] = store_id
     if not stores:
         raise ValueError('No active MSP stores are configured')
     return stores
+
+
+def store_connection(database_url, store_id):
+    import psycopg
+
+    with psycopg.connect(database_url, connect_timeout=10,
+                         options='-c default_transaction_read_only=on') as conn:
+        config = {'store_settings_source': 'database', 'store_defaults': {}}
+        settings = get_store_config(conn, config, store_id)
+    return settings['crm_url'], crm_store_code(settings['code'])
 
 
 def process_store(folder, name, url, code, start, end):
@@ -144,7 +152,7 @@ def create_archive(folder):
         temporary.unlink(missing_ok=True)
 
 
-def run_week(root, start, end, stores=None):
+def run_week(root, start, end, stores=None, resolve_store=None):
     from weekly_wastage.summary_workbook import build_summary
 
     period = f'{start:%d.%m.%Y} - {end:%d.%m.%Y}'
@@ -166,20 +174,23 @@ def run_week(root, start, end, stores=None):
             if stores is None:
                 env = runtime_environment(APP, os.environ)
                 os.environ.update(env)
-                stores = configured_stores(env['DATABASE_URL'])
+                database_url = env['DATABASE_URL']
+                stores = configured_stores(database_url)
+                resolve_store = lambda store_id: store_connection(database_url, store_id)
             progress = {name: {'state': 'waiting', 'attempt': None} for name in stores}
 
             with TemporaryDirectory(prefix='.weekly-wastage-', dir=root) as temporary:
                 staged = Path(temporary) / final.name
                 staged.mkdir()
                 failures = []
-                for name, (url, code) in stores.items():
+                for name, store in stores.items():
                     folder = staged / name
                     for attempt in range(1, 4):
                         progress[name] = {'state': 'running', 'attempt': attempt}
                         write_status(root, start, end, 'running', progress, 'Downloading and processing reports')
                         folder.mkdir()
                         try:
+                            url, code = resolve_store(store) if resolve_store else store
                             process_store(folder, name, url, code, start, end)
                             progress[name]['state'] = 'complete'
                             break
