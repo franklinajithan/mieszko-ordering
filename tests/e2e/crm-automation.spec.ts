@@ -152,6 +152,12 @@ test('offline Nebula: changed DB URL, daily exports, worker parser and independe
    const rows=await sql.unsafe(`SELECT ${column}::text AS qty FROM ${table} WHERE store_product_id=11 ORDER BY 1`);expect(rows.some(row=>row.qty===qty)).toBe(true);
   }
   expect((await (await fetch('http://127.0.0.1:3201/observed')).json()).length).toBe(6);
+  const archived = await sql`SELECT source_type, source_file_path FROM data_import_runs WHERE status='success'`;
+  for (const report of archived) {
+   const pdf = path.join(path.dirname(report.source_file_path), 'report.pdf');
+   if (report.source_type === 'wastage') expect(readFileSync(pdf, 'utf8')).toMatch(/^%PDF-/);
+   else expect(() => readFileSync(pdf)).toThrow(/ENOENT/);
+  }
   await sql`UPDATE store_crm_settings SET nightly_enabled=true WHERE store_id=1`;
   execFileSync(python,['tests/support/simple-query-worker.py','--config',config,'--enqueue-date','2026-10-03','--enqueue-only'],{env,timeout:10000});
   const queued=await sql`SELECT source_type FROM data_import_runs WHERE status='queued'`;expect(queued).toHaveLength(3);expect(queued.every(row=>row.source_type!=='book_stock')).toBe(true);

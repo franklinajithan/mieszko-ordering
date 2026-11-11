@@ -15,11 +15,11 @@ export async function GET(
   }
   try {
     const original = await openDailyWastage(date, id);
-    if (!original) return new Response("No original wastage file is available.", { status: 404, headers });
+    if (!original) return new Response("No original wastage PDF is available.", { status: 404, headers });
     return new Response(Readable.toWeb(original.file.createReadStream()) as ReadableStream<Uint8Array>, {
       headers: {
         ...headers,
-        "Content-Type": original.contentType,
+        "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${original.name}"`,
         "Content-Length": String(original.size),
       },

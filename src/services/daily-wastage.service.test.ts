@@ -15,7 +15,7 @@ test("lists stores by report date and downloads the original bytes even when mat
   const root = await mkdtemp(path.join(os.tmpdir(), "daily-wastage-"));
   const db = new PGlite();
   const date = "2026-11-10";
-  const original = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0x00, 0xff]);
+  const original = Buffer.from("%PDF-1.7\nfixture\n%%EOF\n");
   const download = (day: string, storeId: string) => GET(new Request("http://localhost"), {
     params: Promise.resolve({ date: day, storeId }),
   });
@@ -32,7 +32,10 @@ test("lists stores by report date and downloads the original bytes even when mat
       INSERT INTO stores VALUES (1, 'Hayes', true), (2, 'Watford', true), (3, 'Hounslow', true);
     `);
     await mkdir(path.join(root, "10"));
-    await writeFile(path.join(root, "10", "report.xls"), original);
+    await writeFile(path.join(root, "10", "report.pdf"), original);
+    await mkdir(path.join(root, "11"));
+    await writeFile(path.join(root, "11", "report.xls"), "Existing Excel export");
+    await writeFile(path.join(root, "11", "report.pdf"), "<html>Invalid PDF</html>");
     await symlink(path.join(root, "10"), path.join(root, "20"));
     for (const [run, store, day, source, status, details] of [
       [10, 1, date, path.join(root, "10", "report.xls"), "failed", { source_sha256: "fixture" }],
@@ -48,15 +51,16 @@ test("lists stores by report date and downloads the original bytes even when mat
     expect(await listDailyWastage(date)).toEqual({
       state: "ready",
       stores: [
-        { storeId: 1, name: "Hayes", filename: "Wastage_Hayes_2026-11-10.xls" },
+        { storeId: 1, name: "Hayes", filename: "Wastage_Hayes_2026-11-10.pdf" },
         { storeId: 3, name: "Hounslow", filename: null },
         { storeId: 2, name: "Watford", filename: null },
       ],
     });
-    expect((await listDailyWastage("2026-11-09")).stores.find((store) => store.storeId === 3)?.filename).toBe("Wastage_Hounslow_2026-11-09.xls");
+    expect((await listDailyWastage("2026-11-09")).stores.find((store) => store.storeId === 3)?.filename).toBe("Wastage_Hounslow_2026-11-09.pdf");
     const response = await download(date, "1");
     expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="Wastage_Hayes_2026-11-10.xls"');
+    expect(response.headers.get("Content-Type")).toBe("application/pdf");
+    expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="Wastage_Hayes_2026-11-10.pdf"');
     expect(Buffer.from(await response.arrayBuffer())).toEqual(original);
     expect((await download(date, "2")).status).toBe(404);
     expect((await download(date, "3")).status).toBe(404);
