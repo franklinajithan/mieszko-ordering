@@ -48,15 +48,15 @@ test("lists stores by report date and downloads the original bytes even when mat
     expect(await listDailyWastage(date)).toEqual({
       state: "ready",
       stores: [
-        { storeId: 1, name: "Hayes", filename: "report.xls" },
+        { storeId: 1, name: "Hayes", filename: "Wastage_Hayes_2026-11-10.xls" },
         { storeId: 3, name: "Hounslow", filename: null },
         { storeId: 2, name: "Watford", filename: null },
       ],
     });
-    expect((await listDailyWastage("2026-11-09")).stores.find((store) => store.storeId === 3)?.filename).toBe("report.xls");
+    expect((await listDailyWastage("2026-11-09")).stores.find((store) => store.storeId === 3)?.filename).toBe("Wastage_Hounslow_2026-11-09.xls");
     const response = await download(date, "1");
     expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="report.xls"');
+    expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="Wastage_Hayes_2026-11-10.xls"');
     expect(Buffer.from(await response.arrayBuffer())).toEqual(original);
     expect((await download(date, "2")).status).toBe(404);
     expect((await download(date, "3")).status).toBe(404);

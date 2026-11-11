@@ -16,6 +16,12 @@ const contentTypes = {
   "report.csv": "text/csv",
 };
 
+function downloadFilename(store: string, date: string, extension: string) {
+  const name = store.normalize("NFKD").replace(/\p{M}/gu, "")
+    .replace(/[^a-zA-Z0-9-]+/g, "_").replace(/^_+|_+$/g, "");
+  return `Wastage_${name || "Store"}_${date}${extension}`;
+}
+
 async function archiveRoot() {
   const configured = process.env.DAILY_WASTAGE_DOWNLOAD_DIRECTORY;
   return configured && path.isAbsolute(configured) ? realpath(configured) : null;
@@ -44,7 +50,7 @@ async function openOriginal(root: string, source: string | null) {
       const stat = await file.stat();
       if (stat.isFile() && stat.size > 0) {
         const name = path.basename(filePath) as keyof typeof contentTypes;
-        return { file, size: stat.size, name, contentType: contentTypes[name] };
+        return { file, size: stat.size, extension: path.extname(name), contentType: contentTypes[name] };
       }
     } catch (error) {
       await file.close();
@@ -80,7 +86,7 @@ export async function listDailyWastage(date: string) {
       results.set(candidate.storeId, {
         storeId: candidate.storeId,
         name: candidate.name,
-        filename: original?.name ?? null,
+        filename: original ? downloadFilename(candidate.name, date, original.extension) : null,
       });
     }
     return { state: "ready" as const, stores: [...results.values()] };
@@ -93,14 +99,15 @@ export async function openDailyWastage(date: string, storeId: number) {
   const root = await archiveRoot();
   if (!root) return null;
   const candidates = await getDb()
-    .select({ source: runs.sourceFilePath })
+    .select({ source: runs.sourceFilePath, name: stores.name })
     .from(runs)
+    .innerJoin(stores, eq(runs.storeId, stores.id))
     .where(and(eq(runs.storeId, storeId), reportsForDay(date)))
     .orderBy(desc(runs.downloadedAt), desc(runs.id));
 
   for (const candidate of candidates) {
     const original = await openOriginal(root, candidate.source);
-    if (original) return original;
+    if (original) return { ...original, name: downloadFilename(candidate.name, date, original.extension) };
   }
   return null;
 }

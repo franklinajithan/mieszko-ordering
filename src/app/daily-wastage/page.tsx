@@ -44,7 +44,7 @@ export default async function DailyWastagePage({
                         <a className="inline-flex items-center gap-2 font-medium text-emerald-800 hover:underline"
                           href={`/api/daily-wastage/${date}/${storeId}`}
                           aria-label={`Download original wastage file for ${name}`}>
-                          <Download size={16} aria-hidden="true" /> Download original ({filename})
+                          <Download size={16} aria-hidden="true" /> {filename}
                         </a>
                       ) : <span className="text-zinc-600">No file available</span>}
                     </td>

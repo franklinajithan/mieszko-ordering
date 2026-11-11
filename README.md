@@ -214,7 +214,7 @@ deployment's private network or authentication controls.
 
 Open **Overview → Daily Wastage Files**. It starts on yesterday's UK report date.
 Each active store is listed, along with any inactive store with a retained
-report for that date. Downloads stream the saved workbook bytes using the
-worker's saved filename. A validated download is available even when product
+report for that date. Downloads stream the saved workbook bytes with filenames such as
+`Wastage_Hayes_2026-11-10.xls`, preserving the original extension. A validated download is available even when product
 matching is pending. Missing files are shown per store and are never rebuilt
 from imported data.
