@@ -1,5 +1,6 @@
 """Generate the four weekly CRM exports, store workbooks and office summary."""
 import argparse
+import ctypes
 from datetime import date, datetime, timedelta, timezone
 import fcntl
 import json
@@ -172,7 +173,23 @@ def refresh_published_summary(summary):
         workbook.close()
 
 
-def run_week(root, start, end, stores=None, resolve_store=None):
+def publish_week(staged, final):
+    if not final.exists() and not final.is_symlink():
+        staged.rename(final)
+        return
+    if final.is_symlink() or not final.is_dir():
+        raise ValueError('Invalid weekly report directory')
+    # Ubuntu can exchange two populated directories without a window where the ZIP is missing.
+    rename = ctypes.CDLL(None, use_errno=True).renameat2
+    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    rename.restype = ctypes.c_int
+    at_fdcwd, rename_exchange = -100, 2
+    if rename(at_fdcwd, os.fsencode(staged), at_fdcwd, os.fsencode(final), rename_exchange):
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
+
+
+def run_week(root, start, end, stores=None, resolve_store=None, *, redownload=False, on_start=None):
     from weekly_wastage.summary_workbook import build_summary
 
     period = f'{start:%d.%m.%Y} - {end:%d.%m.%Y}'
@@ -182,7 +199,7 @@ def run_week(root, start, end, stores=None, resolve_store=None):
         progress = {}
         try:
             summary = final / 'Weekly_Wastage_Summary.xlsx'
-            if summary.is_file():
+            if summary.is_file() and not redownload:
                 refresh_published_summary(summary)
                 archive = final / 'Weekly_Wastage.zip'
                 if not archive.is_file() or archive.stat().st_mtime_ns < summary.stat().st_mtime_ns:
@@ -194,6 +211,8 @@ def run_week(root, start, end, stores=None, resolve_store=None):
                 return
 
             write_status(root, start, end, 'running', progress, 'Loading store settings')
+            if on_start:
+                on_start()
             if stores is None:
                 env = runtime_environment(APP, os.environ)
                 os.environ.update(env)
@@ -235,7 +254,7 @@ def run_week(root, start, end, stores=None, resolve_store=None):
                     raise ValueError('Summary validation failed:\n' + '\n'.join(issues))
                 write_status(root, start, end, 'running', progress, 'Packaging the ZIP')
                 create_archive(staged)
-                staged.rename(final)
+                publish_week(staged, final)
                 write_status(root, start, end, 'complete', progress, 'ZIP ready')
                 print(f'Weekly summary published: {final}', flush=True)
         except Exception:
@@ -247,6 +266,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=Path.home() / 'Mieszko' / 'Weekly Wastage')
     parser.add_argument('--week-start', type=date.fromisoformat, help='Monday of a completed week')
+    parser.add_argument('--redownload', action='store_true', help='Fetch all CRM reports again and replace the published week')
     args = parser.parse_args()
     today = london_today()
     start, end = previous_week(today)
@@ -258,7 +278,11 @@ def main():
     try:
         root = args.output.expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
-        run_week(root, start, end)
+        run_week(root, start, end, redownload=args.redownload,
+                 on_start=(lambda: print('ready', flush=True)) if args.redownload else None)
+    except BlockingIOError:
+        print('busy', flush=True)
+        return 1
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -270,4 +294,5 @@ def main():
 
 
 if __name__ == '__main__':
+    os.umask(0o077)
     raise SystemExit(main())

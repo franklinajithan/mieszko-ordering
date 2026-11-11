@@ -1,3 +1,4 @@
+import fcntl
 import importlib.util
 import json
 import subprocess
@@ -92,6 +93,46 @@ class WeeklyWastageTest(unittest.TestCase):
                     book = load_workbook(stream, data_only=True)
                     self.assertEqual(book['Dept Breakdown']['D2'].value, expected_cost)
                     self.assertEqual(book['RTC']['F2'].value, 0)
+
+    def test_redownload_replaces_a_week_only_after_a_successful_run(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            start, end = job.previous_week(date(2026, 11, 16))
+            final = root / 'Weekly Waste 09.11.2026 - 15.11.2026'
+            final.mkdir()
+            archive = final / 'Weekly_Wastage.zip'
+            archive.write_bytes(b'old archive')
+            (final / 'Weekly_Wastage_Summary.xlsx').write_bytes(b'old summary')
+            stores = {'Hayes': ('unused', '0665'), 'Watford': ('unused', '0602')}
+
+            with (root / '.weekly-wastage.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                with self.assertRaises(BlockingIOError):
+                    job.run_week(root, start, end, stores, redownload=True)
+
+            with patch.object(job, 'process_store', side_effect=RuntimeError):
+                with self.assertRaisesRegex(ValueError, 'Hayes'):
+                    job.run_week(root, start, end, stores, redownload=True)
+            self.assertEqual(archive.read_bytes(), b'old archive')
+            self.assertEqual((final / 'Weekly_Wastage_Summary.xlsx').read_bytes(), b'old summary')
+
+            def store_fixture(folder, name, *_):
+                self.assertEqual(archive.read_bytes(), b'old archive')
+                (folder / f'{name}.xlsx').write_bytes(name.encode())
+
+            def summary_fixture(_root, _period, output, *_args, **_kwargs):
+                self.assertEqual(archive.read_bytes(), b'old archive')
+                output.write_bytes(b'new summary')
+                return {}, [], {}, [], {}, []
+
+            with patch.object(job, 'process_store', side_effect=store_fixture) as process, \
+                 patch('weekly_wastage.summary_workbook.build_summary', side_effect=summary_fixture):
+                job.run_week(root, start, end, stores, redownload=True)
+            self.assertEqual(process.call_count, 2)
+            with ZipFile(archive) as updated:
+                self.assertEqual(updated.read('Weekly_Wastage_Summary.xlsx'), b'new summary')
+                self.assertEqual(updated.read('Watford/Watford.xlsx'), b'Watford')
+            self.assertFalse(list(root.glob('.weekly-wastage-*/')))
 
     def test_failed_store_is_retried_without_publishing(self):
         with TemporaryDirectory() as temp, patch.object(job, 'process_store', side_effect=RuntimeError) as process:
