@@ -107,7 +107,9 @@ export async function redownloadWeeklyWastage(week: string) {
     return (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unavailable";
   }
 
-  const app = process.cwd();
+  // The office virtualenv may link to Python outside the Next.js checkout.
+  const app = process.env.WEEKLY_WASTAGE_WORKER_DIRECTORY;
+  if (!app || !path.isAbsolute(app)) return "unavailable";
   const python = path.join(app, ".worker-runtime/venv/bin/python");
   try {
     await access(python, constants.X_OK);
