@@ -53,6 +53,12 @@ test("launches a redownload using the configured worker runtime", async () => {
       stores: {}, updatedAt: new Date().toISOString(),
     }));
 
+    const request = new Request("http://localhost", { method: "POST" });
+    const context = { params: Promise.resolve({ week }) };
+    const unavailable = await POST(request, context);
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toMatchObject({ error: expect.stringContaining("Python runtime") });
+
     const bin = path.join(worker, ".worker-runtime", "venv", "bin");
     await mkdir(bin, { recursive: true });
     await writeFile(path.join(bin, "python"), [
@@ -62,8 +68,9 @@ test("launches a redownload using the configured worker runtime", async () => {
       "echo ready",
       "",
     ].join("\n"), { mode: 0o700 });
-    const request = new Request("http://localhost", { method: "POST" });
-    expect((await POST(request, { params: Promise.resolve({ week }) })).status).toBe(202);
+    await mkdir(path.join(worker, "automation"));
+    await writeFile(path.join(worker, "automation", "weekly_wastage_job.py"), "fixture");
+    expect((await POST(request, context)).status).toBe(202);
   } finally {
     vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });

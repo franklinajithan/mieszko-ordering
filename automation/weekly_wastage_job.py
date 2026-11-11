@@ -190,8 +190,6 @@ def publish_week(staged, final):
 
 
 def run_week(root, start, end, stores=None, resolve_store=None, *, redownload=False, on_start=None):
-    from weekly_wastage.summary_workbook import build_summary
-
     period = f'{start:%d.%m.%Y} - {end:%d.%m.%Y}'
     final = root / f'Weekly Waste {period}'
     with (root / '.weekly-wastage.lock').open('a') as lock:
@@ -245,6 +243,8 @@ def run_week(root, start, end, stores=None, resolve_store=None, *, redownload=Fa
                 if failures:
                     raise ValueError('Weekly workbook could not be built for ' + ', '.join(failures))
                 write_status(root, start, end, 'running', progress, 'Building the combined workbook')
+                from weekly_wastage.summary_workbook import build_summary
+
                 _, errors, _, dept_errors, _, rtc_errors = build_summary(
                     staged, period, staged / 'Weekly_Wastage_Summary.xlsx',
                     '*_Wastage_*.xlsx', '*_Sales_*.xlsx', summary_title='Weekly Summary',

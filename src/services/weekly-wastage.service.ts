@@ -108,22 +108,35 @@ export async function redownloadWeeklyWastage(week: string) {
   }
 
   // The office virtualenv may link to Python outside the Next.js checkout.
-  const app = process.env.WEEKLY_WASTAGE_WORKER_DIRECTORY;
-  if (!app || !path.isAbsolute(app)) return "unavailable";
+  let app: string;
+  try {
+    app = process.env.WEEKLY_WASTAGE_WORKER_DIRECTORY || await realpath(".");
+    if (!path.isAbsolute(app)) return "runtime_missing";
+  } catch {
+    return "runtime_missing";
+  }
   const python = path.join(app, ".worker-runtime/venv/bin/python");
+  const script = path.join(app, "automation/weekly_wastage_job.py");
   try {
     await access(python, constants.X_OK);
+    await access(script, constants.R_OK);
   } catch {
-    return "unavailable";
+    return "runtime_missing";
   }
 
-  return new Promise<"started" | "busy" | "unavailable">(resolve => {
+  try {
+    await access(root, constants.W_OK | constants.X_OK);
+  } catch {
+    return "archive_readonly";
+  }
+
+  return new Promise<"started" | "busy" | "worker_failed" | "startup_timeout">(resolve => {
     const child = spawn(python, [
-      path.join(app, "automation/weekly_wastage_job.py"), "--redownload",
+      script, "--redownload",
       "--week-start", week, "--output", root,
-    ], { detached: true, stdio: ["ignore", "pipe", "inherit"] });
+    ], { cwd: app, detached: true, stdio: ["ignore", "pipe", "inherit"] });
     child.unref();
-    const timer = setTimeout(() => resolve("unavailable"), 10000);
+    const timer = setTimeout(() => resolve("startup_timeout"), 15000);
     let startup = "";
     child.stdout.setEncoding("utf8");
     function onData(chunk: string) {
@@ -134,13 +147,13 @@ export async function redownloadWeeklyWastage(week: string) {
       child.stdout.resume();
       clearTimeout(timer);
       const result = startup.slice(0, newline).trim();
-      resolve(result === "ready" ? "started" : result === "busy" ? "busy" : "unavailable");
+      resolve(result === "ready" ? "started" : result === "busy" ? "busy" : "worker_failed");
     }
     child.stdout.on("data", onData);
     for (const event of ["error", "close"] as const) {
       child.once(event, () => {
         clearTimeout(timer);
-        resolve("unavailable");
+        resolve("worker_failed");
       });
     }
   });
