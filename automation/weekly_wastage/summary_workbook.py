@@ -709,6 +709,22 @@ def style_sheet(ws, stores):
 
 # ------------------------- Main Build -------------------------
 
+def set_weekly_total_waste(sheet):
+    changed = sheet["A7"].value != "Total Waste %"
+    sheet["A7"] = "Total Waste %"
+    for column in range(2, sheet.max_column + 1):
+        if sheet.cell(1, column).value is None:
+            continue
+        letter = get_column_letter(column)
+        cell = sheet.cell(7, column)
+        formula = f"={letter}5/{letter}6"
+        if cell.value != formula or cell.number_format != "0.00%":
+            cell.value = formula
+            cell.number_format = "0.00%"
+            changed = True
+    return changed
+
+
 def build_summary(root_dir: Path, period_text: str, output_path: Path, wastage_pattern: str, sales_pattern: str, summary_title="Monthly Summary"):
     store_dirs = [p for p in root_dir.iterdir() if p.is_dir()]
     store_dirs.sort(key=lambda p: p.name.lower())
@@ -846,6 +862,8 @@ def build_summary(root_dir: Path, period_text: str, output_path: Path, wastage_p
         else:
             ws.cell(10, idx).value = None
 
+    if summary_title == "Weekly Summary":
+        set_weekly_total_waste(ws)
     style_sheet(ws, all_stores)
 
     # Sheet 2: Deli Sales + chart

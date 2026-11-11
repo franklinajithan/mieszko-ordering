@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import unittest
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -61,6 +62,23 @@ class WeeklyWastageTest(unittest.TestCase):
             with (final / 'Weekly_Wastage_Summary.xlsx').open('rb') as stream:
                 book = load_workbook(stream, data_only=True)
                 self.assertIn('Weekly Summary', book.sheetnames)
+            summary = final / 'Weekly_Wastage_Summary.xlsx'
+            with closing(load_workbook(summary)) as updated:
+                sheet = updated['Weekly Summary']
+                self.assertEqual((sheet['A7'].value, sheet['B7'].value, sheet['C7'].value),
+                                 ('Total Waste %', '=B5/B6', '=C5/C6'))
+                self.assertEqual(sheet['B7'].number_format, '0.00%')
+                sheet['A7'] = '%'
+                sheet['B7'] = 4 / 30
+                updated.save(summary)
+            job.run_week(root, start, end, stores)
+            self.assertEqual(process.call_count, 2)
+            with ZipFile(final / 'Weekly_Wastage.zip') as archive:
+                with archive.open(summary.name) as stream:
+                    repaired = load_workbook(stream)
+                    self.assertEqual(repaired['Weekly Summary']['A7'].value, 'Total Waste %')
+                    self.assertEqual(repaired['Weekly Summary']['B7'].value, '=B5/B6')
+                    repaired.close()
             status = json.loads((root / '.status' / '2026-11-09.json').read_text())
             self.assertEqual(status['state'], 'complete')
             self.assertEqual(status['stores']['Zero']['state'], 'complete')

@@ -152,6 +152,26 @@ def create_archive(folder):
         temporary.unlink(missing_ok=True)
 
 
+def refresh_published_summary(summary):
+    from openpyxl import load_workbook
+    from weekly_wastage.summary_workbook import set_weekly_total_waste
+
+    workbook = load_workbook(summary)
+    try:
+        sheet = workbook['Weekly Summary']
+        if not set_weekly_total_waste(sheet):
+            return
+        with NamedTemporaryFile(dir=summary.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+        try:
+            workbook.save(temporary)
+            temporary.replace(summary)
+        finally:
+            temporary.unlink(missing_ok=True)
+    finally:
+        workbook.close()
+
+
 def run_week(root, start, end, stores=None, resolve_store=None):
     from weekly_wastage.summary_workbook import build_summary
 
@@ -161,8 +181,11 @@ def run_week(root, start, end, stores=None, resolve_store=None):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         progress = {}
         try:
-            if (final / 'Weekly_Wastage_Summary.xlsx').is_file():
-                if not (final / 'Weekly_Wastage.zip').is_file():
+            summary = final / 'Weekly_Wastage_Summary.xlsx'
+            if summary.is_file():
+                refresh_published_summary(summary)
+                archive = final / 'Weekly_Wastage.zip'
+                if not archive.is_file() or archive.stat().st_mtime_ns < summary.stat().st_mtime_ns:
                     create_archive(final)
                 progress = {folder.name: {'state': 'complete', 'attempt': None}
                             for folder in final.iterdir() if folder.is_dir()}
