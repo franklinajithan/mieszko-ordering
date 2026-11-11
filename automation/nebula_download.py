@@ -4,6 +4,7 @@ No CRM records are edited. Login credentials come only from the local environmen
 Actual office acceptance is still required; offline browser fixtures test the flow.
 """
 import argparse
+from contextlib import contextmanager
 import getpass
 import json
 from datetime import date
@@ -320,12 +321,11 @@ def export_report(context, page, frame, output, timeout, progress=None):
     progress('Download complete: ' + str(destination.stat().st_size) + ' bytes saved')
 
 
-def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM_LOGIN_CODE', timeout=1200000, progress=None):
-    progress = progress or (lambda message: None)
-    day = requested_day(start, end)
+@contextmanager
+def report_session(url, store_code, login_env, progress):
     checked_url(url)
-    if source not in REPORTS or not re.fullmatch(r'\d{4}', store_code):
-        raise ValueError('Unsupported report or store code')
+    if not re.fullmatch(r'\d{4}', store_code):
+        raise ValueError('Invalid CRM store code')
     login_code = os.environ.get(login_env)
     if not login_code:
         raise CrmExportError('login_config', 'CRM login environment variable is missing')
@@ -354,18 +354,27 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
             check_store_marker(page.locator('body').inner_text(), store_code)
             progress('Opening Reports > Explorer')
             open_explorer(page)
-            category, title = REPORTS[source]
-            frame = select_report(page, category, title, source, progress)
-            select_day(frame, day, progress)
-            if source == 'wastage':
-                progress('Verifying Wastage report and date filters')
-                verify_wastage_filters(frame, day)
-            progress('Verifying store identity again before export')
-            check_store_marker(page.locator('body').inner_text(), store_code)
-            export_report(context, page, frame, output, timeout, progress)
+            yield context, page
         finally:
             context.close()
             browser.close()
+
+
+def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM_LOGIN_CODE', timeout=1200000, progress=None):
+    progress = progress or (lambda message: None)
+    day = requested_day(start, end)
+    if source not in REPORTS:
+        raise ValueError('Unsupported report')
+    with report_session(url, store_code, login_env, progress) as (context, page):
+        category, title = REPORTS[source]
+        frame = select_report(page, category, title, source, progress)
+        select_day(frame, day, progress)
+        if source == 'wastage':
+            progress('Verifying Wastage report and date filters')
+            verify_wastage_filters(frame, day)
+        progress('Verifying store identity again before export')
+        check_store_marker(page.locator('body').inner_text(), store_code)
+        export_report(context, page, frame, output, timeout, progress)
 
 
 def main():
