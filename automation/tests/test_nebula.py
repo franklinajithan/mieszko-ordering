@@ -7,7 +7,7 @@ import os
 import io
 import threading
 from contextlib import redirect_stderr
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, MagicMock
 
 spec = importlib.util.spec_from_file_location('nebula_download', Path(__file__).resolve().parents[1] / 'nebula_download.py')
 nebula = importlib.util.module_from_spec(spec)
@@ -21,6 +21,40 @@ runtime_spec.loader.exec_module(runtime_module)
 
 
 class NebulaContractsTests(unittest.TestCase):
+    def test_report_viewer_downloads_pdf_without_changing_the_excel_export(self):
+        for pdf_bytes in (b'%PDF-1.7\nfixture', b'<html>Invalid PDF</html>'):
+            with self.subTest(pdf=pdf_bytes), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                context, page, frame, report_frame = Mock(), Mock(), Mock(), Mock()
+                context.expect_page.return_value = MagicMock()
+                context.expect_page.return_value.__enter__.return_value.value.frames = [report_frame]
+                context.pages = [page]
+                callback = []
+                page.on.side_effect = lambda _event, handler: callback.append(handler)
+                for option, payload in (('Excel', b'original Excel export'), ('PDF', pdf_bytes)):
+                    artifact = Mock()
+                    artifact.failure.return_value = None
+                    artifact.save_as.side_effect = lambda filename, data=payload: Path(filename).write_bytes(data)
+                    link = Mock()
+                    link.click.side_effect = lambda *, timeout, download=artifact: callback[0](download)
+                    if option == 'Excel':
+                        excel_link = link
+                    else:
+                        pdf_link = link
+                report_frame.get_by_role.side_effect = lambda _role, *, name: (
+                    excel_link if name.fullmatch('Excel') else pdf_link
+                )
+                with patch.object(nebula, 'visible', side_effect=lambda locator: locator), \
+                        patch.object(nebula, 'wait_for', side_effect=lambda _page, check, *_args: check()):
+                    nebula.export_report(context, page, frame, root / 'report.xls', 1000,
+                                         pdf_output=root / 'report.pdf')
+                self.assertEqual((root / 'report.xls').read_bytes(), b'original Excel export')
+                if pdf_bytes.startswith(b'%PDF-'):
+                    self.assertEqual((root / 'report.pdf').read_bytes(), pdf_bytes)
+                else:
+                    self.assertFalse((root / 'report.pdf').exists())
+                self.assertFalse((root / 'report.pdf.part').exists())
+
     def test_wastage_requires_exact_report_and_requested_daily_dates(self):
         frame = Mock()
         radio = frame.get_by_role.return_value

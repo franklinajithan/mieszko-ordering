@@ -10,16 +10,10 @@ import { dataImportRuns as runs, stores } from "@/db/schema";
 
 export const dailyWastageDate = z.iso.date();
 
-const contentTypes = {
-  "report.xls": "application/vnd.ms-excel",
-  "report.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "report.csv": "text/csv",
-};
-
-function downloadFilename(store: string, date: string, extension: string) {
+function downloadFilename(store: string, date: string) {
   const name = store.normalize("NFKD").replace(/\p{M}/gu, "")
     .replace(/[^a-zA-Z0-9-]+/g, "_").replace(/^_+|_+$/g, "");
-  return `Wastage_${name || "Store"}_${date}${extension}`;
+  return `Wastage_${name || "Store"}_${date}.pdf`;
 }
 
 async function archiveRoot() {
@@ -38,19 +32,22 @@ function reportsForDay(date: string) {
   );
 }
 
-async function openOriginal(root: string, source: string | null) {
+async function openPdf(root: string, source: string | null) {
   if (!source || !path.isAbsolute(source)) return null;
   const relative = path.relative(root, source);
   if (!/^\d+[\\/]report\.(xls|xlsx|csv)$/.test(relative)) return null;
-  const filePath = path.join(root, relative);
+  const filePath = path.join(root, path.dirname(relative), "report.pdf");
   try {
     if (await realpath(filePath) !== filePath) return null;
     const file = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const stat = await file.stat();
-      if (stat.isFile() && stat.size > 0) {
-        const name = path.basename(filePath) as keyof typeof contentTypes;
-        return { file, size: stat.size, extension: path.extname(name), contentType: contentTypes[name] };
+      if (stat.isFile() && stat.size >= 5) {
+        const signature = Buffer.alloc(5);
+        const { bytesRead } = await file.read(signature, 0, signature.length, 0);
+        if (bytesRead === signature.length && signature.toString("ascii") === "%PDF-") {
+          return { file, size: stat.size };
+        }
       }
     } catch (error) {
       await file.close();
@@ -81,12 +78,12 @@ export async function listDailyWastage(date: string) {
     const results = new Map<number, { storeId: number; name: string; filename: string | null }>();
     for (const candidate of candidates) {
       if (results.get(candidate.storeId)?.filename) continue;
-      const original = await openOriginal(root, candidate.source);
+      const original = await openPdf(root, candidate.source);
       await original?.file.close();
       results.set(candidate.storeId, {
         storeId: candidate.storeId,
         name: candidate.name,
-        filename: original ? downloadFilename(candidate.name, date, original.extension) : null,
+        filename: original ? downloadFilename(candidate.name, date) : null,
       });
     }
     return { state: "ready" as const, stores: [...results.values()] };
@@ -106,8 +103,8 @@ export async function openDailyWastage(date: string, storeId: number) {
     .orderBy(desc(runs.downloadedAt), desc(runs.id));
 
   for (const candidate of candidates) {
-    const original = await openOriginal(root, candidate.source);
-    if (original) return { ...original, name: downloadFilename(candidate.name, date, original.extension) };
+    const original = await openPdf(root, candidate.source);
+    if (original) return { ...original, name: downloadFilename(candidate.name, date) };
   }
   return null;
 }

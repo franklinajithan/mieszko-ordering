@@ -244,7 +244,7 @@ def verify_wastage_filters(frame, day):
     # downstream rather than assuming zero wastage.
 
 
-def export_report(context, page, frame, output, timeout, progress=None):
+def export_report(context, page, frame, output, timeout, progress=None, *, pdf_output=None, pdf_only=False):
     progress = progress or (lambda message: None)
     progress('Opening report preview; CRM generation can take up to 20 minutes')
     with context.expect_page(timeout=timeout) as popup:
@@ -272,53 +272,74 @@ def export_report(context, page, frame, output, timeout, progress=None):
     progress('Waiting for the report export control; CRM generation can take up to 20 minutes')
     wait_for(page, find_export, 'Report export control did not become ready', timeout)
 
-    def find_excel():
-        for scope in report.frames:
-            # Prefer the real anchor, avoiding an outer container with the same text.
-            excel_name = re.compile(r'^Excel(?:\s*\((?:97[-–]2003|\.xlsx?|Open XML)\)|\s+97[-–]2003)?\s*$', re.I)
-            target = visible(scope.get_by_role('link', name=excel_name))
-            if target is None:
-                target = visible(scope.get_by_text(excel_name))
-            if target is not None:
-                return target
-        return None
-    # A visible ReportViewer toolbar can precede its menu initialization.
-    # Confirm the menu actually opened instead of waiting a report-generation
-    # timeout for an option that was never displayed.
-    excel = None
-    for attempt in range(3):
-        progress('Opening export menu (attempt ' + str(attempt + 1) + '/3)')
-        excel = find_excel()
-        if excel is not None:
-            break
-        wait_for(page, find_export, 'Report export control not ready', min(timeout, 10000)).click()
-        try:
-            excel = wait_for(page, find_excel, 'Excel export menu did not open', min(timeout, 5000))
-            break
-        except ValueError:
-            if attempt == 2:
-                raise CrmExportError('crm_export', 'Excel export menu did not open after three attempts') from None
     downloads = []
+
     def track(new_page):
-        new_page.on('download', lambda artifact: downloads.append(artifact))
+        new_page.on('download', downloads.append)
+
     for existing in context.pages:
         track(existing)
     context.on('page', track)
-    progress('Downloading Excel; the CRM can take up to 20 minutes')
-    excel.click()
-    artifact = wait_for(page, lambda: downloads[0] if downloads else None,
-                        'CRM Excel download did not complete', timeout)
-    if artifact.failure():
-        raise ValueError('CRM Excel download failed')
-    destination = Path(output)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    partial = destination.with_name(destination.name + '.part')
-    progress('Saving the downloaded Excel file')
-    artifact.save_as(str(partial))
-    if not partial.is_file() or not partial.stat().st_size:
-        raise ValueError('CRM returned an empty report file')
-    partial.replace(destination)
-    progress('Download complete: ' + str(destination.stat().st_size) + ' bytes saved')
+
+    def save_export(label, name, destination, export_timeout):
+        def find_option():
+            for scope in report.frames:
+                target = visible(scope.get_by_role('link', name=name))
+                if target is None:
+                    target = visible(scope.get_by_text(name))
+                if target is not None:
+                    return target
+            return None
+
+        # The toolbar can appear before the export menu initializes.
+        for attempt in range(3):
+            progress(f'Opening {label} export menu (attempt {attempt + 1}/3)')
+            option = find_option()
+            if option is not None:
+                break
+            wait_for(page, find_export, 'Report export control not ready', min(export_timeout, 10000)).click(timeout=min(export_timeout, 10000))
+            try:
+                option = wait_for(page, find_option, f'{label} export menu did not open', min(export_timeout, 5000))
+                break
+            except ValueError:
+                if attempt == 2:
+                    raise CrmExportError('crm_export', f'{label} export menu did not open after three attempts') from None
+
+        downloads.clear()
+        progress(f'Downloading {label}')
+        option.click(timeout=min(export_timeout, 10000))
+        artifact = wait_for(page, lambda: downloads[0] if downloads else None,
+                            f'CRM {label} download did not complete', export_timeout)
+        if artifact.failure():
+            raise ValueError(f'CRM {label} download failed')
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        partial = destination.with_name(destination.name + '.part')
+        try:
+            artifact.save_as(str(partial))
+            if not partial.stat().st_size:
+                raise ValueError('CRM returned an empty report file')
+            if label == 'PDF':
+                with partial.open('rb') as stream:
+                    if stream.read(5) != b'%PDF-':
+                        raise ValueError('CRM did not return a PDF file')
+            partial.replace(destination)
+        finally:
+            partial.unlink(missing_ok=True)
+        progress(f'{label} download complete')
+
+    pdf_name = re.compile(r'^PDF$', re.I)
+    if pdf_only:
+        save_export('PDF', pdf_name, output, timeout)
+        return
+    excel_name = re.compile(r'^Excel(?:\s*\((?:97[-–]2003|\.xlsx?|Open XML)\)|\s+97[-–]2003)?\s*$', re.I)
+    save_export('Excel', excel_name, output, timeout)
+    if pdf_output is not None:
+        try:
+            save_export('PDF', pdf_name, pdf_output, min(timeout, 60000))
+        except Exception:
+            # Excel is already saved for the import. Keep PDF failures separate.
+            progress('The PDF export was unavailable; the Excel export was saved')
 
 
 @contextmanager
@@ -360,11 +381,13 @@ def report_session(url, store_code, login_env, progress):
             browser.close()
 
 
-def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM_LOGIN_CODE', timeout=1200000, progress=None):
+def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM_LOGIN_CODE', timeout=1200000, progress=None, *, pdf_only=False):
     progress = progress or (lambda message: None)
     day = requested_day(start, end)
     if source not in REPORTS:
         raise ValueError('Unsupported report')
+    if pdf_only and source != 'wastage':
+        raise ValueError('PDF export is available for daily wastage only')
     with report_session(url, store_code, login_env, progress) as (context, page):
         category, title = REPORTS[source]
         frame = select_report(page, category, title, source, progress)
@@ -374,12 +397,14 @@ def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM
             verify_wastage_filters(frame, day)
         progress('Verifying store identity again before export')
         check_store_marker(page.locator('body').inner_text(), store_code)
-        export_report(context, page, frame, output, timeout, progress)
+        pdf_output = Path(output).with_suffix('.pdf') if source == 'wastage' and not pdf_only else None
+        export_report(context, page, frame, output, timeout, progress, pdf_output=pdf_output, pdf_only=pdf_only)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--prompt-login', action='store_true', help='Prompt locally for a hidden CRM login code for a download-only test')
+    parser.add_argument('--pdf-only', action='store_true', help='Download only the native PDF for a daily wastage report')
     parser.add_argument('--progress', action='store_true', help='Print stages and a heartbeat every 20 seconds; enabled automatically with --prompt-login')
     for name in ('url', 'store-code', 'source', 'start', 'end', 'output'):
         parser.add_argument('--' + name, required=True)
@@ -389,7 +414,7 @@ def main():
         if args.prompt_login:
             os.environ['MIESZKO_CRM_LOGIN_CODE'] = getpass.getpass('CRM login code (hidden): ')
         with ConsoleProgress(args.progress or args.prompt_login) as progress:
-            download(args.url, args.store_code, args.source, args.start, args.end, args.output, progress=progress)
+            download(args.url, args.store_code, args.source, args.start, args.end, args.output, progress=progress, pdf_only=args.pdf_only)
     except KeyboardInterrupt:
         print('Download cancelled by operator.', file=sys.stderr, flush=True)
         return 130

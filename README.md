@@ -212,9 +212,22 @@ For a container, mount the archive read-only at the same absolute path recorded
 by the worker. Protect both `/daily-wastage` and `/api/daily-wastage/` with the
 deployment's private network or authentication controls.
 
-Open **Overview → Daily Wastage Files**. It starts on yesterday's UK report date.
-Each active store is listed, along with any inactive store with a retained
-report for that date. Downloads stream the saved workbook bytes with filenames such as
-`Wastage_Hayes_2026-11-10.xls`, preserving the original extension. A validated download is available even when product
-matching is pending. Missing files are shown per store and are never rebuilt
-from imported data.
+Deploy both the Ordering web app and the daily Nibua downloader
+(`automation/nebula_download.py` in the running daily worker release).
+The worker saves Nibua's native PDF next to the Excel file for daily wastage.
+Excel remains the input for the existing import. If the optional PDF export
+fails, the Excel import can still run.
+
+**Overview → Daily Wastage Files** shows the saved native PDFs, named
+`Wastage_Hayes_2026-11-10.pdf` for example. Older days with only Excel files
+show **No PDF available** until the native PDFs are fetched. To retrieve one
+archived day, run this as the worker account using the worker's Python:
+
+```sh
+worker_dir=$(systemctl show mieszko-import-worker.service -p WorkingDirectory --value)
+"$worker_dir/.worker-runtime/venv/bin/python" automation/backfill-wastage-pdf.py \
+  --worker-directory "$worker_dir" --date 2026-11-10
+```
+
+Use `--store-id` to limit the backfill to one store. Backfill skips PDFs that
+are already available and does not create or modify import runs.

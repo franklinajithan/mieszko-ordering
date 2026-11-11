@@ -17,7 +17,7 @@ export default async function DailyWastagePage({
   const archive = await listDailyWastage(date);
 
   return (
-    <AppShell title="Daily Wastage Files" description="Original Nibua wastage exports by store and report date.">
+    <AppShell title="Daily Wastage Files" description="Original Nibua wastage PDFs by store and report date.">
       <section className="max-w-4xl space-y-4">
         <ReportDate key={date} date={date} />
         {query.date !== undefined && !selected.success && (
@@ -43,10 +43,10 @@ export default async function DailyWastagePage({
                       {filename ? (
                         <a className="inline-flex items-center gap-2 font-medium text-emerald-800 hover:underline"
                           href={`/api/daily-wastage/${date}/${storeId}`}
-                          aria-label={`Download original wastage file for ${name}`}>
+                          aria-label={`Download original wastage PDF for ${name}`}>
                           <Download size={16} aria-hidden="true" /> {filename}
                         </a>
-                      ) : <span className="text-zinc-600">No file available</span>}
+                      ) : <span className="text-zinc-600">No PDF available</span>}
                     </td>
                   </tr>
                 ))}

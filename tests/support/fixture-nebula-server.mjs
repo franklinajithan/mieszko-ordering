@@ -9,6 +9,11 @@ const server=http.createServer(async(req,res)=>{
  if(url.pathname==='/download'){
   const source=url.searchParams.get('source'),from=url.searchParams.get('from'),to=url.searchParams.get('to');
   if(!labels[source]||from!==to||!/^\d{2}\/\d{2}\/\d{4}$/.test(from)){res.statusCode=400;res.end('Invalid daily request');return;}
+  if(url.searchParams.get('format')==='pdf'){
+   if(source!=='wastage'){res.statusCode=400;res.end('PDF requested for another report');return;}
+   res.setHeader('Content-Type','application/pdf');res.setHeader('Content-Disposition','attachment; filename="report.pdf"');
+   res.end('%PDF-1.7\nfixture\n%%EOF\n');return;
+  }
   observed.push({source,from,to});const day=from.split('/').reverse().join('-');
   const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Report');
   sheet.addRow(['Item Code',source==='normal_sales'?'Sold Qty':source==='rtc'?'RTC Qty':'Wastage Qty','Date']);
@@ -18,7 +23,7 @@ const server=http.createServer(async(req,res)=>{
  }
  if(url.pathname==='/report'){
   const popup=url.searchParams.get('source')==='rtc';
-  res.end(`<table title="Export drop down menu" id="rptViewer_ctl05_ctl04_ctl00_Button" style="width:600px"><tr><td style="width:550px">Toolbar spacing</td><td><a href="#" title="Export drop down menu" id="rptViewer_ctl05_ctl04_ctl00_ButtonLink" onclick="openExport();return false">Export</a></td></tr></table><a id="excel" hidden href="/download${url.search}" ${popup?`onclick="window.open(this.href);return false"`:'download'}>${popup?'Excel (97-2003)':'Excel'}</a><script>let attempts=0;function openExport(){if(++attempts>1)document.querySelector('#excel').hidden=false;}</script>`);return;
+  res.end(`<table title="Export drop down menu" id="rptViewer_ctl05_ctl04_ctl00_Button" style="width:600px"><tr><td style="width:550px">Toolbar spacing</td><td><a href="#" title="Export drop down menu" id="rptViewer_ctl05_ctl04_ctl00_ButtonLink" onclick="openExport();return false">Export</a></td></tr></table><a id="excel" hidden href="/download${url.search}" ${popup?`onclick="window.open(this.href);return false"`:'download'}>${popup?'Excel (97-2003)':'Excel'}</a>${url.searchParams.get('source')==='wastage'?`<a class="export-option" hidden download href="/download${url.search}&format=pdf">PDF</a>`:''}<script>let attempts=0;function openExport(){if(++attempts>1)document.querySelectorAll('.export-option,#excel').forEach(option=>option.hidden=false);}</script>`);return;
  }
  if(url.pathname==='/explorer'){
   res.end(`<div>Report List</div><h2 id="selected">Selected Report: none</h2>
