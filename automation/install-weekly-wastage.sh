@@ -21,7 +21,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=$worker_user
-WorkingDirectory="$app_dir"
+WorkingDirectory=$app_dir
 ExecStart="$python_bin" -u "$app_dir/automation/weekly_wastage_job.py"
 TimeoutStartSec=18h
 UMask=0077
