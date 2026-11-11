@@ -31,6 +31,8 @@ class NebulaContractsTests(unittest.TestCase):
                 context.pages = [page]
                 callback = []
                 export_order = []
+                pending = []
+                page.wait_for_timeout.side_effect = lambda _timeout: callback[0](pending.pop(0))
                 page.on.side_effect = lambda _event, handler: callback.append(handler)
                 for option, payload in (('Excel', b'original Excel export'), ('PDF', pdf_bytes)):
                     artifact = Mock()
@@ -40,7 +42,7 @@ class NebulaContractsTests(unittest.TestCase):
                     link = Mock()
                     def click(*, timeout, download=artifact, label=option):
                         export_order.append(label)
-                        callback[0](download)
+                        pending.append(download)
                     link.click.side_effect = click
                     if option == 'Excel':
                         excel_link = link
@@ -49,11 +51,11 @@ class NebulaContractsTests(unittest.TestCase):
                 report_frame.get_by_role.side_effect = lambda _role, *, name: (
                     excel_link if name.fullmatch('Excel') else pdf_link
                 )
-                with patch.object(nebula, 'visible', side_effect=lambda locator: locator), \
-                        patch.object(nebula, 'wait_for', side_effect=lambda _page, check, *_args: check()):
+                with patch.object(nebula, 'visible', side_effect=lambda locator: locator):
                     nebula.export_report(context, page, frame, root / 'report.xls', 1000,
                                          pdf_output=root / 'report.pdf')
                 self.assertEqual(export_order, ['PDF', 'Excel'])
+                self.assertEqual(page.wait_for_timeout.call_count, 2)
                 self.assertEqual((root / 'report.xls').read_bytes(), b'original Excel export')
                 if pdf_bytes.startswith(b'%PDF-'):
                     self.assertEqual((root / 'report.pdf').read_bytes(), pdf_bytes)
