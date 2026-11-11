@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 
 from linux_worker import runtime_environment
-from nebula_download import download
+from nebula_download import ConsoleProgress, download
 from worker import crm_store_code, get_store_config
 
 
@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--worker-directory', required=True, type=Path)
     parser.add_argument('--date', required=True, type=date.fromisoformat)
     parser.add_argument('--store-id', type=int)
+    parser.add_argument('--progress', action='store_true', help='Print the current Nibua step while exporting')
     args = parser.parse_args()
 
     worker = args.worker_directory.resolve(strict=True)
@@ -42,6 +43,8 @@ def main():
             return 1
         failures = 0
         for store_id, name, source in reports:
+            step = 'locating the archived run'
+            progress = ConsoleProgress(args.progress)
             try:
                 source_path = Path(source)
                 relative = source_path.relative_to(archive)
@@ -58,15 +61,21 @@ def main():
                             if stream.read(5) == b'%PDF-':
                                 print(f'{name}: PDF already available', flush=True)
                                 continue
+                    step = 'loading the store CRM settings'
                     store = get_store_config(conn, config, store_id)
                     day = args.date.isoformat()
-                    download(store['crm_url'], crm_store_code(store['code']), 'wastage', day, day,
-                             output, pdf_only=True)
+                    step = 'exporting the Nibua PDF'
+                    print(f'{name}: requesting the native PDF for {day}', flush=True)
+                    with progress:
+                        download(store['crm_url'], crm_store_code(store['code']), 'wastage', day, day,
+                                 output, pdf_only=True, progress=progress)
                     print(f'{name}: PDF saved', flush=True)
-            except Exception:
+            except Exception as error:
                 # The browser exception can contain credential-bearing debug context.
                 failures += 1
-                print(f'{name}: PDF export unavailable for {args.date}', flush=True)
+                if step == 'exporting the Nibua PDF':
+                    step = progress.stage
+                print(f'{name}: PDF unavailable for {args.date} at {step} ({type(error).__name__})', flush=True)
     return int(failures > 0)
 
 

@@ -30,13 +30,18 @@ class NebulaContractsTests(unittest.TestCase):
                 context.expect_page.return_value.__enter__.return_value.value.frames = [report_frame]
                 context.pages = [page]
                 callback = []
+                export_order = []
                 page.on.side_effect = lambda _event, handler: callback.append(handler)
                 for option, payload in (('Excel', b'original Excel export'), ('PDF', pdf_bytes)):
                     artifact = Mock()
                     artifact.failure.return_value = None
+                    artifact.suggested_filename = 'report.pdf' if option == 'PDF' else 'report.xls'
                     artifact.save_as.side_effect = lambda filename, data=payload: Path(filename).write_bytes(data)
                     link = Mock()
-                    link.click.side_effect = lambda *, timeout, download=artifact: callback[0](download)
+                    def click(*, timeout, download=artifact, label=option):
+                        export_order.append(label)
+                        callback[0](download)
+                    link.click.side_effect = click
                     if option == 'Excel':
                         excel_link = link
                     else:
@@ -48,6 +53,7 @@ class NebulaContractsTests(unittest.TestCase):
                         patch.object(nebula, 'wait_for', side_effect=lambda _page, check, *_args: check()):
                     nebula.export_report(context, page, frame, root / 'report.xls', 1000,
                                          pdf_output=root / 'report.pdf')
+                self.assertEqual(export_order, ['PDF', 'Excel'])
                 self.assertEqual((root / 'report.xls').read_bytes(), b'original Excel export')
                 if pdf_bytes.startswith(b'%PDF-'):
                     self.assertEqual((root / 'report.pdf').read_bytes(), pdf_bytes)
