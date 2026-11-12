@@ -64,3 +64,35 @@ class ManualWastagePdfTests(unittest.TestCase):
             self.assertFalse((folder / '1').exists())
             self.assertEqual((folder / '2' / 'report.pdf').read_bytes(), b'%PDF-1.7\nlast good Watford snapshot')
             self.assertEqual((folder / '3' / 'report.pdf').read_bytes(), b'%PDF-1.7\nfixture')
+
+            # Exercise the retry entry point against a status file from a full export.
+            manual.publish(folder, status)
+            exports.clear()
+
+            def retry_download(_url, code, feed, start, end, output, *, progress, pdf_only):
+                self.assertTrue(pdf_only)
+                self.assertEqual((feed, start, end), ('wastage', '2026-11-10', '2026-11-10'))
+                progress('Downloading PDF')
+                exports.append(code)
+                output.write_bytes(b'%PDF-1.7\nretried Watford PDF')
+
+            with patch.dict(sys.modules, {'psycopg': SimpleNamespace(connect=connect)}), \
+                 patch.dict(manual.os.environ, {'DATABASE_URL': 'fixture'}), \
+                 patch.object(manual, 'runtime_environment', return_value={}), \
+                 patch.object(manual, 'london_today', return_value=date(2026, 11, 12)), \
+                 patch.object(manual, 'get_store_config', return_value=settings[0]), \
+                 patch.object(manual, 'download', side_effect=retry_download), \
+                 patch.object(sys, 'argv', [
+                     'manual-wastage-pdf.py', '--worker-directory', str(root),
+                     '--archive', str(archive), '--date', '2026-11-10', '--retry-store', '2',
+                 ]):
+                manual.main()
+                manual.main()  # A stale repeat request must leave the successful retry intact.
+
+            retried = json.loads((folder / 'status.json').read_text())
+            self.assertEqual(exports, ['0602'])
+            self.assertEqual(retried['state'], 'complete')
+            self.assertEqual(retried['stores'][0], status['stores'][0])
+            self.assertEqual(retried['stores'][2], status['stores'][2])
+            self.assertEqual((folder / '2' / 'report.pdf').read_bytes(), b'%PDF-1.7\nretried Watford PDF')
+            self.assertEqual((folder / '3' / 'report.pdf').read_bytes(), b'%PDF-1.7\nfixture')

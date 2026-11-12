@@ -50,11 +50,12 @@ export function WastageActions({ date, files, manual }: { date: string; files: P
     };
   }, [manual, router, runUrl]);
 
-  async function startRun() {
+  async function startRun(storeId?: number) {
     setStarting(true);
     setRunError("");
     try {
-      const response = await fetch(runUrl, { method: "POST" });
+      const url = storeId === undefined ? runUrl : `${runUrl}?storeId=${storeId}`;
+      const response = await fetch(url, { method: "POST" });
       const status = await response.json();
       if (!response.ok) {
         setRunError(status.error ?? "Could not start the PDF export.");
@@ -101,7 +102,7 @@ export function WastageActions({ date, files, manual }: { date: string; files: P
           <Download size={16} aria-hidden="true" /> Download all PDFs{files.length ? ` (${files.length})` : ""}
         </button>
         {manual && (
-          <button type="button" className={button} onClick={startRun} disabled={starting || running}>
+          <button type="button" className={button} onClick={() => startRun()} disabled={starting || running}>
             <Play size={16} aria-hidden="true" /> {starting ? "Starting export…" : "Run PDF export"}
           </button>
         )}
@@ -125,10 +126,16 @@ export function WastageActions({ date, files, manual }: { date: string; files: P
               <progress className="mt-2 block w-full accent-emerald-700" value={finished} max={run.stores.length} aria-label="Nibua export progress" />
               <ul className="mt-2 divide-y divide-zinc-100 text-sm">
                 {run.stores.map(store => (
-                  <li key={store.id} className="grid gap-1 py-2 sm:grid-cols-[1fr_1fr_3fr]">
+                  <li key={store.id} className="grid gap-1 py-2 sm:grid-cols-[1fr_1fr_2fr_auto] sm:items-center">
                     <span className="font-medium">{store.name}</span>
                     <span className={store.state === "failed" ? "text-red-800" : "text-zinc-700"}>{statusLabels[store.state]}</span>
                     <span className="text-zinc-600">{store.step}</span>
+                    {manual && store.state === "failed" && (
+                      <button type="button" className={button} onClick={() => startRun(store.id)}
+                        disabled={starting || running} aria-label={`Redownload PDF for ${store.name}`}>
+                        Redownload PDF
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
