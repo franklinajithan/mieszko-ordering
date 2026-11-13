@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { downloaderApi, downloaderStores, reportNames, type DownloadJob, type DownloadPlan } from "@/lib/report-downloader";
+import { Input } from "@/components/ui/input";
+import { downloadPlan, downloaderApi, downloaderStores, reportNames, type DownloadJob, type DownloadPlan } from "@/lib/report-downloader";
+
+type Range = DownloadPlan["ranges"][number];
+type Store = DownloadPlan["stores"][number];
+type RangeRow = Range & { id: number };
+const storeCodes = Object.keys(downloaderStores) as Store[];
+const reports = Object.keys(reportNames) as Range["report"][];
 
 type Summary = Pick<DownloadJob, "id" | "startedAt" | "state"> & { total: number };
 const labels = { waiting: "Waiting", running: "Running", completed: "Completed", skipped: "Already saved", failed: "Failed" };
@@ -16,8 +24,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-export function ReportDownloader() {
-  const [plan, setPlan] = useState<DownloadPlan | null>(null);
+export function ReportDownloader({ today, yesterday }: { today: string; yesterday: string }) {
+  const [stores, setStores] = useState<Store[]>([]);
+  const [ranges, setRanges] = useState<RangeRow[]>([{ id: 0, report: "item_sales", start: yesterday, end: yesterday }]);
+  const nextId = useRef(1);
   const [job, setJob] = useState<DownloadJob | null>(null);
   const [id, setId] = useState("");
   const [history, setHistory] = useState<Summary[]>([]);
@@ -50,21 +60,13 @@ export function ReportDownloader() {
     return () => { controller.abort(); clearTimeout(timer); };
   }, [id]);
 
-  async function review(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError("");
-    setPlan(null);
-    try {
-      const result = await request<{ plan: DownloadPlan }>(downloaderApi, {
-        method: "POST", body: new FormData(event.currentTarget),
-      });
-      setPlan(result.plan);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not review workbooks.");
-    } finally {
-      setPending(false);
-    }
+  function addRange(report: Range["report"]) {
+    const id = nextId.current++;
+    setRanges(rows => [...rows, { id, report, start: yesterday, end: yesterday }]);
+  }
+
+  function updateRange(id: number, field: "start" | "end", value: string) {
+    setRanges(rows => rows.map(row => row.id === id ? { ...row, [field]: value } : row));
   }
 
   async function start(selection: DownloadPlan) {
@@ -90,23 +92,61 @@ export function ReportDownloader() {
     <div className="grid gap-5">
       <section className="grid gap-4 rounded-xl border bg-white p-5">
         <h2 className="text-lg font-semibold">Download setup</h2>
-        <p className="text-sm text-slate-600">The workbooks select reports, dates and stores. The Ubuntu worker uses the CRM URLs saved in CRM Downloads.</p>
-        <form className="flex flex-wrap items-end gap-4" onSubmit={review} onChange={() => setPlan(null)}>
-          <label className="grid gap-1 text-sm font-medium">Report_Control.xlsx
-            <input className="max-w-full rounded-md border p-2" name="control" type="file" accept=".xlsx" required disabled={pending} />
-          </label>
-          <label className="grid gap-1 text-sm font-medium">Stores.xlsx
-            <input className="max-w-full rounded-md border p-2" name="stores" type="file" accept=".xlsx" required disabled={pending} />
-          </label>
-          <Button disabled={pending} type="submit">Review selection</Button>
+        <form className="grid gap-5" onSubmit={event => {
+          event.preventDefault();
+          const selection = downloadPlan.safeParse({ stores, ranges });
+          if (!selection.success || ranges.some(row => row.end > today)) {
+            setError("Select at least one store and one valid date range. Each range can span up to 366 days and must end today or earlier.");
+            return;
+          }
+          void start(selection.data);
+        }}>
+          <fieldset className="grid gap-2" disabled={pending}>
+            <legend className="mb-2 font-medium">Stores</legend>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" size="sm" type="button" onClick={() => setStores(stores.length === storeCodes.length ? [] : storeCodes)}>
+                {stores.length === storeCodes.length ? "Clear stores" : "Select all stores"}
+              </Button>
+              {storeCodes.map(store => <label key={store} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={stores.includes(store)} onChange={event => {
+                  const checked = event.target.checked;
+                  setStores(previous => checked ? [...previous, store] : previous.filter(code => code !== store));
+                }} />
+                {downloaderStores[store]}
+              </label>)}
+            </div>
+            <Link href="/automation" className="w-fit text-sm text-blue-700 underline">Manage shop URLs in CRM Downloads</Link>
+          </fieldset>
+
+          <fieldset className="grid gap-3" disabled={pending}>
+            <legend className="mb-2 font-medium">Reports and date ranges</legend>
+            <p className="text-sm text-slate-600">Add a date range to run a report. Each range creates one Excel file per selected store.</p>
+            {reports.map(report => {
+              const rows = ranges.filter(row => row.report === report);
+              const limit = report === "item_sales" ? 10 : report === "daily_item_volume" ? 1 : 50;
+              return <section key={report} className="grid gap-3 rounded-md border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-medium">{reportNames[report]}</h3>
+                  <Button variant="outline" size="sm" type="button" aria-label={`Add date range for ${reportNames[report]}`}
+                    disabled={rows.length >= limit || ranges.length >= 50} onClick={() => addRange(report)}>Add date range</Button>
+                </div>
+                {rows.map(row => <div className="flex flex-wrap items-end gap-3" key={row.id}>
+                  <label className="grid gap-1 text-sm">From date
+                    <Input type="date" required value={row.start} max={today} onChange={event => updateRange(row.id, "start", event.target.value)} />
+                  </label>
+                  <label className="grid gap-1 text-sm">To date
+                    <Input type="date" required value={row.end} min={row.start} max={today} onChange={event => updateRange(row.id, "end", event.target.value)} />
+                  </label>
+                  <Button variant="outline" type="button" onClick={() => setRanges(previous => previous.filter(item => item.id !== row.id))}>Remove range</Button>
+                </div>)}
+              </section>;
+            })}
+          </fieldset>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="submit" disabled={pending || enabled !== true || busy || !stores.length || !ranges.length}>Start downloads</Button>
+            <p className="text-sm text-slate-600">{stores.length} selected stores · {ranges.length} date ranges</p>
+          </div>
         </form>
-        {plan && <div className="grid gap-3 rounded-md border p-3">
-          <p className="text-sm"><strong>Stores</strong> {plan.stores.map(store => downloaderStores[store]).join(", ")}</p>
-          <ul className="grid gap-1 text-sm">
-            {plan.ranges.map((row, i) => <li key={i}>{reportNames[row.report]} · {row.start} to {row.end}</li>)}
-          </ul>
-          <div><Button disabled={pending || enabled !== true || busy} onClick={() => start(plan)}>Start downloads</Button></div>
-        </div>}
         {enabled === false && <p className="text-sm text-amber-800">Run downloads from the office app with the Ubuntu worker configured.</p>}
         {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
       </section>

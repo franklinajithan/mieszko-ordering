@@ -1,17 +1,14 @@
 # Report Downloader
 
-Open **Overview → Report Downloader** in the office app. Select
-`Report_Control.xlsx` and `Stores.xlsx`, review the enabled ranges and stores,
-then select **Start downloads**. Each selected date range produces one Excel
-workbook per store and report. Select a recent run to check its progress or
-download completed workbooks in a store-wise ZIP. A run with some failed reports
-still offers a ZIP when it has completed workbooks. Retrying reuses valid saved
-workbooks and runs the missing reports again.
+Open **Overview → Report Downloader** in the office app. Select the stores,
+add the date ranges under the reports you want to run, then select **Start
+downloads**. Each selected range produces one Excel workbook per store and
+report. Manage shop URLs in **CRM Downloads**.
 
-The Control sheet uses the original headings in row 4. The Stores sheet uses
-the Store and Enabled columns. The worker reads CRM URLs from **CRM Downloads**
-for the selected stores. Staff can update those URLs there. Workbook uploads
-are used to build the selection and are not retained.
+Select a recent run to check its progress or download completed workbooks in a
+store-wise ZIP. A run with some failed reports still offers a ZIP when it has
+completed workbooks. Retrying reuses valid saved workbooks and runs the missing
+reports again.
 
 ## Office deployment
 

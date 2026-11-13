@@ -1,7 +1,6 @@
 import { isSameOriginSubmission } from "@/lib/api/same-origin";
 import { downloadPlan } from "@/lib/report-downloader";
 import { downloadHeaders, downloaderConfig, launchDownloader, recentDownloaderJobs } from "@/services/report-downloader.service";
-import { readDownloaderWorkbooks } from "@/services/report-downloader-workbooks";
 import { todayIso } from "@/utils/order-sheet-form";
 
 export const runtime = "nodejs";
@@ -20,18 +19,6 @@ export async function GET() {
 
 export async function POST(request: Request) {
   if (!isSameOriginSubmission(request)) return reply({ error: "Cross-origin requests are not permitted." }, 403);
-  const contentType = request.headers.get("content-type") ?? "";
-  if (contentType.startsWith("multipart/form-data")) {
-    const size = Number(request.headers.get("content-length"));
-    if (!size || size > 540_000) return reply({ error: "Select two Excel workbooks up to 256 KB each." }, 413);
-    try {
-      return reply({ plan: await readDownloaderWorkbooks(await request.formData()) });
-    } catch (error) {
-      const message = error instanceof Error && /^(Select |Workbook must|The (Control|Stores) sheet|Stores row|Control row|Enable at least)/.test(error.message)
-        ? error.message : "Could not read the Excel workbooks. Check the workbook format.";
-      return reply({ error: message }, 400);
-    }
-  }
   const plan = downloadPlan.safeParse(await request.json().catch(() => null));
   const today = todayIso();
   if (!plan.success || plan.data.ranges.some(row => row.end > today)) {
