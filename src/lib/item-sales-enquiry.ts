@@ -45,3 +45,7 @@ export function report6Days(start: string, end: string) {
 export function report6Filename({ store, date }: Report6Key) {
   return `Item_Sales_Enquiry_${report6Stores[store]}_${date}.xlsx`;
 }
+
+export function report6ZipFilename(date: string) {
+  return `Report6_Item_Sales_${date}.zip`;
+}
