@@ -71,6 +71,11 @@ class ConsoleProgress:
 def report_title_pattern(source, title):
     if source == 'item_sales_enquiry':
         return re.compile(r'^\s*6\s*\.\s*Item\s+Sales\s+Enquiry\s*$', re.I)
+    numbered = re.fullmatch(r'(\d+)\. (.+)', title)
+    if numbered:
+        number, name = numbered.groups()
+        words = r'\s+'.join(re.escape(word) for word in name.split())
+        return re.compile(r'^\s*' + number + r'\s*\.\s*' + words + r'\s*$', re.I)
     names = NORMAL_SALES_TITLES if source == 'normal_sales' else (title,)
     return re.compile(r'^\s*(?:\d+\s*\.\s*)?(?:' + '|'.join(re.escape(name) for name in names) + r')\s*$')
 
@@ -146,7 +151,7 @@ def open_explorer(page):
                 raise
 
 
-def select_report(page, category, title, source, progress=None):
+def select_report(page, category, title, source, progress=None, *, category_may_be_open=False):
     # Category selection can replace the iframe during an ASP.NET postback.
     # Always resolve controls in the current frame rather than retaining the
     # frame from the previous screen.
@@ -156,9 +161,6 @@ def select_report(page, category, title, source, progress=None):
     def category_control():
         current = explorer_frame(page)
         return visible(current.get_by_text(category, exact=True)) if current is not None else None
-
-    progress('Opening report category: ' + category)
-    wait_for(page, category_control, 'Report category did not become ready').click()
 
     def report_control():
         current = explorer_frame(page)
@@ -172,8 +174,13 @@ def select_report(page, category, title, source, progress=None):
             raise ValueError('Requested report name is ambiguous')
         return options[0] if options else None
 
-    progress('Waiting for the product-level sales report' if source == 'normal_sales' else 'Waiting for report: ' + title)
-    wait_for(page, report_control, 'Requested report did not become ready').click()
+    option = report_control() if category_may_be_open else None
+    if option is None:
+        progress('Opening report category: ' + category)
+        wait_for(page, category_control, 'Report category did not become ready').click()
+        progress('Waiting for the product-level sales report' if source == 'normal_sales' else 'Waiting for report: ' + title)
+        option = wait_for(page, report_control, 'Requested report did not become ready')
+    option.click()
 
     def selected_report():
         current = explorer_frame(page)
