@@ -69,6 +69,8 @@ class ConsoleProgress:
 
 
 def report_title_pattern(source, title):
+    if source == 'item_sales_enquiry':
+        return re.compile(r'^\s*6\s*\.\s*Item\s+Sales\s+Enquiry\s*$', re.I)
     names = NORMAL_SALES_TITLES if source == 'normal_sales' else (title,)
     return re.compile(r'^\s*(?:\d+\s*\.\s*)?(?:' + '|'.join(re.escape(name) for name in names) + r')\s*$')
 
@@ -244,7 +246,7 @@ def verify_wastage_filters(frame, day):
     # downstream rather than assuming zero wastage.
 
 
-def export_report(context, page, frame, output, timeout, progress=None, *, pdf_output=None, pdf_only=False):
+def export_report(context, page, frame, output, timeout, progress=None, *, pdf_output=None, pdf_only=False, close_preview=False):
     progress = progress or (lambda message: None)
     progress('Opening report preview; CRM generation can take up to 20 minutes')
     with context.expect_page(timeout=timeout) as popup:
@@ -285,12 +287,15 @@ def export_report(context, page, frame, output, timeout, progress=None, *, pdf_o
         if content_type == 'application/pdf' and not disposition.startswith('attachment'):
             pdf_responses.append(response)
 
+    download_listeners = []
+
     def track(new_page):
         def track_download(artifact):
             is_pdf = artifact.suggested_filename.lower().endswith('.pdf')
             if capture_pdf or not is_pdf:
                 downloads.append(artifact)
         new_page.on('download', track_download)
+        download_listeners.append((new_page, track_download))
 
     for existing in context.pages:
         track(existing)
@@ -357,18 +362,27 @@ def export_report(context, page, frame, output, timeout, progress=None, *, pdf_o
             partial.unlink(missing_ok=True)
         progress(f'{label} download complete')
 
-    pdf_name = re.compile(r'^PDF$', re.I)
-    if pdf_only:
-        save_export('PDF', pdf_name, output, timeout)
-        return
-    if pdf_output is not None:
-        try:
-            save_export('PDF', pdf_name, pdf_output, min(timeout, 60000))
-        except Exception:
-            # A PDF failure must not stop the existing Excel import.
-            progress('The PDF export was unavailable; continuing with Excel')
-    excel_name = re.compile(r'^Excel(?:\s*\((?:97[-–]2003|\.xlsx?|Open XML)\)|\s+97[-–]2003)?\s*$', re.I)
-    save_export('Excel', excel_name, output, timeout)
+    try:
+        pdf_name = re.compile(r'^PDF$', re.I)
+        if pdf_only:
+            save_export('PDF', pdf_name, output, timeout)
+            return
+        if pdf_output is not None:
+            try:
+                save_export('PDF', pdf_name, pdf_output, min(timeout, 60000))
+            except Exception:
+                # A PDF failure must not stop the existing Excel import.
+                progress('The PDF export was unavailable; continuing with Excel')
+        excel_name = re.compile(r'^Excel(?:\s*\((?:97[-–]2003|\.xlsx?|Open XML)\)|\s+97[-–]2003)?\s*$', re.I)
+        save_export('Excel', excel_name, output, timeout)
+    finally:
+        context.remove_listener('page', track)
+        context.remove_listener('response', track_response)
+        for scope, listener in download_listeners:
+            scope.remove_listener('download', listener)
+        if close_preview:
+            report.close()
+
 
 
 @contextmanager
