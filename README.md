@@ -243,3 +243,26 @@ replaces each snapshot after a successful export. Once a completed-day archive
 PDF exists, it takes priority over the snapshot and is kept on manual reruns.
 The nightly import schedule operates independently of manual PDF exports. **Download all PDFs** saves separate PDF files
 and may require allowing multiple downloads in the browser.
+
+### Report 6 – Item Sales Enquiry
+
+Open **Item Sales Enquiry (Report 6)** from the sidebar. Choose an inclusive range
+of up to 366 days and the stores to export. The office worker processes stores in
+sequence and saves one workbook per date and store. Existing valid workbooks are
+skipped. Retry Failed processes only failures from the selected job. Redownload
+Selected replaces a workbook only after its replacement passes validation.
+Cancellation takes effect at the next worker checkpoint, which may follow a CRM
+operation already in progress. Download All sends separate Excel files to the browser.
+
+Run the Ordering web service on Ubuntu under the same account as the import worker.
+Report 6 uses the existing worker virtual environment, Chromium, database-backed
+CRM settings and protected CRM login. The web service can use the configured daily
+wastage worker and archive paths, or set these overrides to absolute paths:
+
+- `ITEM_SALES_ENQUIRY_WORKER_DIRECTORY` points to the existing worker checkout
+  containing `.worker-runtime/venv/bin/python` and `automation/config.local.json`.
+- `ITEM_SALES_ENQUIRY_ARCHIVE_DIRECTORY` points to an existing writable directory
+  for job history and workbooks. The feature creates its own `item-sales-enquiry`
+  subdirectory.
+- Install `libreoffice-calc` on the Ubuntu host if any store returns legacy XLS.
+  Native XLSX exports require no additional system package.
