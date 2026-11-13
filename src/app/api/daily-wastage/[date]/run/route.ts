@@ -24,8 +24,19 @@ export async function POST(request: Request, { params }: Context) {
   if (!dailyWastageDate.safeParse(date).success || date > todayIso()) {
     return Response.json({ error: "Select today or an earlier report date." }, { status: 400, headers });
   }
+  const target = new URL(request.url).searchParams.get("storeId");
+  const storeId = target === null ? undefined : Number(target);
+  if (target !== null && (!/^[1-9]\d*$/.test(target) || !Number.isSafeInteger(storeId))) {
+    return Response.json({ error: "Invalid store." }, { status: 400, headers });
+  }
   try {
-    if (await startDailyWastageRun(date)) return Response.json(await getDailyWastageRun(date), { status: 202, headers });
+    if (storeId !== undefined) {
+      const run = await getDailyWastageRun(date);
+      if (!run || run.state === "running" || !run.stores.some(store => store.id === storeId && store.state === "failed")) {
+        return Response.json({ error: "Only failed store exports can be retried after the current run ends." }, { status: 409, headers });
+      }
+    }
+    if (await startDailyWastageRun(date, storeId)) return Response.json(await getDailyWastageRun(date), { status: 202, headers });
   } catch {
     // Keep worker paths and diagnostics out of the browser response.
   }

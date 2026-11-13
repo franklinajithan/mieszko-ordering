@@ -24,7 +24,7 @@ def publish(folder, status):
         temporary.unlink(missing_ok=True)
 
 
-def run(args, folder, status):
+def run(args, folder, status, retry_store=None):
     worker = args.worker_directory.resolve(strict=True)
     os.environ.update(runtime_environment(worker, os.environ))
     config = json.loads((worker / 'automation/config.local.json').read_text(encoding='utf-8-sig'))
@@ -40,15 +40,23 @@ def run(args, folder, status):
             WHERE s.is_active AND s.erp_type='msp' AND NULLIF(btrim(c.crm_url), '') IS NOT NULL
             ORDER BY s.name, s.id
         """).fetchall()
-        status['stores'] = [{'id': store_id, 'name': name, 'state': 'waiting', 'step': ''}
-                            for store_id, name in stores]
-        publish(folder, status)
-        if not stores:
-            status.update(state='failed', message='No active stores have a Nibua address.')
+        if retry_store is None:
+            status['stores'] = [{'id': store_id, 'name': name, 'state': 'waiting', 'step': ''}
+                                for store_id, name in stores]
+            publish(folder, status)
+            if not stores:
+                status.update(state='failed', message='No active stores have a Nibua address.')
+                return
+            targets = status['stores']
+        elif retry_store['id'] not in dict(stores):
+            retry_store.update(state='failed', step='Store no longer has an active Nibua address')
+            status.update(state='failed', message='The store PDF could not be retried.')
             return
+        else:
+            targets = [retry_store]
 
         day = args.date.isoformat()
-        for store in status['stores']:
+        for store in targets:
             store_id = store['id']
             if store_id in args.keep_final:
                 store.update(state='complete', step='Final PDF already available')
@@ -84,6 +92,7 @@ def main():
     parser.add_argument('--archive', required=True, type=Path)
     parser.add_argument('--date', required=True, type=date.fromisoformat)
     parser.add_argument('--keep-final', type=int, nargs='*', default=[])
+    parser.add_argument('--retry-store', type=int)
     args = parser.parse_args()
     if args.date > london_today():
         parser.error('Select today or an earlier date')
@@ -99,12 +108,33 @@ def main():
             print('ready', flush=True)
             return
         status = {'state': 'running', 'message': 'Preparing the Nibua export.', 'stores': []}
+        retry_store = None
+        if args.retry_store is not None:
+            status_file = folder / 'status.json'
+            if status_file.resolve(strict=True) != status_file:
+                raise ValueError('Invalid manual export status')
+            status = json.loads(status_file.read_text(encoding='utf-8'))
+            # The lock is free, so a status still marked running was abandoned.
+            if status['state'] == 'running':
+                for store in status['stores']:
+                    if store['state'] in ('waiting', 'running'):
+                        store.update(state='failed', step='Export stopped before the PDF was ready')
+            retry_store = next((store for store in status['stores']
+                                if store['id'] == args.retry_store and store['state'] == 'failed'), None)
+            if retry_store is None:
+                print('ready', flush=True)
+                return
+            retry_store.update(state='waiting', step='Waiting to retry')
+            status.update(state='running', message=f"Retrying the PDF export for {retry_store['name']}.")
         publish(folder, status)
         print('ready', flush=True)
         try:
-            run(args, folder, status)
+            run(args, folder, status, retry_store)
         except Exception as error:
-            status.update(state='failed', message=f'Unable to start the Nibua export ({type(error).__name__}).')
+            message = f'Unable to start the Nibua export ({type(error).__name__}).'
+            if retry_store is not None:
+                retry_store.update(state='failed', step=message)
+            status.update(state='failed', message=message)
         finally:
             publish(folder, status)
 
