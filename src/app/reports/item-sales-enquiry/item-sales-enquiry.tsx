@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Download, Play, RotateCcw, Square } from "lucide-react";
 import {
-  report6Api, report6Days, report6Filename, report6Stores,
+  report6Api, report6Date, report6Days, report6Filename, report6Stores, report6ZipFilename,
   type Report6Job, type Report6Key, type Report6Store, type Report6Summary,
 } from "@/lib/item-sales-enquiry";
 
@@ -27,7 +27,26 @@ function stamp(value: number) {
   }).format(value);
 }
 
+function saveDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export function ItemSalesEnquiry({ today, initialDate }: { today: string; initialDate: string }) {
+  const [archiveDate, setArchiveDate] = useState(initialDate);
+  const [archive, setArchive] = useState<{ date: string; available: Report6Store[] } | null>(null);
+  const [archiveError, setArchiveError] = useState("");
+  const [zip, setZip] = useState<{ running: boolean; message: string; error?: boolean }>({ running: false, message: "" });
+  const validArchiveDate = report6Date.safeParse(archiveDate).success && archiveDate <= today;
+  const archiveUrl = `${report6Api}/archive/${archiveDate}`;
+  const available = archive?.date === archiveDate ? archive.available : null;
+  const missingStores = available ? stores.filter(([store]) => !available.includes(store)).map(([, name]) => name) : [];
   const [start, setStart] = useState(initialDate);
   const [end, setEnd] = useState(initialDate);
   const [selectedStores, setStores] = useState<Report6Store[]>(stores.map(([store]) => store));
@@ -80,6 +99,54 @@ export function ItemSalesEnquiry({ today, initialDate }: { today: string; initia
     };
   }, [jobId]);
 
+  useEffect(() => {
+    if (!validArchiveDate) return;
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function refresh() {
+      try {
+        const response = await fetch(archiveUrl, { signal: abort.signal, cache: "no-store" });
+        if (!response.ok) throw new Error();
+        const { available } = await response.json() as { available: Report6Store[] };
+        if (abort.signal.aborted) return;
+        setArchive({ date: archiveDate, available });
+        setArchiveError("");
+      } catch {
+        if (abort.signal.aborted) return;
+        setArchive(null);
+        setArchiveError("Could not check archived reports. Retrying…");
+      } finally {
+        if (!abort.signal.aborted) timer = setTimeout(refresh, 2500);
+      }
+    }
+    void refresh();
+    return () => {
+      abort.abort();
+      clearTimeout(timer);
+    };
+  }, [archiveDate, archiveUrl, validArchiveDate]);
+
+  function selectArchiveDate(date: string) {
+    setArchiveDate(date);
+    setArchiveError("");
+    setZip(previous => previous.running ? previous : { running: false, message: "" });
+  }
+
+  async function downloadZip() {
+    setZip({ running: true, message: `Preparing ZIP for ${archiveDate}…` });
+    try {
+      const response = await fetch(`${archiveUrl}?download=zip`, { cache: "no-store" });
+      if (response.status === 404) throw new Error("No archived workbooks are available for this date.");
+      if (!response.ok || response.headers.get("Content-Type") !== "application/zip") {
+        throw new Error("Could not download the ZIP. Try again.");
+      }
+      saveDownload(await response.blob(), report6ZipFilename(archiveDate));
+      setZip({ running: false, message: `ZIP for ${archiveDate} sent to your browser.` });
+    } catch (error) {
+      setZip({ running: false, message: error instanceof Error ? error.message : "ZIP download failed.", error: true });
+    }
+  }
+
   async function submit(payload?: object) {
     setBusy(true);
     setError("");
@@ -121,14 +188,7 @@ export function ItemSalesEnquiry({ today, initialDate }: { today: string; initia
       try {
         const response = await fetch(`${report6Api}/files/${key(row)}`);
         if (!response.ok || response.headers.get("Content-Type") !== workbookType) throw new Error();
-        const url = URL.createObjectURL(await response.blob());
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = report6Filename(row);
-        document.body.append(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        saveDownload(await response.blob(), report6Filename(row));
       } catch {
         failures++;
       }
@@ -138,6 +198,28 @@ export function ItemSalesEnquiry({ today, initialDate }: { today: string; initia
 
   return (
     <div className="space-y-5">
+      <section className={panel} id="report6-archive" aria-labelledby="report6-archive-title">
+        <h2 id="report6-archive-title" className="text-lg font-semibold">Archived reports</h2>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="grid gap-1 text-sm font-medium">ZIP report date
+            <input type="date" className="rounded-lg border border-zinc-300 px-3 py-2" max={today}
+              value={archiveDate} onChange={event => selectArchiveDate(event.target.value)} />
+          </label>
+          <button className={primary} disabled={!validArchiveDate || !available?.length || zip.running} onClick={downloadZip}>
+            <Download size={16} aria-hidden="true" /> Download All as ZIP
+            {available && ` (${available.length}/${stores.length} stores)`}
+          </button>
+        </div>
+        <div role="status" className="text-sm text-zinc-600">
+          {!validArchiveDate ? "Select a valid report date." : archiveError || (
+            available === null ? "Checking archived reports…" : missingStores.length
+              ? `Missing stores: ${missingStores.join(", ")}.`
+              : "All seven stores are available."
+          )}
+        </div>
+        {zip.message && <p role={zip.error ? "alert" : "status"} className={zip.error ? "text-sm text-red-800" : "text-sm text-zinc-600"}>{zip.message}</p>}
+      </section>
+
       <section className={panel} aria-labelledby="report6-new">
         <h2 id="report6-new" className="text-lg font-semibold">New download</h2>
         <form className="space-y-4" onSubmit={event => {
@@ -201,6 +283,9 @@ export function ItemSalesEnquiry({ today, initialDate }: { today: string; initia
                 <button className={button} disabled={busy || job.state !== "running" || job.cancelling} onClick={() => submit()}>
                   <Square size={16} aria-hidden="true" /> {job.cancelling ? "Cancelling…" : "Cancel Job"}
                 </button>
+                <a className={button} href="#report6-archive" onClick={() => selectArchiveDate(job.start)}>
+                  <Download size={16} aria-hidden="true" /> ZIP by Date
+                </a>
                 <button className={button} disabled={!files.length || bulk.running} onClick={downloadAll}>
                   <Download size={16} aria-hidden="true" /> Download All ({files.length})
                 </button>
@@ -244,7 +329,10 @@ export function ItemSalesEnquiry({ today, initialDate }: { today: string; initia
                         checked={selected.includes(key(row))} onChange={event => setSelected(previous => event.target.checked
                           ? [...previous, key(row)] : previous.filter(value => value !== key(row)))} /></td>
                       <td className="px-3 py-2">{report6Stores[row.store]}</td>
-                      <td className="whitespace-nowrap px-3 py-2">{row.date}</td>
+                      <td className="whitespace-nowrap px-3 py-2">
+                        <a href="#report6-archive" className="hover:underline" onClick={() => selectArchiveDate(row.date)}
+                          aria-label={`Select ${row.date} for ZIP download`}>{row.date}</a>
+                      </td>
                       <td className="px-3 py-2"><span className={`capitalize ${row.state === "failed" ? "font-medium text-red-800" : ""}`}>{row.state}</span>
                         {row.message && <p className="text-xs text-zinc-600">{row.message}</p>}</td>
                       <td className="px-3 py-2">{hasFile(row) && <a className="font-medium text-emerald-800 hover:underline"

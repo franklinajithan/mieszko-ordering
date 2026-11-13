@@ -254,6 +254,15 @@ Selected replaces a workbook only after its replacement passes validation.
 Cancellation takes effect at the next worker checkpoint, which may follow a CRM
 operation already in progress. Download All sends separate Excel files to the browser.
 
+Under **Archived reports**, select a date and choose **Download All as ZIP**.
+The ZIP contains the available workbooks in store folders. The page shows
+which stores are missing, and dates in **Report history** can open the ZIP
+selector directly. The ZIP reads the archive without launching a CRM job.
+
+Keep the web listener private behind the office authentication proxy. Protect
+both `/reports/item-sales-enquiry` and `/api/reports/item-sales-enquiry/`,
+including the archive availability and ZIP downloads, with the same access rules.
+
 Run the Ordering web service on Ubuntu under the same account as the import worker.
 Report 6 uses the existing worker virtual environment, Chromium, database-backed
 CRM settings and protected CRM login. The web service can use the configured daily
