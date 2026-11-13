@@ -41,6 +41,7 @@ export const navGroups: NavGroup[] = [
       { href:"/operations",label:"Office Operations",icon:LayoutDashboard },
       { href:"/data-quality",label:"Data Quality",icon:Layers },
       { href: "/automation", label: "CRM Downloads", icon: FileSpreadsheet },
+      { href: "/reports/downloader", label: "Report Downloader", icon: FileSpreadsheet },
       { href: "/reports/item-sales-enquiry", label: "Item Sales Enquiry (Report 6)", icon: FileSpreadsheet },
       { href: "/downloads", label: "Download Queue", icon: FileSpreadsheet },
       { href: "/daily-wastage", label: "Daily Wastage Files", icon: FileSpreadsheet },

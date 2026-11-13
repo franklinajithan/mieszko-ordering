@@ -1,6 +1,6 @@
 import "server-only";
 
-import { spawn } from "node:child_process";
+import { launchOfficeReportWorker } from "@/services/office-report-worker";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { open, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
@@ -88,34 +88,8 @@ export async function launchReport6(reports: Report6Key[], force: boolean) {
   const payload = { id, start: dates[0], end: dates.at(-1), force,
     reports: reports.map(row => ({ ...row, state: "waiting", message: "" })) };
 
-  return new Promise<{ status: "ready" | "busy" | "unavailable"; id: string }>(resolve => {
-    const child = spawn(path.join(config.worker, ".worker-runtime/venv/bin/python"), [
-      path.join(process.cwd(), "automation/item_sales_enquiry.py"),
-      "--worker-directory", config.worker, "--archive", config.archive,
-    ], { detached: true, stdio: ["pipe", "pipe", "ignore"] });
-    function finish(status: "ready" | "busy" | "unavailable") {
-      clearTimeout(timer);
-      child.stdout.destroy();
-      child.unref();
-      resolve({ status, id });
-    }
-    const timer = setTimeout(() => {
-      child.kill();
-      finish("unavailable");
-    }, 10_000);
-    child.once("error", () => finish("unavailable"));
-    child.once("close", () => finish("unavailable"));
-    child.stdin.on("error", () => {}); // The child can exit before reading stdin.
-    let output = "";
-    child.stdout.on("data", chunk => {
-      output += String(chunk);
-      if (output.includes("\n")) {
-        const line = output.split("\n", 1)[0];
-        finish(line === "ready" || line === "busy" ? line : "unavailable");
-      }
-    });
-    child.stdin.end(JSON.stringify(payload));
-  });
+  const result = await launchOfficeReportWorker(config, "item_sales_enquiry.py", payload);
+  return { ...result, id };
 }
 
 export async function cancelReport6(id: string) {
