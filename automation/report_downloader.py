@@ -112,8 +112,7 @@ def download_filename(row):
     if report in ('wastage', 'stock_adjustment_extra'):
         return f'Wastage {start:%Y}.xlsx'
     end = date.fromisoformat(row['end'])
-    title = 'Item Sales' if report == 'item_sales' else 'Daily Item Volume'
-    return f'{title} {start:%d.%m.%y}-{end:%d.%m.%y}.xlsx'
+    return f'{start:%d.%m.%y}-{end:%d.%m.%y}.xlsx'
 
 
 def create_zip(root, folder, rows):
