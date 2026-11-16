@@ -22,15 +22,26 @@ tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 git fetch --no-tags https://github.com/franklinajithan/mieszko-ordering.git refs/heads/feat/adm-ordering
 target="$(git rev-parse FETCH_HEAD)"
-git diff --binary "${ADM_BASE_COMMIT:-042f1e83b6299431c7c1e8c7bf37068e3468ee9d}" "$target" \
-  -- src package.json package-lock.json automation/adm-report6-nightly.sh > "$tmp/adm.patch"
-test -s "$tmp/adm.patch"
-
 applied=no
-if ! git apply --reverse --check "$tmp/adm.patch" 2>/dev/null; then
-  git apply --check "$tmp/adm.patch"
-  git apply "$tmp/adm.patch"
-  applied=yes
+matched=no
+for base in "${ADM_BASE_COMMIT:-2e8d905b17fe168f0e22c4a8e8e7bb9aa5d9a9bb}" 042f1e83b6299431c7c1e8c7bf37068e3468ee9d; do
+  git diff --binary "$base" "$target" \
+    -- src package.json package-lock.json automation/adm-report6-nightly.sh > "$tmp/adm.patch"
+  [[ -s "$tmp/adm.patch" ]] || continue
+  if git apply --reverse --check "$tmp/adm.patch" 2>/dev/null; then
+    matched=yes
+    break
+  fi
+  if git apply --check "$tmp/adm.patch" 2>/dev/null; then
+    git apply "$tmp/adm.patch"
+    applied=yes
+    matched=yes
+    break
+  fi
+done
+if [[ "$matched" != yes ]]; then
+  echo "The ADM update did not match this web checkout. No source files were changed." >&2
+  exit 1
 fi
 
 backup=".next.before-adm-daily-sales-$(date +%Y%m%d-%H%M%S)-$$"

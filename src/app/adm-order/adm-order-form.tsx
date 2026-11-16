@@ -1,15 +1,27 @@
 "use client";
 
 import { CalendarDays, Search, Settings2, Store } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { getAdmOrder } from "@/lib/adm/ordering";
 
 type Order = Awaited<ReturnType<typeof getAdmOrder>>;
 type Shop = { id: number; name: string };
 const control = "rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100";
 const button = "rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50";
+const gridColumns = "grid grid-cols-[minmax(14rem,1fr)_7rem_6rem_7rem_7rem_repeat(10,3.5rem)]";
+const gridCell = "flex min-w-0 items-center border-r border-zinc-100 px-2.5 py-2";
 const shortDate = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 const fullDate = (iso: string) => iso.split("-").reverse().join(".");
+
+function moveQuantityFocus(event: KeyboardEvent<HTMLDivElement>) {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.hasAttribute("data-order-qty")) return;
+  if (event.key !== "Enter" && event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  const inputs = [...event.currentTarget.querySelectorAll<HTMLInputElement>("[data-order-qty]:enabled")];
+  const offset = event.key === "ArrowUp" || (event.key === "Enter" && event.shiftKey) ? -1 : 1;
+  inputs[inputs.indexOf(input) + offset]?.focus();
+}
 
 export function AdmOrderForm({ shops, initialDate, catalogRevision = 0 }: { shops: Shop[]; initialDate: string; catalogRevision?: number }) {
   const [shopId, setShopId] = useState(shops[0]?.id ?? 0);
@@ -193,59 +205,73 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                     <input type="search" aria-label="Find a product" placeholder="Find by product or item code"
                       className={`${control} w-64 max-w-full`} value={search} onChange={(event) => setSearch(event.target.value)} />
                   </label>
-                  <span className="text-xs text-zinc-500">— No imported quantity</span>
+                  <span className="text-xs text-zinc-500">{order.current ? "— No imported quantity" : "Use Enter or ↑ ↓ to move between quantities"}</span>
                 </div>
                 <div className="max-h-[65vh] overflow-auto border-t border-zinc-200">
-                <table className="w-full text-sm [&_td]:px-3 [&_td]:py-2 [&_th]:px-3 [&_th]:py-2">
-                  <thead className="sticky top-0 z-20 bg-zinc-100 text-xs font-semibold text-zinc-700">
-                    <tr className="border-b border-zinc-200">
-                      <th colSpan={2} scope="colgroup" className="text-left">Shop products</th>
-                      <th colSpan={2} scope="colgroup" className="border-l border-zinc-200 text-center">Previous orders</th>
-                      <th scope="col" className="border-l border-emerald-200 bg-emerald-100 text-emerald-900">Order</th>
-                      <th colSpan={10} scope="colgroup" className="border-l border-zinc-200 text-left">Daily Sales</th>
-                    </tr>
-                    <tr>
-                      <th scope="col" className="sticky left-0 z-10 min-w-56 bg-zinc-100 text-left">Product</th>
-                      <th scope="col" className="min-w-24 text-left">Item Code</th>
-                      {[0, 1].map((index) => (
-                        <th scope="col" className="min-w-24" key={index}>
-                          {index === 0 ? "Last order" : "Order before last"}
-                          {order.previousDates[index] && <small className="block font-normal">{fullDate(order.previousDates[index])}</small>}
-                        </th>
-                      ))}
-                      <th scope="col" className="min-w-24 border-x border-emerald-200 bg-emerald-50 text-emerald-900">{order.current ? "Submitted qty" : "New order qty"}</th>
-                      {order.dates.map((day) => <th scope="col" key={day} title={order.missingSalesDates.includes(day) ? "No Daily Sales import" : undefined}
-                        className={`min-w-12 ${order.missingSalesDates.includes(day) ? "text-zinc-400" : ""}`}>{shortDate(day)}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleItems?.map((item) => (
-                      <tr key={item.name} className="group border-t border-zinc-100 even:bg-zinc-50/70 hover:bg-emerald-50/60">
-                        <th scope="row" className="sticky left-0 z-10 min-w-56 bg-white text-left font-medium text-zinc-900 group-even:bg-zinc-50 group-hover:bg-emerald-50">
-                          {item.name}
-                          <small className="block font-normal text-muted-foreground">
-                            {item.salesUnit ? `Sales in ${item.salesUnit}` : null}
-                          </small>
-                        </th>
-                        <td className="whitespace-nowrap font-mono text-xs text-zinc-600">{item.code ?? "—"}</td>
+                  <div role="grid" aria-label={`${shop.name} ADM order quantities and daily sales`}
+                    className="min-w-[76rem] text-sm" onKeyDown={moveQuantityFocus}>
+                    <div role="rowgroup" className="sticky top-0 z-20 bg-zinc-100 text-xs font-semibold text-zinc-700">
+                      <div role="row" className={`${gridColumns} border-b border-zinc-200`}>
+                        <div role="columnheader" aria-colspan={2} className={`${gridCell} col-span-2`}>Shop products</div>
+                        <div role="columnheader" aria-colspan={2} className={`${gridCell} col-span-2 justify-center`}>Previous orders</div>
+                        <div role="columnheader" className={`${gridCell} justify-center bg-emerald-100 text-emerald-900`}>Order</div>
+                        <div role="columnheader" aria-colspan={10} className={`${gridCell} col-span-10`}>Daily Sales</div>
+                      </div>
+                      <div role="row" className={gridColumns}>
+                        <div role="columnheader" className={`${gridCell} sticky left-0 z-10 bg-zinc-100`}>Product</div>
+                        <div role="columnheader" className={gridCell}>Item Code</div>
                         {[0, 1].map((index) => (
-                          <td key={index} className="text-right tabular-nums">{item.previousQuantities[index] ?? "—"}</td>
+                          <div role="columnheader" className={`${gridCell} flex-col justify-center text-center`} key={index}>
+                            {index === 0 ? "Last order" : "Order before last"}
+                            {order.previousDates[index] && <small className="font-normal">{fullDate(order.previousDates[index])}</small>}
+                          </div>
                         ))}
-                        <td className="border-x border-emerald-100 bg-emerald-50/70 text-right tabular-nums">
-                          {order.current ? order.current.quantities[item.name] ?? "—" :
-                            <input className={`${control} w-20 text-right`} type="number" inputMode="decimal"
-                              min={0} max={999999} step="0.001" disabled={saving}
-                              aria-label={`Order quantity for ${item.name}`} value={entries[item.name] ?? ""}
-                              onChange={(event) => setEntries({ ...entries, [item.name]: event.target.value })} />}
-                        </td>
-                        {item.sales.map((qty, index) => (
-                          <td key={order.dates[index]} className={`text-right tabular-nums ${qty === null ? "text-zinc-400" : "text-zinc-900"}`}>{qty === null ? "—" : Number(qty)}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {order.items.length > 0 && !visibleItems?.length && <p className="p-5 text-sm text-zinc-600">No products match your search.</p>}
+                        <div role="columnheader" className={`${gridCell} justify-center bg-emerald-50 text-emerald-900`}>
+                          {order.current ? "Submitted qty" : "New order qty"}
+                        </div>
+                        {order.dates.map((day) => {
+                          const missing = order.missingSalesDates.includes(day);
+                          return (
+                            <div role="columnheader" key={day} title={missing ? "No Daily Sales import" : undefined}
+                              className={`${gridCell} justify-end ${missing ? "text-zinc-400" : ""}`}>
+                              {shortDate(day)}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div role="rowgroup">
+                      {visibleItems?.map((item) => (
+                        <div role="row" key={item.name}
+                          className={`${gridColumns} group border-t border-zinc-100 even:bg-zinc-50 hover:bg-emerald-50/60`}>
+                          <div role="rowheader" className={`${gridCell} sticky left-0 z-10 block bg-white font-medium text-zinc-900 group-even:bg-zinc-50 group-hover:bg-emerald-50`}>
+                            {item.name}
+                            {item.salesUnit && <small className="block font-normal text-zinc-500">Sales in {item.salesUnit}</small>}
+                          </div>
+                          <div role="gridcell" className={`${gridCell} break-all font-mono text-xs text-zinc-600`}>{item.code ?? "—"}</div>
+                          {[0, 1].map((index) => (
+                            <div role="gridcell" key={index} className={`${gridCell} justify-end tabular-nums`}>
+                              {item.previousQuantities[index] ?? "—"}
+                            </div>
+                          ))}
+                          <div role="gridcell" className={`${gridCell} justify-end bg-emerald-50/70 text-right tabular-nums`}>
+                            {order.current ? order.current.quantities[item.name] ?? "—" :
+                              <input className={`${control} w-full text-right`} type="number" inputMode="decimal"
+                                min={0} max={999999} step="0.001" disabled={saving} data-order-qty
+                                aria-label={`Order quantity for ${item.name}`} value={entries[item.name] ?? ""}
+                                onChange={(event) => setEntries({ ...entries, [item.name]: event.target.value })} />}
+                          </div>
+                          {item.sales.map((qty, index) => (
+                            <div role="gridcell" key={order.dates[index]}
+                              className={`${gridCell} justify-end tabular-nums ${qty === null ? "text-zinc-400" : "text-zinc-900"}`}>
+                              {qty === null ? "—" : Number(qty)}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {order.items.length > 0 && !visibleItems?.length && <p className="p-5 text-sm text-zinc-600">No products match your search.</p>}
                 </div>
               </div>
               {!order.items.length && (
