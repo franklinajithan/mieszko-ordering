@@ -1,0 +1,119 @@
+{
+  "download_directory": "C:/Mieszko/ordering-downloads",
+  "stores": {
+    "1": {
+      "feeds": {
+        "normal_sales": {
+          "command": [
+            "C:/Mieszko/mieszko-ordering/automation/.venv/Scripts/python.exe",
+            "C:/Mieszko/mieszko-ordering/automation/crm_download.py",
+            "--config",
+            "C:/Mieszko/mieszko-ordering/automation/crm.local.json",
+            "--source",
+            "normal_sales",
+            "--start",
+            "{start}",
+            "--end",
+            "{end}",
+            "--output",
+            "{output}"
+          ],
+          "extension": ".xlsx",
+          "timeout_seconds": 2400,
+          "mapping": {
+            "code": "Item Code",
+            "quantity": "Quantity",
+            "date": "Date",
+            "header_row": 1
+          },
+          "complete_store_report": false,
+          "normalize_with_app_parsers": true,
+          "allow_empty_report": false
+        },
+        "rtc": {
+          "command": [
+            "C:/Mieszko/mieszko-ordering/automation/.venv/Scripts/python.exe",
+            "C:/Mieszko/mieszko-ordering/automation/crm_download.py",
+            "--config",
+            "C:/Mieszko/mieszko-ordering/automation/crm.local.json",
+            "--source",
+            "rtc",
+            "--start",
+            "{start}",
+            "--end",
+            "{end}",
+            "--output",
+            "{output}"
+          ],
+          "extension": ".xlsx",
+          "timeout_seconds": 2400,
+          "mapping": {
+            "code": "Item Code",
+            "quantity": "Quantity",
+            "date": "Date",
+            "header_row": 1
+          },
+          "complete_store_report": false,
+          "normalize_with_app_parsers": true,
+          "allow_empty_report": false
+        },
+        "wastage": {
+          "command": [
+            "C:/Mieszko/mieszko-ordering/automation/.venv/Scripts/python.exe",
+            "C:/Mieszko/mieszko-ordering/automation/crm_download.py",
+            "--config",
+            "C:/Mieszko/mieszko-ordering/automation/crm.local.json",
+            "--source",
+            "wastage",
+            "--start",
+            "{start}",
+            "--end",
+            "{end}",
+            "--output",
+            "{output}"
+          ],
+          "extension": ".xlsx",
+          "timeout_seconds": 2400,
+          "mapping": {
+            "code": "Item Code",
+            "quantity": "Quantity",
+            "date": "Date",
+            "header_row": 1
+          },
+          "complete_store_report": false,
+          "normalize_with_app_parsers": true,
+          "allow_empty_report": false
+        },
+        "book_stock": {
+          "command": [
+            "C:/Mieszko/mieszko-ordering/automation/.venv/Scripts/python.exe",
+            "C:/Mieszko/mieszko-ordering/automation/crm_download.py",
+            "--config",
+            "C:/Mieszko/mieszko-ordering/automation/crm.local.json",
+            "--source",
+            "book_stock",
+            "--start",
+            "{start}",
+            "--end",
+            "{end}",
+            "--output",
+            "{output}"
+          ],
+          "extension": ".xlsx",
+          "timeout_seconds": 2400,
+          "mapping": {
+            "code": "Item Code",
+            "quantity": "Quantity",
+            "date": "Date",
+            "header_row": 1
+          },
+          "includes_negative_stock": false,
+          "normalize_with_app_parsers": true,
+          "allow_empty_report": false
+        }
+      },
+      "erp": "msp"
+    }
+  },
+  "app_directory": "C:/Mieszko/mieszko-ordering"
+}

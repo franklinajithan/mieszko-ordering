@@ -1,16 +1,9 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { WastageImportForm } from "@/components/imports/wastage-import-form";
-import { storeRepository } from "@/repositories";
+import { WastagePageView } from "@/components/wastage/wastage-page";
+import { listStores } from "@/lib/api/stores";
+
 
 export default async function WastagePage() {
-  const stores = await storeRepository.list();
-
-  return (
-    <AppShell
-      title="Wastage"
-      description="Import wastage quantities by store and date from Excel."
-    >
-      <WastageImportForm stores={stores} />
-    </AppShell>
-  );
+  const stores = await listStores();
+  if (!stores.success) return <div>Error: {stores.error}</div>;
+  return <WastagePageView stores={stores.data} />;
 }

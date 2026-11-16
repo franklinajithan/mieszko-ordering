@@ -1,7 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useTransition } from "react";
-import { toggleStoreActive, toggleSupplierActive, updateStore } from "@/app/actions";
+import { toggleStoreActive, toggleSupplierActive, updateStore } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 
@@ -12,6 +13,7 @@ export function StoreToggleButton({
   id: number;
   isActive: boolean;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   return (
@@ -22,6 +24,7 @@ export function StoreToggleButton({
       onClick={() =>
         startTransition(async () => {
           await toggleStoreActive(id, !isActive);
+          router.refresh();
         })
       }
     >
@@ -37,6 +40,7 @@ export function StoreErpSelect({
   id: number;
   erpType: string;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   return (
@@ -46,6 +50,7 @@ export function StoreErpSelect({
       onChange={(e) =>
         startTransition(async () => {
           await updateStore({ id, erpType: e.target.value });
+          router.refresh();
         })
       }
     >
@@ -62,6 +67,7 @@ export function SupplierToggleButton({
   id: number;
   isActive: boolean;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   return (
@@ -72,6 +78,7 @@ export function SupplierToggleButton({
       onClick={() =>
         startTransition(async () => {
           await toggleSupplierActive(id, !isActive);
+          router.refresh();
         })
       }
     >

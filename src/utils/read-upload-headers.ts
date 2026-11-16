@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).trim();
+  return String(value).replace(/\s+/g, " ").trim();
 }
 
 function normHeader(value: string): string {
@@ -21,11 +21,35 @@ function looksLikeHeaderRow(headers: string[]): boolean {
   if (has(["ID", "Qty"]) || has(["ID", "Quantity"])) return true;
   if (has(["Item Code"]) && normalized.some((h) => h.includes("stock"))) return true;
   if (has(["Item Code"]) && normalized.some((h) => h.includes("sales qty"))) return true;
+  if (has(["Barcode"]) && has(["Qty", "QTY", "Quantity"])) return true;
+  if (
+    has(["Barcode"]) &&
+    normalized.some((h) => h.includes("promo qty") || h.includes("promotion qty"))
+  ) {
+    return true;
+  }
+  if (
+    has(["Barcode"]) &&
+    normalized.some((h) => h.includes("qty variance") || h.includes("quantity variance"))
+  ) {
+    return true;
+  }
+  if (has(["Product Code"]) && has(["Qty", "QTY", "Quantity"])) return true;
   if (has(["ProductCode", "Product Code"]) && has(["ItemName1", "Item Name"])) return true;
   if (has(["ID", "Id"]) && has(["Name", "Description"])) return true;
   if (has(["Item Code"]) && has(["Name", "Description"])) return true;
+  if (
+    has(["Item Code"]) &&
+    has(["Qty"]) &&
+    (has(["St. Before"]) ||
+      normalized.some((h) => h.includes("adj")) ||
+      normalized.some((h) => h.includes("stock adjustment")))
+  ) {
+    return true;
+  }
 
-  return normalized.length >= 3;
+  // Do not treat title/meta rows (e.g. "Promotion Item Detail") as headers.
+  return false;
 }
 
 function headersFromGridRow(row: unknown[]): string[] {

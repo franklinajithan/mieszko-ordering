@@ -1,16 +1,10 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { BookStockImportForm } from "@/components/imports/book-stock-import-form";
-import { storeRepository } from "@/repositories";
+import { BookStockPageView } from "@/components/book-stock/book-stock-page";
+import { listStores } from "@/lib/api/stores";
+import { listSuppliers } from "@/lib/api/suppliers";
 
 export default async function BookStockPage() {
-  const stores = await storeRepository.list();
-
-  return (
-    <AppShell
-      title="Book Stock"
-      description="Import BK files by store. Reuse the latest upload when preparing orders."
-    >
-      <BookStockImportForm stores={stores} />
-    </AppShell>
-  );
+  const [stores, suppliers] = await Promise.all([listStores(), listSuppliers()]);
+  if (!stores.success) throw new Error(stores.error);
+  if (!suppliers.success) throw new Error(suppliers.error);
+  return <BookStockPageView stores={stores.data} suppliers={suppliers.data} />;
 }

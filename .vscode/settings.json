@@ -1,0 +1,6 @@
+{
+    "gitlens.statusBar.alignment": "right",
+    "rainbow_csv.virtual_alignment_mode": "disabled",
+    "rainbow_csv.virtual_alignment_vertical_grid": false,
+    "editor.minimap.side": "right"
+}

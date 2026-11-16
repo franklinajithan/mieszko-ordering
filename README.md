@@ -11,7 +11,7 @@ Dairy ordering and supplier price comparison MVP built with Next.js App Router, 
 - Tailwind CSS
 - Vitest for calculation engine tests
 
-## Quick start (UI only — no database)
+## Quick start
 
 1. Install dependencies:
 
@@ -19,13 +19,26 @@ Dairy ordering and supplier price comparison MVP built with Next.js App Router, 
 npm install
 ```
 
-2. Create a `.env` file in the project root:
+2. Start PostgreSQL (Docker):
+
+```bash
+npm run db:up
+```
+
+3. Create a `.env` / `.env.local` file with your database URL:
 
 ```
-USE_MOCK_DATA=true
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mieszko
 ```
 
-3. Run the dev server:
+4. Apply schema and seed suppliers:
+
+```bash
+npm run db:push
+npm run db:seed
+```
+
+5. Run the dev server:
 
 ```bash
 npm run dev
@@ -33,11 +46,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The app runs in **demo mode** with sample stores, products, suppliers, and a pre-built order at `/orders/mock-order-demo-001`. A yellow banner confirms demo mode is active.
-
-## PostgreSQL (optional, later)
-
-When you are ready to persist data, set `DATABASE_URL` in `.env` and remove or set `USE_MOCK_DATA=false`:
+Without `DATABASE_URL`, the app redirects to `/setup` with configuration instructions.
 
 ## Scripts
 
@@ -46,6 +55,7 @@ When you are ready to persist data, set `DATABASE_URL` in `.env` and remove or s
 | `npm run dev` | Start development server |
 | `npm run build` | Production build |
 | `npm test` | Run unit tests |
+| `npm run db:up` | Start PostgreSQL via Docker Compose |
 | `npm run db:push` | Push Drizzle schema to database |
 | `npm run db:seed` | Seed MM, SP, WAB suppliers |
 
@@ -53,10 +63,10 @@ When you are ready to persist data, set `DATABASE_URL` in `.env` and remove or s
 
 ```
 src/
-  app/           Route handlers and server actions
+  app/           Route handlers and API routes
   components/    UI only — no business logic
   db/            Drizzle schema and connection
-  repositories/  Database access
+  repositories/  Database access (postgres/)
   services/      Business logic (stock sim, pricing, imports)
   parsers/       CSV/XLSX parsing
   validators/    Zod schemas
@@ -72,7 +82,7 @@ Business logic lives in `services/` so it can later move to FastAPI without chan
 2. **Products** — `/products` (codes, barcodes, supplier mappings, Excel import)
 3. **Daily sales** — `/daily-sales`
 4. **Supplier prices** — `/supplier-prices`
-5. **New order** — `/orders/new` (4-step wizard)
+5. **Generate order** — `/order-sheet` (`/orders/new` redirects here)
 6. **Order review & export** — `/orders/[id]`
 
 ## Testing
@@ -88,3 +98,171 @@ Unit tests cover:
 ```bash
 npm test
 ```
+
+## Development completion package (15 October 2026)
+
+- Dashboard: separate seven-day Normal Sales, RTC and Wastage quantities, recent
+  orders, audited import status, and manual Book Stock queueing.
+- Saved orders: open `/orders/[id]` from the dashboard, review explanations,
+  adjust quantities, save atomically, and export supplier worksheets.
+- Ordering: UTC weekday forecasts deduplicate overlapping historical dates;
+  separate enabled movement feeds inform stock depletion and coverage demand.
+  Quotes use net **unit** prices; supplier worksheets show case conversions
+  without silently rounding the user's units. Unpriced lines stay flagged.
+- Book Stock: browser chunks stage until all rows arrive; automated imports and
+  whole-file uploads commit atomically. Incomplete or unmatched stock files never
+  replace the previous snapshot. Latest-store snapshots do not inherit omitted
+  products from older uploads.
+- Windows automation: see `docs/office-import-activation.md`. Actual CRM selectors,
+  report layout normalization, credentials and Windows scheduling remain office
+  activation work. Nothing is deployed or scheduled by the development package.
+
+The authoritative schema is `src/db/schema.ts`; `schema.sql` is a generated
+**fresh database** baseline. Existing office installations must review the manual
+migrations rather than run the baseline or `db:push`.
+
+Tests: `npm test` includes isolated embedded PostgreSQL persistence and order/export
+integration tests. `python -m unittest discover -s automation/tests -v` checks worker
+report validation. GitHub CI runs tests, lint and build, with no deployment or
+migration steps. See `docs/development-report-2026-10-15.md` for the verified scope
+and remaining office dependencies.
+
+
+## Supplier orders and history
+
+Open `/orders` to filter saved orders by store, dates and status. Reopen an order to
+edit units, see immediate line/net totals, and generate one supplier order per
+store and supplier. Each supplier order has a separate Excel download. The lowest
+valid **unit price** wins regardless of case size; missing offers remain warnings
+when another supplier has a valid price. Selected lines with no valid price block
+supplier-order generation rather than being silently omitted.
+
+Manual quantities are saved before exports and recalculation, and persist for the
+same store product when suggestions change. Generated supplier drafts track the
+source order revision and must be regenerated after subsequent edits. Apply the
+prepared `2026-10-16-supplier-orders-and-manual-quantities.sql` migration only after
+office review/approval. See `docs/functional-development-report.md` for the latest
+verified changes and remaining integration dependencies.
+
+
+## Isolated full-system verification
+
+The system suite starts its own in-memory PostgreSQL engine and production Next
+server. It uses seven-store fixtures, fake supplier data, generated Excel reports
+and an offline CRM site. It never reads an office database URL. Ports 55432, 3100
+and 3200 must be free; an existing server is rejected rather than reused.
+
+```bash
+npm ci
+python -m pip install -r automation/requirements.txt
+npx playwright install chromium
+python -m playwright install chromium
+npm test
+python -m unittest discover -s automation/tests -v
+npm run lint
+npm run build
+npm run test:system
+```
+
+Use `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` only when providing an already installed
+compatible Chromium to both the Node and Python browser tests. Otherwise each
+Playwright installation uses its managed browser. The disposable PGlite socket
+adapter supports application and psycopg integration; native PostgreSQL locking,
+multiple database connections and Windows Task Scheduler still require office
+acceptance testing. The injected SQL-error test uses a test-only simple-query
+wrapper to avoid the embedded adapter's extended-query recovery limitation.
+
+See `docs/integration-readiness-report.md` for results, fixes, changed files,
+prepared migrations and remaining activation dependencies. No command above
+installs a Windows scheduled task, sends orders or deploys the application.
+
+
+Failed imports show a **Retry import** button in the dashboard/import monitor.
+It queues the same store, feed and report period as a new linked attempt while
+retaining the original failure. An office worker must be running to process it;
+clicking Retry does not mark data as updated. Repeated clicks reuse active work.
+Inactive stores/products/suppliers are excluded from new orders, and changing a
+supplier product code requires a matching price for the new code.
+
+
+## Head Office daily operations
+
+Open **Office Operations** (`/operations`) for the seven-store control centre and
+**Data Quality** (`/data-quality`) for unresolved findings with store, supplier and
+problem filters and Excel export. The order table has saved filter/page-size
+preferences, keyboard quantity navigation and a complete saved calculation trace.
+
+Supplier Excel preparation now requires **Pre-order validation**. Correct blocking
+mapping/price/quantity problems and explicitly acknowledge accepted warnings.
+API clients send `{ "acknowledgeWarnings": true }` only after that review to
+supplier generation/export endpoints. This flag never bypasses blocking issues.
+General calculation workbooks remain available for analysis; no files are emailed.
+
+Review the prepared `migrations/manual/2026-10-16-office-operations.sql` before
+using these features with an existing office database. It has only been exercised
+in disposable databases. See `docs/office-operations-report.md` for completed
+features, exact results, workflow definitions, changed files and office blockers.
+
+### Daily wastage downloads
+
+On the private Ordering deployment, set `DAILY_WASTAGE_DOWNLOAD_DIRECTORY` in the
+web service environment to the daily worker's resolved `download_directory`
+(usually `<checkout>/automation/downloads`). Grant the web service read access.
+For a container, mount the archive read-only at the same absolute path recorded
+by the worker. Protect both `/daily-wastage` and `/api/daily-wastage/` with the
+deployment's private network or authentication controls.
+
+Deploy both the Ordering web app and the daily Nibua downloader
+(`automation/nebula_download.py` in the running daily worker release).
+The worker saves Nibua's native PDF next to the Excel file for daily wastage.
+Excel remains the input for the existing import. If the optional PDF export
+fails, the Excel import can still run.
+
+**Overview → Daily Wastage Files** shows the saved native PDFs, named
+`Wastage_Hayes_2026-11-10.pdf` for example. Older days with only Excel files
+show **No PDF available** until the native PDFs are fetched. To retrieve one
+archived day, run this as the worker account using the worker's Python:
+
+```sh
+worker_dir=$(systemctl show mieszko-import-worker.service -p WorkingDirectory --value)
+"$worker_dir/.worker-runtime/venv/bin/python" automation/backfill-wastage-pdf.py \
+  --worker-directory "$worker_dir" --date 2026-11-10
+```
+
+Use `--store-id` to limit the backfill to one store. Backfill skips PDFs that
+are already available and does not create or modify import runs.
+
+For **Run PDF export** in the web app, set
+`DAILY_WASTAGE_WORKER_DIRECTORY` in the Ordering web service to the import
+worker service's working directory. Run the web service as the worker account
+so it can use the worker's Python, protected configuration and download archive.
+The manual run only requests native PDFs for active MSP stores with saved Nibua
+addresses. It can run for a date without a previous Excel import. Files and
+progress are stored in `.manual-pdfs` inside the download archive. A repeat run
+replaces each snapshot after a successful export. Once a completed-day archive
+PDF exists, it takes priority over the snapshot and is kept on manual reruns.
+The nightly import schedule operates independently of manual PDF exports. **Download all PDFs** saves separate PDF files
+and may require allowing multiple downloads in the browser.
+
+### Report 6 – Item Sales Enquiry
+
+Open **Item Sales Enquiry (Report 6)** from the sidebar. Choose an inclusive range
+of up to 366 days and the stores to export. The office worker processes stores in
+sequence and saves one workbook per date and store. Existing valid workbooks are
+skipped. Retry Failed processes only failures from the selected job. Redownload
+Selected replaces a workbook only after its replacement passes validation.
+Cancellation takes effect at the next worker checkpoint, which may follow a CRM
+operation already in progress. Download All sends separate Excel files to the browser.
+
+Run the Ordering web service on Ubuntu under the same account as the import worker.
+Report 6 uses the existing worker virtual environment, Chromium, database-backed
+CRM settings and protected CRM login. The web service can use the configured daily
+wastage worker and archive paths, or set these overrides to absolute paths:
+
+- `ITEM_SALES_ENQUIRY_WORKER_DIRECTORY` points to the existing worker checkout
+  containing `.worker-runtime/venv/bin/python` and `automation/config.local.json`.
+- `ITEM_SALES_ENQUIRY_ARCHIVE_DIRECTORY` points to an existing writable directory
+  for job history and workbooks. The feature creates its own `item-sales-enquiry`
+  subdirectory.
+- Install `libreoffice-calc` on the Ubuntu host if any store returns legacy XLS.
+  Native XLSX exports require no additional system package.

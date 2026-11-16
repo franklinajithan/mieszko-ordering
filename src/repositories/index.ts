@@ -1,59 +1,16 @@
-import { isDatabaseEnabled } from "@/lib/runtime-config";
-import * as mock from "@/repositories/mock";
+import "server-only";
 
-type MockRepos = typeof mock;
-type RepoName = keyof Pick<
-  MockRepos,
-  | "storeRepository"
-  | "supplierRepository"
-  | "departmentRepository"
-  | "productRepository"
-  | "dailySalesRepository"
-  | "supplierPriceRepository"
-  | "bookStockRepository"
-  | "rtcRepository"
-  | "wastageRepository"
-  | "orderRepository"
->;
-
-let postgresModule: typeof import("@/repositories/postgres") | null = null;
-
-async function getPostgresModule() {
-  if (!postgresModule) {
-    postgresModule = await import("@/repositories/postgres");
-  }
-  return postgresModule;
-}
-
-function createRepositoryProxy<K extends RepoName>(name: K): MockRepos[K] {
-  return new Proxy({} as MockRepos[K], {
-    get(_target, prop) {
-      return async (...args: unknown[]) => {
-        if (isDatabaseEnabled()) {
-          const postgres = await getPostgresModule();
-          const repo = postgres[name] as Record<string, (...a: unknown[]) => unknown>;
-          const method = repo[prop as string];
-          if (typeof method !== "function") return method;
-          return method(...args);
-        }
-        const repo = mock[name] as Record<string, (...a: unknown[]) => unknown>;
-        const method = repo[prop as string];
-        if (typeof method !== "function") return method;
-        return method(...args);
-      };
-    },
-  });
-}
-
-export const storeRepository = createRepositoryProxy("storeRepository");
-export const supplierRepository = createRepositoryProxy("supplierRepository");
-export const departmentRepository = createRepositoryProxy("departmentRepository");
-export const productRepository = createRepositoryProxy("productRepository");
-export const dailySalesRepository = createRepositoryProxy("dailySalesRepository");
-export const supplierPriceRepository = createRepositoryProxy("supplierPriceRepository");
-export const bookStockRepository = createRepositoryProxy("bookStockRepository");
-export const rtcRepository = createRepositoryProxy("rtcRepository");
-export const wastageRepository = createRepositoryProxy("wastageRepository");
-export const orderRepository = createRepositoryProxy("orderRepository");
-
-export { MOCK_DEMO_ORDER_ID } from "@/repositories/mock";
+export { storeRepository } from "@/repositories/stores";
+export { supplierRepository } from "@/repositories/suppliers";
+export { departmentRepository } from "@/repositories/departments";
+export { departmentMappingRepository } from "@/repositories/department-mappings";
+export { productRepository } from "@/repositories/products";
+export { dailySalesRepository } from "@/repositories/daily-sales";
+export { supplierPriceRepository } from "@/repositories/supplier-prices";
+export { bookStockRepository } from "@/repositories/book-stock";
+export { notPostedDeliveryRepository } from "@/repositories/not-posted-deliveries";
+export { futureDeliveryRepository } from "@/repositories/future-deliveries";
+export { rtcSalesRepository } from "@/repositories/rtc";
+export { promoSalesRepository } from "@/repositories/promo";
+export { wastageRepository } from "@/repositories/wastage";
+export { orderRepository } from "@/repositories/orders";

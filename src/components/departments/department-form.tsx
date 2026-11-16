@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { createDepartment } from "@/app/actions";
+import { createDepartment } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,8 +15,8 @@ export function DepartmentForm() {
     setError(null);
     const code = String(formData.get("code") ?? "").trim();
     const result = await createDepartment({
-      name: formData.get("name"),
-      code: code || undefined,
+      name: formData.get("name") as string,
+      code: code || null,
       isActive: true,
     });
     if (!result.success) {
@@ -32,8 +32,8 @@ export function DepartmentForm() {
       className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-4"
     >
       <div>
-        <Label htmlFor="dept-name">Name</Label>
-        <Input id="dept-name" name="name" required placeholder="Dairy" />
+        <Label htmlFor="dept-name">Order department name</Label>
+        <Input id="dept-name" name="name" required placeholder="Bakery" />
       </div>
       <div>
         <Label htmlFor="dept-code">Code (optional)</Label>

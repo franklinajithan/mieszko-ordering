@@ -31,7 +31,7 @@ export const createDepartmentSchema = z.object({
 });
 
 export const updateDepartmentSchema = createDepartmentSchema.partial().extend({
-  id: z.string().uuid(),
+  id: idSchema,
 });
 
 export const departmentImportSchema = z.object({
@@ -40,14 +40,25 @@ export const departmentImportSchema = z.object({
   fileName: z.string().min(1),
 });
 
+export const departmentMappingSchema = z.object({
+  importedDepartment: z.string().min(1).max(100),
+  orderDepartmentId: idSchema,
+});
+
 export const createProductSchema = z.object({
   name: z.string().min(1).max(500),
   department: z.string().min(1).max(100),
+  orderDepartment: z.coerce.number().int().positive().nullable().optional(),
   isActive: z.boolean().default(true),
 });
 
 export const updateProductSchema = createProductSchema.partial().extend({
   id: idSchema,
+});
+
+export const assignOrderDepartmentSchema = z.object({
+  productId: idSchema,
+  orderDepartment: z.coerce.number().int().positive().nullable(),
 });
 
 export const storeProductSchema = z.object({
@@ -60,36 +71,38 @@ export const storeProductSchema = z.object({
 
 export const barcodeSchema = z.object({
   productId: idSchema,
+  storeId: idSchema,
   barcode: z.string().min(1).max(100),
 });
 
 export const supplierProductSchema = z.object({
   productId: idSchema,
   supplierId: idSchema,
-  supplierCode: z.string().min(1).max(100),
+  supplierCode: z.string().max(100).optional().default(""),
   isActive: z.boolean().default(true),
+  /** When true, mark confirmed unavailable (same as “Not in MM/SP/WAB”). */
+  unavailable: z.boolean().optional().default(false),
 });
 
+const periodKeySchema = z
+  .string()
+  .regex(/^(period_[1-9]\d*|previous_year)$/);
+
 export const salesPeriodSchema = z.object({
-  periodKey: z.enum([
-    "period_1",
-    "period_2",
-    "period_3",
-    "previous_year",
-  ]),
+  periodKey: periodKeySchema,
   startDate: z.string().date(),
   endDate: z.string().date(),
 });
 
 const salesPeriodInputSchema = z.object({
-  periodKey: z.enum([
-    "period_1",
-    "period_2",
-    "period_3",
-    "previous_year",
-  ]),
+  periodKey: periodKeySchema,
   startDate: z.string(),
   endDate: z.string(),
+});
+
+const dateRangeSchema = z.object({
+  startDate: z.string().date(),
+  endDate: z.string().date(),
 });
 
 export const updateOrderPeriodsSchema = z
@@ -152,11 +165,21 @@ export const updateOrderPeriodsSchema = z
   }));
 
 export const createOrderSchema = z.object({
-  storeId: idSchema,
+  orderDate: z.string().date(),
+  deliveryDate: z.string().date(),
   bookStockDate: z.string().date(),
-  clientDeliveryDate: z.string().date(),
-  departmentFilters: z.array(z.string()).default([]),
-  notes: z.string().optional(),
+  storeIds: z.array(idSchema).min(1),
+  supplierIds: z.array(idSchema).default([]),
+  departmentIds: z.array(idSchema).default([]),
+  includeWastage: z.boolean().default(false),
+  includeRtc: z.boolean().default(false),
+  includeDayByDaySales: z.boolean().default(false),
+  dayBySalesStartDate: z.string().date().optional(),
+  dayBySalesEndDate: z.string().date().optional(),
+  soldQtyMethod: z.enum(["max", "average", "min"]).default("max"),
+  comparisonPeriods: z.array(dateRangeSchema).default([]),
+  shortfallPeriods: z.array(dateRangeSchema).default([]),
+  comment: z.string().optional(),
 });
 
 export const updateOrderSuppliersSchema = z.object({
@@ -179,21 +202,15 @@ export const stockUploadSchema = z.object({
   deliveryDate: z.string().date().optional(),
 });
 
-export const dailySalesImportSchema = z.object({
-  storeId: idSchema,
-  mappingType: z.enum(["store_product_code", "barcode"]),
-  productColumn: z.string().min(1),
-  quantityColumn: z.string().min(1),
-  dateColumn: z.string().optional(),
-  manualSalesDate: z.string().date().optional(),
-  fileName: z.string().min(1),
-});
-
 export const supplierPriceImportSchema = z.object({
   supplierId: idSchema,
   referenceColumn: z.string().min(1),
   priceColumn: z.string().min(1),
+  caseSizeColumn: z.string().min(1).optional(),
   effectiveDate: z.string().date(),
+  validUntil: z.string().date().optional(),
+  /** ISO timestamp — distinguishes multiple uploads on the same day. */
+  importedAt: z.string().datetime().optional(),
   fileName: z.string().min(1),
 });
 
@@ -224,16 +241,14 @@ export const rtcImportSchema = z.object({
   mappingType: z.enum(["store_product_code", "barcode"]).default("store_product_code"),
   referenceColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
-  fileName: z.string().min(1),
 });
 
 export const promoImportSchema = z.object({
   storeId: idSchema,
   promoDate: z.string().date(),
-  mappingType: z.enum(["store_product_code", "barcode"]).default("store_product_code"),
   referenceColumn: z.string().min(1),
   quantityColumn: z.string().min(1),
-  fileName: z.string().min(1),
+  fileName: z.string().min(1).optional(),
 });
 
 export const wastageImportSchema = z.object({
@@ -247,5 +262,106 @@ export const wastageImportSchema = z.object({
 
 export const applyStoredBookStockSchema = z.object({
   orderId: idSchema,
-  importId: idSchema,
+  importedAt: z.string().datetime().optional(),
+  bookStockDate: z.string().date().optional(),
+});
+
+export const orderSheetGenerateSchema = z
+  .object({
+    orderId: idSchema.optional(),
+    storeIds: z.array(idSchema).min(1),
+    orderDate: z.string().date(),
+    deliveryDate: z.string().date(),
+    bookStockDate: z.string().date().optional(),
+    supplierIds: z.array(idSchema).min(1),
+    departmentIds: z.array(idSchema).default([]),
+    comparisonPeriods: z.array(dateRangeSchema).min(1),
+    includeBookStock: z.boolean().default(true),
+    includeFutureDeliveries: z.boolean().default(false),
+    includeWastage: z.boolean().default(true),
+    includeRtc: z.boolean().default(true),
+    shortfallPeriods: z.array(dateRangeSchema).min(1),
+    soldQtyMethod: z.enum(["max", "average", "min"]).default("average"),
+    comment: z.string().max(500).optional(),
+    dayBySalesRequired: z.boolean().default(false),
+    dayBySalesStartDate: z.string().date().optional(),
+    dayBySalesEndDate: z.string().date().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.deliveryDate < data.orderDate) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Delivery date cannot be earlier than order date",
+        path: ["deliveryDate"],
+      });
+    }
+    for (const [index, period] of data.shortfallPeriods.entries()) {
+      if (period.endDate < period.startDate) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Shortfall period ${index + 1} has an invalid date range`,
+          path: ["shortfallPeriods", index],
+        });
+      }
+    }
+    for (const [index, period] of data.comparisonPeriods.entries()) {
+      if (period.endDate < period.startDate) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Period ${index + 1} has an invalid date range`,
+          path: ["comparisonPeriods", index],
+        });
+      }
+    }
+    if (data.dayBySalesRequired) {
+      if (!data.dayBySalesStartDate) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Day-by-sales start date is required",
+          path: ["dayBySalesStartDate"],
+        });
+      }
+      if (!data.dayBySalesEndDate) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Day-by-sales end date is required",
+          path: ["dayBySalesEndDate"],
+        });
+      }
+      if (
+        data.dayBySalesStartDate &&
+        data.dayBySalesEndDate &&
+        data.dayBySalesEndDate < data.dayBySalesStartDate
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Day-by-sales end date cannot be before start date",
+          path: ["dayBySalesEndDate"],
+        });
+      }
+      if (data.dayBySalesStartDate && data.dayBySalesEndDate) {
+        const start = new Date(`${data.dayBySalesStartDate}T00:00:00`);
+        const end = new Date(`${data.dayBySalesEndDate}T00:00:00`);
+        const days =
+          Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        if (days > 31) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Day-by-sales range cannot exceed 31 days",
+            path: ["dayBySalesEndDate"],
+          });
+        }
+      }
+    }
+  });
+
+export const orderSheetDraftSchema = z.object({
+  comment: z.string().max(500).optional(),
+  items: z.array(
+    z.object({
+      orderItemId: idSchema,
+      orderQty: z.string().regex(/^\d{1,14}(\.\d{1,4})?$/),
+      selected: z.boolean(),
+    }),
+  ),
 });

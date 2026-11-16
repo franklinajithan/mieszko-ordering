@@ -1,33 +1,4 @@
-import {
-
-  boolean,
-
-  date,
-
-  index,
-
-  integer,
-
-  jsonb,
-
-  numeric,
-
-  pgTable,
-
-  primaryKey,
-
-  text,
-
-  timestamp,
-
-  unique,
-
-  uuid,
-
-  varchar,
-
-} from "drizzle-orm/pg-core";
-
+import { bigint, boolean, date, index, integer, jsonb, numeric, pgTable, primaryKey, check, text, timestamp, unique, varchar, uuid, } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 
@@ -60,6 +31,13 @@ export const stores = pgTable("stores", {
 
 
 
+export const storeCrmSettings = pgTable("store_crm_settings", {
+  storeId: integer("store_id").primaryKey().references(() => stores.id, { onDelete: "cascade" }),
+  crmUrl: text("crm_url").notNull(),
+  nightlyEnabled: boolean("nightly_enabled").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [check("store_crm_settings_url", sql`${table.crmUrl} ~ '^https?://' AND length(${table.crmUrl}) <= 2048`)]);
+
 export const suppliers = pgTable("suppliers", {
 
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
@@ -87,7 +65,7 @@ export const suppliers = pgTable("suppliers", {
 });
 
 export const departments = pgTable("departments", {
-  id: uuid("id").primaryKey().defaultRandom(),
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   name: varchar("name", { length: 100 }).notNull().unique(),
   code: varchar("code", { length: 50 }),
   isActive: boolean("is_active").notNull().default(true),
@@ -100,13 +78,36 @@ export const departments = pgTable("departments", {
 });
 
 
+export const departmentMappings = pgTable(
+  "department_mappings",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    /** ERP/import department label from `products.department`. */
+    importedDepartment: varchar("imported_department", { length: 100 }).notNull().unique(),
+    orderDepartmentId: integer("order_department_id")
+      .notNull()
+      .references(() => departments.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+);
+
+
 export const products = pgTable("products", {
 
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
 
   name: varchar("name", { length: 500 }).notNull(),
 
+  /** Source/ERP department from import — never overwritten by order-department assignment. */
   department: varchar("department", { length: 100 }).notNull(),
+
+  /** FK to `departments.id` for ordering; column name kept as `order_department_id`. */
+  orderDepartment: integer("order_department_id").references(() => departments.id),
 
   isActive: boolean("is_active").notNull().default(true),
 
@@ -175,25 +176,31 @@ export const storeProducts = pgTable(
 
 
 
-export const productBarcodes = pgTable("product_barcodes", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  productId: integer("product_id")
-
-    .notNull()
-
-    .references(() => products.id),
-
-  barcode: varchar("barcode", { length: 100 }).notNull().unique(),
-
-  createdAt: timestamp("created_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
+export const productBarcodes = pgTable(
+  "product_barcodes",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeId: integer("store_id")
+      .notNull()
+      .references(() => stores.id),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    barcode: varchar("barcode", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Same EAN can exist on Mitcham and Gravesend; not twice in one store.
+    unique("product_barcodes_store_barcode_unique").on(t.storeId, t.barcode),
+    unique("product_barcodes_store_product_barcode_unique").on(
+      t.storeProductId,
+      t.barcode,
+    ),
+    index("product_barcodes_store_product_id_idx").on(t.storeProductId),
+  ],
+);
 
 
 
@@ -237,11 +244,11 @@ export const supplierProducts = pgTable(
 
   (t) => [
 
-    unique("supplier_products_supplier_code_unique").on(
+    unique("supplier_products_product_supplier_unique").on(
+
+      t.productId,
 
       t.supplierId,
-
-      t.supplierCode,
 
     ),
 
@@ -347,8 +354,9 @@ export const promoSales = pgTable(
   ],
 );
 
-export const storeWastage = pgTable(
-  "store_wastage",
+/** Per store-product wastage qty by date (same shape as rtc_sales, wastage-named). */
+export const wastage = pgTable(
+  "wastage",
   {
     id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
     storeProductId: integer("store_product_id")
@@ -364,7 +372,7 @@ export const storeWastage = pgTable(
       .defaultNow(),
   },
   (t) => [
-    unique("store_wastage_store_product_date_unique").on(
+    unique("wastage_store_product_date_unique").on(
       t.storeProductId,
       t.wastageDate,
     ),
@@ -373,39 +381,13 @@ export const storeWastage = pgTable(
 
 
 
-export const supplierPriceImports = pgTable("supplier_price_imports", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  supplierId: integer("supplier_id")
-
-    .notNull()
-
-    .references(() => suppliers.id),
-
-  effectiveDate: date("effective_date").notNull(),
-
-  fileName: varchar("file_name", { length: 500 }),
-
-  importedAt: timestamp("imported_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
+/**
+ * Supplier prices are product-wise (via supplier_products), not store-wise.
+ * Each upload stamps the same importedAt on all rows; reads use the latest.
+ */
 export const supplierPrices = pgTable("supplier_prices", {
 
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  importId: integer("import_id")
-
-    .notNull()
-
-    .references(() => supplierPriceImports.id),
 
   supplierId: integer("supplier_id")
 
@@ -423,7 +405,19 @@ export const supplierPrices = pgTable("supplier_prices", {
 
   netPrice: numeric("net_price", { precision: 18, scale: 4 }).notNull(),
 
+  /** MM Package text or SP/WAB Jednostek units — stored as text. */
+  caseSize: varchar("case_size", { length: 100 }),
+
   effectiveDate: date("effective_date").notNull(),
+  validUntil: date("valid_until"),
+
+  fileName: varchar("file_name", { length: 500 }),
+
+  importedAt: timestamp("imported_at", { withTimezone: true })
+
+    .notNull()
+
+    .defaultNow(),
 
   createdAt: timestamp("created_at", { withTimezone: true })
 
@@ -435,285 +429,131 @@ export const supplierPrices = pgTable("supplier_prices", {
 
 
 
-export const bookStockImports = pgTable("book_stock_imports", {
+/**
+ * Book stock snapshots. Each upload gets one `imported_at` timestamp.
+ * Multiple uploads for the same store/date are kept; ordering uses the latest.
+ */
+export const bookStock = pgTable(
+  "book_stock",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    bookStockDate: date("book_stock_date").notNull(),
+    bookStockQty: numeric("book_stock_qty", { precision: 18, scale: 4 }).notNull(),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("book_stock_store_product_imported_at_unique").on(
+      t.storeProductId,
+      t.importedAt,
+    ),
+    index("book_stock_date_imported_at_idx").on(t.bookStockDate, t.importedAt),
+  ],
+);
 
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+/**
+ * Not-posted extras staged for the next generate.
+ * Upload them at order-creation time; generate consumes the files and then
+ * deletes them so the next order cannot reuse saved not-posted data.
+ * A new book-stock upload also clears any leftover staging files.
+ */
+export const notPostedDeliveries = pgTable(
+  "not_posted_deliveries",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    fileName: varchar("file_name", { length: 500 }).notNull(),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("not_posted_deliveries_store_product_idx").on(t.storeProductId),
+    index("not_posted_deliveries_imported_at_idx").on(t.importedAt),
+  ],
+);
 
-  storeId: integer("store_id")
-
-    .notNull()
-
-    .references(() => stores.id),
-
-  bookStockDate: date("book_stock_date").notNull(),
-
-  fileName: varchar("file_name", { length: 500 }),
-
-  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
-
-  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
-
-  importedAt: timestamp("imported_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
-export const bookStockItems = pgTable("book_stock_items", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  importId: integer("import_id")
-
-    .notNull()
-
-    .references(() => bookStockImports.id, { onDelete: "cascade" }),
-
-  storeProductId: integer("store_product_id")
-
-    .notNull()
-
-    .references(() => storeProducts.id),
-
-  storeProductCode: varchar("store_product_code", { length: 100 }).notNull(),
-
-  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-
-});
+/**
+ * Future extras uploaded for generate (OCS, order, or invoice).
+ * Not tied to a book-stock timestamp: every saved file for the store is
+ * summed onto current stock. Upload again on the next generate if still due in.
+ * Order/invoice rows match supplier Index / INDEKS via supplier_id.
+ */
+export const futureDeliveries = pgTable(
+  "future_deliveries",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    storeProductId: integer("store_product_id")
+      .notNull()
+      .references(() => storeProducts.id),
+    quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    source: varchar("source", { length: 20 }).notNull().default("ocs"),
+    expectedDeliveryDate: date("expected_delivery_date"),
+    supplierId: integer("supplier_id").references(() => suppliers.id),
+    fileName: varchar("file_name", { length: 500 }).notNull(),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("future_deliveries_store_product_idx").on(t.storeProductId),
+    index("future_deliveries_imported_at_idx").on(t.importedAt),
+    index("future_deliveries_source_idx").on(t.source),
+    index("future_deliveries_supplier_idx").on(t.supplierId),
+  ],
+);
 
 
-
-export const rtcImports = pgTable("rtc_imports", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  storeId: integer("store_id")
-    .notNull()
-    .references(() => stores.id),
-  rtcDate: date("rtc_date").notNull(),
-  fileName: varchar("file_name", { length: 500 }),
-  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
-  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
-  matchedRows: integer("matched_rows"),
-  importedAt: timestamp("imported_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-export const promoImports = pgTable("promo_imports", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  storeId: integer("store_id")
-    .notNull()
-    .references(() => stores.id),
-  promoDate: date("promo_date").notNull(),
-  fileName: varchar("file_name", { length: 500 }),
-  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
-  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
-  matchedRows: integer("matched_rows"),
-  importedAt: timestamp("imported_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-export const wastageImports = pgTable("wastage_imports", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  storeId: integer("store_id")
-    .notNull()
-    .references(() => stores.id),
-  wastageDate: date("wastage_date").notNull(),
-  fileName: varchar("file_name", { length: 500 }),
-  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
-  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
-  matchedRows: integer("matched_rows"),
-  importedAt: timestamp("imported_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
 
 export const orders = pgTable("orders", {
-
+  revision: integer("revision").notNull().default(0),
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  storeId: integer("store_id")
-
-    .notNull()
-
-    .references(() => stores.id),
-
+  storeIds: jsonb("store_ids").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
+  supplierIds: jsonb("supplier_ids").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
+  departmentIds: jsonb("department_ids").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
+  orderDate: date("order_date").notNull(),
+  deliveryDate: date("delivery_date").notNull(),
   bookStockDate: date("book_stock_date").notNull(),
-
-  clientDeliveryDate: date("client_delivery_date").notNull(),
-
-  departmentFilters: text("department_filters")
-
-    .array()
-
+  includeBookStock: boolean("include_book_stock").notNull().default(true),
+  includeFutureDeliveries: boolean("include_future_deliveries").notNull().default(false),
+  includeWastage: boolean("include_wastage").notNull().default(false),
+  includeRtc: boolean("include_rtc").notNull().default(false),
+  includeDayByDaySales: boolean("include_day_by_day_sales").notNull().default(false),
+  dayBySalesStartDate: date("day_by_sales_start_date"),
+  dayBySalesEndDate: date("day_by_sales_end_date"),
+  soldQtyMethod: varchar("sold_qty_method", { length: 20 }).notNull().default("max"),
+  comparisonPeriods: jsonb("comparison_periods")
+    .$type<Array<{ startDate: string; endDate: string }>>()
     .notNull()
-
-    .default(sql`'{}'::text[]`),
-
-  notes: text("notes"),
-
+    .default(sql`'[]'::jsonb`),
+  shortfallPeriods: jsonb("shortfall_period")
+    .$type<Array<{ startDate: string; endDate: string }>>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  comment: text("comment"),
   status: varchar("status", { length: 50 }).notNull().default("draft"),
-
-  createdAt: timestamp("created_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
-export const orderSalesPeriods = pgTable(
-
-  "order_sales_periods",
-
-  {
-
-    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-    orderId: integer("order_id")
-
-      .notNull()
-
-      .references(() => orders.id, { onDelete: "cascade" }),
-
-    periodKey: varchar("period_key", { length: 50 }).notNull(),
-
-    startDate: date("start_date").notNull(),
-
-    endDate: date("end_date").notNull(),
-
-  },
-
-  (t) => [unique("order_sales_periods_order_key_unique").on(t.orderId, t.periodKey)],
-
-);
-
-
-
-export const orderPriceSuppliers = pgTable(
-
-  "order_price_suppliers",
-
-  {
-
-    orderId: integer("order_id")
-
-      .notNull()
-
-      .references(() => orders.id, { onDelete: "cascade" }),
-
-    supplierId: integer("supplier_id")
-
-      .notNull()
-
-      .references(() => suppliers.id),
-
-  },
-
-  (t) => [primaryKey({ columns: [t.orderId, t.supplierId] })],
-
-);
-
-
-
-export const orderUploads = pgTable("order_uploads", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  orderId: integer("order_id")
-
-    .notNull()
-
-    .references(() => orders.id, { onDelete: "cascade" }),
-
-  uploadType: varchar("upload_type", { length: 50 }).notNull(),
-
-  fileName: varchar("file_name", { length: 500 }).notNull(),
-
-  mappingType: varchar("mapping_type", { length: 50 }).notNull(),
-
-  referenceColumn: varchar("reference_column", { length: 255 }).notNull(),
-
-  quantityColumn: varchar("quantity_column", { length: 255 }).notNull(),
-
-  supplierId: integer("supplier_id").references(() => suppliers.id),
-
-  bookStockImportId: integer("book_stock_import_id").references(
-
-    () => bookStockImports.id,
-
-  ),
-
-  deliveryDate: date("delivery_date"),
-
-  createdAt: timestamp("created_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
-export const orderStockEvents = pgTable("order_stock_events", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  orderId: integer("order_id")
-
-    .notNull()
-
-    .references(() => orders.id, { onDelete: "cascade" }),
-
-  uploadId: integer("upload_id").references(() => orderUploads.id),
-
-  eventType: varchar("event_type", { length: 50 }).notNull(),
-
-  eventDate: date("event_date").notNull(),
-
-  sortOrder: integer("sort_order").notNull().default(0),
-
-  createdAt: timestamp("created_at", { withTimezone: true })
-
-    .notNull()
-
-    .defaultNow(),
-
-});
-
-
-
-export const orderStockEventItems = pgTable("order_stock_event_items", {
-
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-
-  eventId: integer("event_id")
-
-    .notNull()
-
-    .references(() => orderStockEvents.id, { onDelete: "cascade" }),
-
-  storeProductId: integer("store_product_id")
-
-    .notNull()
-
-    .references(() => storeProducts.id),
-
-  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-
+  calculatedAt: timestamp("calculated_at", {withTimezone:true}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 
@@ -733,41 +573,28 @@ export const orderItems = pgTable(
       .references(() => orders.id, { onDelete: "cascade" }),
 
     storeProductId: integer("store_product_id")
-
       .notNull()
-
       .references(() => storeProducts.id),
-
-    period1Sales: numeric("period_1_sales", { precision: 18, scale: 4 })
-
+    periodSales: jsonb("period_sales")
+      .$type<Array<{ periodKey: string; soldQty: string }>>()
       .notNull()
-
-      .default("0"),
-
-    period2Sales: numeric("period_2_sales", { precision: 18, scale: 4 })
-
+      .default(sql`'[]'::jsonb`),
+    supplierQuotes: jsonb("supplier_quotes")
+      .$type<
+        Array<{
+          supplierId: number;
+          supplierKey: string;
+          supplierName: string;
+          supplierProductCode: string | null;
+          netPrice: string | null;
+          caseSize: string | null;
+          isCheapest: boolean;
+          priceValidationStatus: string;
+          failureReason: string | null;
+        }>
+      >()
       .notNull()
-
-      .default("0"),
-
-    period3Sales: numeric("period_3_sales", { precision: 18, scale: 4 })
-
-      .notNull()
-
-      .default("0"),
-
-    previousYearSales: numeric("previous_year_sales", {
-
-      precision: 18,
-
-      scale: 4,
-
-    })
-
-      .notNull()
-
-      .default("0"),
-
+      .default(sql`'[]'::jsonb`),
     highestSoldQty: numeric("highest_sold_qty", { precision: 18, scale: 4 })
 
       .notNull()
@@ -834,6 +661,7 @@ export const orderItems = pgTable(
 
       .default("0"),
 
+    quantityOverridden: boolean("quantity_overridden").notNull().default(false),
     finalOrderQty: numeric("final_order_qty", { precision: 18, scale: 4 })
 
       .notNull()
@@ -908,6 +736,8 @@ export const orderItemSupplierPrices = pgTable(
 
     netPrice: numeric("net_price", { precision: 18, scale: 4 }),
 
+    caseSize: varchar("case_size", { length: 100 }),
+
     priceValidationStatus: varchar("price_validation_status", {
 
       length: 50,
@@ -940,8 +770,6 @@ export const storesRelations = relations(stores, ({ many }) => ({
 
   storeProducts: many(storeProducts),
 
-  orders: many(orders),
-
 }));
 
 
@@ -949,8 +777,6 @@ export const storesRelations = relations(stores, ({ many }) => ({
 export const productsRelations = relations(products, ({ many }) => ({
 
   storeProducts: many(storeProducts),
-
-  barcodes: many(productBarcodes),
 
   supplierProducts: many(supplierProducts),
 
@@ -976,38 +802,49 @@ export const storeProductsRelations = relations(storeProducts, ({ one, many }) =
 
   }),
 
+  barcodes: many(productBarcodes),
+
   dailySales: many(dailySales),
 
   rtcSales: many(rtcSales),
 
   promoSales: many(promoSales),
 
-  storeWastage: many(storeWastage),
+  wastage: many(wastage),
 
+}));
+
+export const productBarcodesRelations = relations(productBarcodes, ({ one }) => ({
+  store: one(stores, {
+    fields: [productBarcodes.storeId],
+    references: [stores.id],
+  }),
+  storeProduct: one(storeProducts, {
+    fields: [productBarcodes.storeProductId],
+    references: [storeProducts.id],
+  }),
 }));
 
 
 
-export const ordersRelations = relations(orders, ({ one, many }) => ({
+export const departmentsRelations = relations(departments, ({ many }) => ({
+  mappings: many(departmentMappings),
+}));
 
-  store: one(stores, {
-
-    fields: [orders.storeId],
-
-    references: [stores.id],
-
+export const departmentMappingsRelations = relations(
+  departmentMappings,
+  ({ one }) => ({
+    orderDepartment: one(departments, {
+      fields: [departmentMappings.orderDepartmentId],
+      references: [departments.id],
+    }),
   }),
+);
 
-  salesPeriods: many(orderSalesPeriods),
 
-  priceSuppliers: many(orderPriceSuppliers),
 
-  uploads: many(orderUploads),
-
-  stockEvents: many(orderStockEvents),
-
+export const ordersRelations = relations(orders, ({ many }) => ({
   items: many(orderItems),
-
 }));
 
 
@@ -1034,3 +871,117 @@ export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
 
 }));
 
+
+/** Office import audit records. Apply the staged SQL migration before use. */
+export const dataImportRuns = pgTable("data_import_runs", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
+  storeId: integer("store_id").references(() => stores.id, { onDelete: "set null" }),
+  sourceType: varchar("source_type", { length: 32 }).notNull(),
+  triggerType: varchar("trigger_type", { length: 16 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("queued"),
+  sourceFileName: text("source_file_name"),
+  sourceFilePath: text("source_file_path"),
+  sourceStartDate: date("source_start_date"),
+  sourceEndDate: date("source_end_date"),
+  downloadedAt: timestamp("downloaded_at", { withTimezone: true }),
+  importedAt: timestamp("imported_at", { withTimezone: true }),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  downloadedRowCount: integer("downloaded_row_count"),
+  importedRowCount: integer("imported_row_count"),
+  rejectedRowCount: integer("rejected_row_count"),
+  errorMessage: text("error_message"),
+  details: jsonb("details").notNull().default(sql`'{}'::jsonb`),
+}, (table) => [
+  index("data_import_runs_store_source_started_idx").on(table.storeId, table.sourceType, table.startedAt),
+  index("data_import_runs_status_started_idx").on(table.status, table.startedAt),
+]);
+
+export const bookStockImportStage = pgTable("book_stock_import_stage", {
+  storeId: integer("store_id").notNull().references(() => stores.id, {onDelete:"cascade"}),
+  importedAt: timestamp("imported_at", {withTimezone:true}).notNull(),
+  storeProductId: integer("store_product_id").notNull().references(() => storeProducts.id, {onDelete:"cascade"}),
+  bookStockDate: date("book_stock_date").notNull(),
+  quantity: numeric("quantity", {precision:18,scale:4}).notNull(),
+  expectedRows: integer("expected_rows").notNull(),
+  createdAt: timestamp("created_at", {withTimezone:true}).notNull().defaultNow(),
+}, table => [primaryKey({columns:[table.storeId,table.importedAt,table.storeProductId]}),
+  check("book_stock_stage_expected_positive",sql`${table.expectedRows}>0`),
+  index("book_stock_stage_created_idx").on(table.createdAt)]);
+
+export type SupplierOrderLine = {
+  storeProductId: number; itemCode: string; productName: string; supplierCode: string;
+  quantity: string; unitPrice: string; lineCost: string; caseSize: string | null;
+};
+export const supplierOrders = pgTable("supplier_orders", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => orders.id, {onDelete:"cascade"}),
+  storeId: integer("store_id").notNull().references(() => stores.id),
+  supplierId: integer("supplier_id").notNull().references(() => suppliers.id),
+  deliveryDate: date("delivery_date").notNull(),
+  totalNetCost: numeric("total_net_cost", {precision:18,scale:4}).notNull(),
+  lines: jsonb("lines").$type<SupplierOrderLine[]>().notNull(),
+  sourceRevision: integer("source_revision").notNull(),
+  sourceUpdatedAt: timestamp("source_updated_at", {withTimezone:true}).notNull(),
+  generatedAt: timestamp("generated_at", {withTimezone:true}).notNull().defaultNow(),
+  exportedAt: timestamp("exported_at", {withTimezone:true}),
+}, table => [unique("supplier_orders_order_store_supplier_unique").on(table.orderId,table.storeId,table.supplierId),
+  index("supplier_orders_order_idx").on(table.orderId)]);
+
+export const importQualityObservations=pgTable('import_quality_observations',{
+ id:integer('id').primaryKey().generatedByDefaultAsIdentity(),
+ storeId:integer('store_id').notNull().references(()=>stores.id,{onDelete:'cascade'}),
+ sourceType:text('source_type').notNull(),problemType:text('problem_type').notNull(),reference:text('reference').notNull(),
+ firstSeenAt:timestamp('first_seen_at',{withTimezone:true}).notNull().defaultNow(),
+ lastSeenAt:timestamp('last_seen_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[unique('import_quality_observations_identity_unique').on(t.storeId,t.sourceType,t.problemType,t.reference),check('import_quality_observations_problem_type_check',sql`${t.problemType} IN ('unknown_product_code','unmatched_barcode')`)]);
+
+
+/** Apply 2026-10-20-unmatched-products.sql before starting this app/worker version. */
+export const crmProductIdentifiers = pgTable('crm_product_identifiers', {
+ id:bigint('id',{mode:'number'}).primaryKey().generatedByDefaultAsIdentity(),
+ storeId:integer('store_id').notNull().references(()=>stores.id),
+ kind:text('kind').notNull(),identifier:text('identifier').notNull(),productName:text('product_name'),
+ storeProductId:integer('store_product_id').references(()=>storeProducts.id),
+ firstSeenAt:timestamp('first_seen_at',{withTimezone:true}).notNull().defaultNow(),
+ lastCheckedAt:timestamp('last_checked_at',{withTimezone:true}).notNull().defaultNow(),
+ resolvedAt:timestamp('resolved_at',{withTimezone:true}),
+},t=>[unique('crm_product_identifiers_store_id_kind_identifier_key').on(t.storeId,t.kind,t.identifier),
+ index('crm_product_identifiers_pending_idx').on(t.storeId,t.storeProductId,t.id),
+ check('crm_product_identifiers_kind_check',sql`${t.kind} IN ('Barcode','Product code')`),
+ check('crm_product_identifiers_check',sql`(${t.storeProductId} IS NULL) = (${t.resolvedAt} IS NULL)`)]);
+export const crmIdentifierOccurrences=pgTable('crm_identifier_occurrences',{
+ identifierId:bigint('identifier_id',{mode:'number'}).notNull().references(()=>crmProductIdentifiers.id),
+ runId:bigint('run_id',{mode:'number'}).notNull().references(()=>dataImportRuns.id),
+ transactionCount:integer('transaction_count'),
+},t=>[primaryKey({columns:[t.identifierId,t.runId]})]);
+export const crmProductCodeAliases=pgTable('crm_product_code_aliases',{
+ storeId:integer('store_id').notNull().references(()=>stores.id),identifier:varchar('identifier',{length:100}).notNull(),
+ storeProductId:integer('store_product_id').notNull().references(()=>storeProducts.id),
+},t=>[primaryKey({columns:[t.storeId,t.identifier]})]);
+export const crmReconciliationBatches=pgTable('crm_reconciliation_batches',{
+ id:uuid('id').primaryKey(),rows:jsonb('rows').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+ approvedAt:timestamp('approved_at',{withTimezone:true}),approvedBy:text('approved_by'),result:jsonb('result'),
+});
+export const crmReconciliationAudit=pgTable('crm_reconciliation_audit',{
+ id:bigint('id',{mode:'number'}).primaryKey().generatedByDefaultAsIdentity(),
+ identifierId:bigint('identifier_id',{mode:'number'}).notNull().references(()=>crmProductIdentifiers.id),
+ batchId:uuid('batch_id').references(()=>crmReconciliationBatches.id),storeProductId:integer('store_product_id').references(()=>storeProducts.id),
+ action:text('action').notNull(),operatorName:text('operator_name').notNull(),notes:text('notes'),supplierCode:text('supplier_code'),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[index('crm_audit_identifier_idx').on(t.identifierId,t.id)]);
+export const crmReportStage=pgTable('crm_report_stage',{
+ runId:bigint('run_id',{mode:'number'}).notNull().references(()=>dataImportRuns.id),identifier:varchar('identifier',{length:100}).notNull(),
+ reportDate:date('report_date').notNull(),quantity:numeric('quantity',{precision:18,scale:4}).notNull(),mappingType:text('mapping_type').notNull(),
+},t=>[primaryKey({columns:[t.runId,t.identifier,t.reportDate]}),check('crm_report_stage_mapping_type_check',sql`${t.mappingType} IN ('barcode','store_product_code')`)]);
+
+
+/** Store-day ownership for known partial subtotals; full successful imports clear it. */
+export const crmPartialPublications=pgTable('crm_partial_publications',{
+ storeId:integer('store_id').notNull().references(()=>stores.id),sourceType:varchar('source_type',{length:32}).notNull(),
+ reportDate:date('report_date').notNull(),runId:bigint('run_id',{mode:'number'}).notNull().references(()=>dataImportRuns.id),
+ dataSha256:text('data_sha256').notNull(),publishedRowCount:integer('published_row_count').notNull(),
+ updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[primaryKey({columns:[t.storeId,t.sourceType,t.reportDate]}),index('crm_partial_publications_run_idx').on(t.runId),
+ check('crm_partial_publications_source_type_check',sql`${t.sourceType} IN ('normal_sales','rtc','wastage')`),
+ check('crm_partial_publications_published_row_count_check',sql`${t.publishedRowCount}>0`)]);

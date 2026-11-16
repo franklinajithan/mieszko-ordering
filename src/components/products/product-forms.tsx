@@ -1,24 +1,23 @@
 "use client";
-
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import {
   addStoreProduct,
-  beginProductImportFromRows,
   createProduct,
-  runProductImportBatch,
-} from "@/app/actions";
+  importProductChunk,
+  PRODUCT_IMPORT_CHUNK_SIZE,
+} from "@/lib/api";
 import { ImportSummary } from "@/components/layout/app-shell";
 import {
   ProductImportProgressInline,
+  formatProductImportDoneMessage,
   useProductImport,
 } from "@/components/products/product-import-context";
 import {
   detectProductFileColumns,
   parseProductFileBuffer,
-} from "@/parsers/product-file-parser";
+} from "@/parsers/products/product-file-parser";
 import { Button } from "@/components/ui/button";
 import { FileUploadField } from "@/components/ui/file-upload-field";
 import { Input, Select } from "@/components/ui/input";
@@ -31,15 +30,44 @@ import {
   validateErpFileMatch,
 } from "@/utils/erp-file-validation";
 import { checkUploadErpMismatch } from "@/utils/validate-upload-erp";
+import { normalizeImportBarcode } from "@/utils/barcode";
 
 type Store = { id: number; name: string; erpType: string };
 
+function emptyImportResult(): ImportResult {
+  return {
+    totalRows: 0,
+    matchedRows: 0,
+    unmatchedRows: 0,
+    invalidRows: 0,
+    duplicateRows: 0,
+    errors: [],
+  };
+}
+
+function mergeImportResults(a: ImportResult, b: ImportResult): ImportResult {
+  return {
+    totalRows: a.totalRows + b.totalRows,
+    matchedRows: a.matchedRows + b.matchedRows,
+    unmatchedRows: a.unmatchedRows + b.unmatchedRows,
+    invalidRows: a.invalidRows + b.invalidRows,
+    duplicateRows: (a.duplicateRows ?? 0) + (b.duplicateRows ?? 0),
+    errors: [...a.errors, ...b.errors].slice(0, 50),
+  };
+}
+
+function chunkRows<T>(rows: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) {
+    batches.push(rows.slice(i, i + size));
+  }
+  return batches;
+}
+
 export function ProductForms({
   stores,
-  departments,
 }: {
   stores: Store[];
-  departments: string[];
 }) {
   const router = useRouter();
   const { updateProgress, resetStatus } = useProductImport();
@@ -200,43 +228,25 @@ export function ProductForms({
           __rowNumber: row.__rowNumber ?? "",
         };
         for (const column of keepColumns) {
-          slim[column] = row[column] ?? "";
+          const raw = row[column] ?? "";
+          slim[column] =
+            column === columns.barcodeColumn
+              ? normalizeImportBarcode(raw)
+              : String(raw).trim();
         }
         return slim;
       });
 
-      updateProgress({
-        phase: "parsing",
-        message: `Found ${slimRows.length.toLocaleString()} products — preparing import…`,
-      });
-
-      const begin = await beginProductImportFromRows({
-        storeId: Number(selectedStoreId),
-        fileName: file.name,
-        codeColumn: columns.codeColumn,
-        nameColumn: columns.nameColumn,
-        departmentColumn: columns.departmentColumn ?? undefined,
-        barcodeColumn: columns.barcodeColumn ?? undefined,
-        retailPriceColumn: columns.retailPriceColumn ?? undefined,
-        shareAcrossMspStores: columns.shareAcrossMspStores,
-        rows: slimRows,
-      });
-
-      if (!begin.success) {
-        setError(begin.error);
-        reportErpMismatch(begin.error);
-        updateProgress({ phase: "error", message: begin.error });
-        return;
-      }
-
-      const { jobId, totalRows, batchSize } = begin.data;
-      if (totalRows === 0) {
+      if (slimRows.length === 0) {
         const message =
           "No valid products found in the file. Check that ID and Name columns are present.";
         setError(message);
         updateProgress({ phase: "error", message });
         return;
       }
+
+      const batches = chunkRows(slimRows, PRODUCT_IMPORT_CHUNK_SIZE);
+      const totalRows = slimRows.length;
 
       updateProgress({
         phase: "importing",
@@ -248,40 +258,45 @@ export function ProductForms({
         message: `Saving ${totalRows.toLocaleString()} products…`,
       });
 
-      const batchCount = Math.ceil(totalRows / batchSize);
-      let finalResult: ImportResult | null = null;
+      let aggregated = emptyImportResult();
+      let processed = 0;
 
-      for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
-        const batch = await runProductImportBatch({ jobId, batchIndex });
-        if (!batch.success) {
-          setError(batch.error);
-          updateProgress({ phase: "error", message: batch.error });
+      for (const batch of batches) {
+        const chunk = await importProductChunk({
+          storeId: Number(selectedStoreId),
+          codeColumn: columns.codeColumn,
+          nameColumn: columns.nameColumn,
+          departmentColumn: columns.departmentColumn ?? undefined,
+          barcodeColumn: columns.barcodeColumn ?? undefined,
+          retailPriceColumn: columns.retailPriceColumn ?? undefined,
+          shareAcrossMspStores: columns.shareAcrossMspStores,
+          rows: batch,
+        });
+
+        if (!chunk.success) {
+          setError(chunk.error);
+          reportErpMismatch(chunk.error);
+          updateProgress({ phase: "error", message: chunk.error });
           return;
         }
 
-        finalResult = batch.data.result;
+        aggregated = mergeImportResults(aggregated, chunk.data);
+        processed += batch.length;
+
         updateProgress({
-          phase: batch.data.done ? "done" : "importing",
+          phase: processed >= totalRows ? "done" : "importing",
           estimated: false,
-          processed: batch.data.processed,
-          total: batch.data.total,
-          result: batch.data.done ? batch.data.result : undefined,
-          message: batch.data.done
-            ? `Imported ${batch.data.result.matchedRows.toLocaleString()} products.`
-            : `Saved ${batch.data.processed.toLocaleString()} of ${batch.data.total.toLocaleString()} products…`,
+          processed,
+          total: totalRows,
+          result: processed >= totalRows ? aggregated : undefined,
+          message:
+            processed >= totalRows
+              ? formatProductImportDoneMessage(aggregated)
+              : `Saved ${processed.toLocaleString()} of ${totalRows.toLocaleString()} products…`,
         });
-
-        if (batch.data.done) break;
       }
 
-      if (!finalResult) {
-        const message = "Import finished without a result. Please try again.";
-        setError(message);
-        updateProgress({ phase: "error", message });
-        return;
-      }
-
-      setImportResult(finalResult);
+      setImportResult(aggregated);
       router.push(`/products?storeId=${encodeURIComponent(selectedStoreId)}`);
     } catch (importError) {
       const message =
@@ -305,28 +320,16 @@ export function ProductForms({
         </div>
         <div>
           <Label>Department</Label>
-          {departments.length > 0 ? (
-            <Select name="department" required defaultValue="">
-              <option value="" disabled>
-                Select department
-              </option>
-              {departments.map((department) => (
-                <option key={department} value={department}>
-                  {department}
-                </option>
-              ))}
-            </Select>
-          ) : (
-            <>
-              <Input name="department" required placeholder="Dairy" />
-              <p className="mt-1 text-xs text-zinc-500">
-                No departments configured yet.{" "}
-                <Link href="/departments" className="underline">
-                  Add departments
-                </Link>
-              </p>
-            </>
-          )}
+          <Input
+            name="department"
+            required
+            placeholder="e.g. Dairy"
+          />
+          <p className="mt-1 text-xs text-zinc-500">
+            Saved as the imported department and used as the initial order
+            department. You can change order department later on the product
+            list.
+          </p>
         </div>
         <div>
           <Label>Store</Label>
@@ -354,10 +357,14 @@ export function ProductForms({
       >
         <h3 className="font-semibold">Import products from Excel</h3>
         <p className="text-sm text-zinc-600">
-          GloPOS exports (Mitcham, Sudbury) use <strong>ID</strong>,{" "}
-          <strong>Name</strong>, and <strong>Barcode</strong>. The file is read
-          in your browser first, then saved in batches of 2,000. Large catalogs
-          (50,000+ products) may take 3–5 minutes to save.
+          GloPOS exports use <strong>ID</strong>/<strong>Name</strong>/
+          <strong>Barcode</strong>/<strong>Selling Price</strong>. MSP exports
+          use <strong>ProductCode</strong>/<strong>ItemName1</strong>/
+          <strong>InnerEan</strong>/<strong>Retail</strong>. Detected selling
+          price is saved on the store product as retail. The file is read in
+          your browser, then saved in chunks of{" "}
+          {PRODUCT_IMPORT_CHUNK_SIZE.toLocaleString()}. Large catalogs (50,000+
+          products) may take a few minutes.
         </p>
         <div>
           <Label>Store</Label>

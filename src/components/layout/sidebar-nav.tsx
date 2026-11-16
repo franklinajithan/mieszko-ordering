@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  ArrowLeftRight,
   BookOpen,
-  ClipboardList,
-  History,
+  FileSpreadsheet,
   Home,
   Layers,
   LayoutDashboard,
   Package,
+  AlertTriangle,
   Store,
   Tags,
   Trash2,
@@ -37,6 +38,14 @@ export const navGroups: NavGroup[] = [
     title: "Overview",
     items: [
       { href: "/", label: "Home", icon: Home, match: (p) => p === "/" },
+      { href:"/operations",label:"Office Operations",icon:LayoutDashboard },
+      { href:"/data-quality",label:"Data Quality",icon:Layers },
+      { href: "/automation", label: "CRM Downloads", icon: FileSpreadsheet },
+      { href: "/reports/downloader", label: "Report Downloader", icon: FileSpreadsheet },
+      { href: "/reports/item-sales-enquiry", label: "Item Sales Enquiry (Report 6)", icon: FileSpreadsheet },
+      { href: "/downloads", label: "Download Queue", icon: FileSpreadsheet },
+      { href: "/daily-wastage", label: "Daily Wastage Files", icon: FileSpreadsheet },
+      { href: "/weekly-wastage", label: "Weekly Wastage", icon: Trash2 },
     ],
   },
   {
@@ -47,6 +56,11 @@ export const navGroups: NavGroup[] = [
         label: "Products",
         icon: Package,
         match: (p) => p.startsWith("/products"),
+      },
+      {
+        href: "/unmatched-products",
+        label: "Unmatched Products",
+        icon: AlertTriangle,
       },
       {
         href: "/departments",
@@ -74,6 +88,12 @@ export const navGroups: NavGroup[] = [
       },
       { href: "/supplier-prices", label: "Supplier Prices", icon: Truck },
       {
+        href: "/supplier-codes",
+        label: "Supplier Codes",
+        icon: Tags,
+        match: (p) => p.startsWith("/supplier-codes"),
+      },
+      {
         href: "/book-stock",
         label: "Book Stock",
         icon: BookOpen,
@@ -82,7 +102,7 @@ export const navGroups: NavGroup[] = [
       {
         href: "/rtc",
         label: "RTC (Reduce to Clear)",
-        icon: Tags,
+        icon: ArrowLeftRight,
         match: (p) => p.startsWith("/rtc"),
       },
       {
@@ -96,12 +116,12 @@ export const navGroups: NavGroup[] = [
   {
     title: "Ordering",
     items: [
-      { href: "/orders/new", label: "New Order", icon: ClipboardList },
+      {href:"/orders",label:"Order History",icon:FileSpreadsheet,match:p=>p.startsWith("/orders")},
       {
-        href: "/orders",
-        label: "Order History",
-        icon: History,
-        match: (p) => p.startsWith("/orders") && p !== "/orders/new",
+        href: "/order-sheet",
+        label: "Order Sheet",
+        icon: FileSpreadsheet,
+        match: (p) => p.startsWith("/order-sheet"),
       },
     ],
   },

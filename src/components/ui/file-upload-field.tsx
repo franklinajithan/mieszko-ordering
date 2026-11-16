@@ -29,6 +29,7 @@ export const FileUploadField = React.forwardRef<HTMLInputElement, FileUploadFiel
       id,
       hint,
       variant = "default",
+      multiple,
       ...rest
     },
     ref,
@@ -45,8 +46,16 @@ export const FileUploadField = React.forwardRef<HTMLInputElement, FileUploadFiel
     }
 
     function syncFileNameFromInput() {
-      const file = inputRef.current?.files?.[0];
-      setFileName(file?.name ?? null);
+      const selected = inputRef.current?.files;
+      if (!selected?.length) {
+        setFileName(null);
+        return;
+      }
+      if (selected.length === 1) {
+        setFileName(selected[0].name);
+        return;
+      }
+      setFileName(`${selected.length} files selected`);
     }
 
     function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -54,13 +63,13 @@ export const FileUploadField = React.forwardRef<HTMLInputElement, FileUploadFiel
       onChange?.(event);
     }
 
-    function applyFile(file: File) {
+    function applyFiles(files: File[]) {
       const input = inputRef.current;
-      if (!input) return;
+      if (!input || !files.length) return;
       const dt = new DataTransfer();
-      dt.items.add(file);
+      for (const file of files) dt.items.add(file);
       input.files = dt.files;
-      setFileName(file.name);
+      syncFileNameFromInput();
       handleChange({
         target: input,
         currentTarget: input,
@@ -71,8 +80,9 @@ export const FileUploadField = React.forwardRef<HTMLInputElement, FileUploadFiel
       event.preventDefault();
       setDragOver(false);
       if (disabled) return;
-      const file = event.dataTransfer.files?.[0];
-      if (file) applyFile(file);
+      const dropped = Array.from(event.dataTransfer.files ?? []);
+      if (!dropped.length) return;
+      applyFiles(multiple ? dropped : dropped.slice(0, 1));
     }
 
     function clearFile(event: React.MouseEvent) {
@@ -101,6 +111,7 @@ export const FileUploadField = React.forwardRef<HTMLInputElement, FileUploadFiel
           accept={accept}
           required={required}
           disabled={disabled}
+          multiple={multiple}
           onChange={handleChange}
           className="sr-only"
         />
@@ -155,7 +166,11 @@ export const FileUploadField = React.forwardRef<HTMLInputElement, FileUploadFiel
                   {fileName}
                 </p>
                 {!isCompact ? (
-                  <p className="text-xs text-zinc-500">Click or drop a file to replace</p>
+                  <p className="text-xs text-zinc-500">
+                    {multiple
+                      ? "Click or drop files to replace"
+                      : "Click or drop a file to replace"}
+                  </p>
                 ) : null}
               </>
             ) : (

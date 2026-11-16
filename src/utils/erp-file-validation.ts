@@ -1,7 +1,12 @@
 import { detectBookStockColumns } from "@/parsers/file-parser";
-import { isGloposRetailReport } from "@/parsers/glopos-retail-parser";
-import { detectProductFileColumns } from "@/parsers/product-file-parser";
-import { BOOK_STOCK_COLUMNS, type ErpType } from "@/types";
+import { isGloposRtcHistoryReport } from "@/parsers/rtc/glopos-rtc-history-parser";
+import { isGloposStockValuationReport } from "@/parsers/book-stock/glopos-stock-valuation-parser";
+import { isGloposWastageReport } from "@/parsers/wastage/glopos-wastage-report-parser";
+import { isGloposStockVarianceWastageReport } from "@/parsers/wastage/glopos-stock-variance-wastage-parser";
+import { isGloposRetailReport } from "@/parsers/daily-sales/glopos-retail-parser";
+import { isMspPromotionItemDetailReport } from "@/parsers/promo/msp-promotion-item-detail-parser";
+import { detectProductFileColumns } from "@/parsers/products/product-file-parser";
+import type { ErpType } from "@/types";
 
 function normHeader(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
@@ -43,52 +48,86 @@ export function detectProductFileErpType(headers: string[]): ErpType | null {
   return null;
 }
 
-export function detectBookStockFileErpType(headers: string[]): ErpType | null {
-  const hasItemCode = hasHeader(headers, BOOK_STOCK_COLUMNS.glopos.reference);
+export function detectBookStockFileErpType(
+  headers: string[],
+  fileName = "",
+): ErpType | null {
+  // Stock Valuation (Detail) — Item Code + Current Stock — accepted for any store.
+  if (isGloposStockValuationReport(headers, fileName)) return null;
+
+  const hasItemCode = hasHeader(headers, ["Item Code"]);
   const hasCurrentStock = headers.some((header) =>
     normHeader(header).includes("current stock"),
   );
-  const hasId = hasHeader(headers, BOOK_STOCK_COLUMNS.msp.reference);
-  const hasQty = hasHeader(headers, BOOK_STOCK_COLUMNS.msp.quantity);
+  const hasId = hasHeader(headers, ["ID", "Id"]);
+  const hasQty = hasHeader(headers, ["Qty", "QTY", "Quantity"]);
 
-  if (hasItemCode && hasCurrentStock) return "glopos";
+  if (hasItemCode && hasCurrentStock) return null;
+
+  // GloPOS product/book-stock export: ID + QTY
+  if (hasId && hasQty && !hasItemCode) return "glopos";
 
   const gloposColumns = detectBookStockColumns(headers, "glopos");
   if (
     gloposColumns.referenceColumn &&
     gloposColumns.quantityColumn &&
-    normHeader(gloposColumns.referenceColumn) === "item code" &&
-    normHeader(gloposColumns.quantityColumn).includes("current stock")
+    hasHeader([gloposColumns.referenceColumn], ["ID", "Id"]) &&
+    hasHeader([gloposColumns.quantityColumn], ["Qty", "QTY", "Quantity"])
   ) {
     return "glopos";
   }
 
-  if (hasId && hasQty && !hasItemCode) return "msp";
+  return null;
+}
 
-  const mspColumns = detectBookStockColumns(headers, "msp");
+export function detectRtcFileErpType(
+  headers: string[],
+  fileName: string,
+): ErpType | null {
+  if (isGloposRtcHistoryReport(headers, fileName)) return null;
+  return detectBookStockFileErpType(headers);
+}
+
+export function detectWastageFileErpType(
+  headers: string[],
+  fileName: string,
+): ErpType | null {
+  if (isGloposWastageReport(headers, fileName)) return null;
+  // Sudbury / GloPOS stock variance (Barcode + QTY Variance) — accepted for GloPOS.
+  if (isGloposStockVarianceWastageReport(headers, fileName)) return "glopos";
+  // MSP Stock Adjustment reports are accepted for MSP stores (and auto-parsed).
+  if (/stock\s*adjustment/i.test(fileName)) return "msp";
   if (
-    mspColumns.referenceColumn &&
-    mspColumns.quantityColumn &&
-    hasHeader([mspColumns.referenceColumn], BOOK_STOCK_COLUMNS.msp.reference) &&
-    hasHeader([mspColumns.quantityColumn], BOOK_STOCK_COLUMNS.msp.quantity)
+    hasHeader(headers, ["Item Code"]) &&
+    hasHeader(headers, ["Qty"]) &&
+    (hasHeader(headers, ["St. Before"]) || hasHeader(headers, ["Adj. Amt"]))
   ) {
     return "msp";
   }
+  return detectBookStockFileErpType(headers);
+}
 
-  return null;
+export function detectPromoFileErpType(
+  headers: string[],
+  fileName: string,
+): ErpType | null {
+  // MSP Promotion Item Detail (Barcode + Promo Qty).
+  if (isMspPromotionItemDetailReport(headers, fileName)) return "msp";
+  return detectBookStockFileErpType(headers, fileName);
 }
 
 export function detectDailySalesFileErpType(
   headers: string[],
   fileName: string,
 ): ErpType | null {
-  if (isGloposRetailReport(headers, fileName)) return "glopos";
-
+  // Product Sales Enquiry / GloPOS retail reports match store products by Item Code.
+  // They are accepted for any store ERP type (auto-parsed on import).
+  if (isGloposRetailReport(headers, fileName)) return null;
   if (
     hasHeader(headers, ["Item Code"]) &&
     hasHeader(headers, ["Sales Qty", "Sales QTY", "Sales qty"])
   ) {
-    return "glopos";
+    return null;
   }
 
   if (

@@ -11,6 +11,7 @@ const buttonVariants = cva(
         default: "bg-emerald-700 text-white shadow-sm hover:bg-emerald-800",
         outline: "border border-zinc-200 bg-white hover:bg-zinc-50",
         ghost: "hover:bg-zinc-100 text-zinc-700",
+        destructive: "bg-red-600 text-white shadow-sm hover:bg-red-700",
       },
       size: {
         default: "h-10 px-4 py-2",
@@ -24,6 +25,8 @@ const buttonVariants = cva(
     },
   },
 );
+
+export { buttonVariants };
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,

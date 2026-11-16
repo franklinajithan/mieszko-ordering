@@ -1,0 +1,45 @@
+// Offline replica of the supplied login/Explorer/date/export workflow. No office URLs.
+import http from 'node:http';
+import ExcelJS from 'exceljs';
+const observed=[];
+const labels={normal_sales:'6. Item Sales Enquiry',rtc:'Price Override & RTC Sales History',wastage:'9. Wastage'};
+const server=http.createServer(async(req,res)=>{
+ const url=new URL(req.url,'http://127.0.0.1:3201');res.setHeader('Content-Type','text/html');
+ if(url.pathname==='/observed'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(observed));return;}
+ if(url.pathname==='/download'){
+  const source=url.searchParams.get('source'),from=url.searchParams.get('from'),to=url.searchParams.get('to');
+  if(!labels[source]||from!==to||!/^\d{2}\/\d{2}\/\d{4}$/.test(from)){res.statusCode=400;res.end('Invalid daily request');return;}
+  if(url.searchParams.get('format')==='pdf'){
+   if(source!=='wastage'){res.statusCode=400;res.end('PDF requested for another report');return;}
+   res.setHeader('Content-Type','application/pdf');res.setHeader('Content-Disposition','attachment; filename="report.pdf"');
+   res.end('%PDF-1.7\nfixture\n%%EOF\n');return;
+  }
+  observed.push({source,from,to});const day=from.split('/').reverse().join('-');
+  const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Report');
+  sheet.addRow(['Item Code',source==='normal_sales'?'Sold Qty':source==='rtc'?'RTC Qty':'Wastage Qty','Date']);
+  sheet.addRow(['10001',source==='normal_sales'?4:source==='rtc'?1:0.5,day]);
+  res.setHeader('Content-Type','application/vnd.ms-excel');res.setHeader('Content-Disposition','attachment; filename="report.xls"');
+  res.end(Buffer.from(await book.xlsx.writeBuffer()));return;
+ }
+ if(url.pathname==='/report'){
+  const popup=url.searchParams.get('source')==='rtc';
+  res.end(`<table title="Export drop down menu" id="rptViewer_ctl05_ctl04_ctl00_Button" style="width:600px"><tr><td style="width:550px">Toolbar spacing</td><td><a href="#" title="Export drop down menu" id="rptViewer_ctl05_ctl04_ctl00_ButtonLink" onclick="openExport();return false">Export</a></td></tr></table><a id="excel" hidden href="/download${url.search}" ${popup?`onclick="window.open(this.href);return false"`:'download'}>${popup?'Excel (97-2003)':'Excel'}</a>${url.searchParams.get('source')==='wastage'?`<a class="export-option" hidden download href="/download${url.search}&format=pdf">PDF</a>`:''}<script>let attempts=0;function openExport(){if(++attempts>1)document.querySelectorAll('.export-option,#excel').forEach(option=>option.hidden=false);}</script>`);return;
+ }
+ if(url.pathname==='/explorer'){
+  res.end(`<div>Report List</div><h2 id="selected">Selected Report: none</h2>
+  ${['Sales','History','Stock'].map(category=>`<button onclick="setTimeout(()=>location.href='/explorer?category=${category}',300)">${category}</button>`).join('')}
+  <div id="reports" hidden>${Object.entries(labels).map(([key,value])=>`<button onclick="choose('${key}')">${value}</button>`).join('')}</div>
+  <input type="radio" id="range" name="period" onchange="document.querySelectorAll('.date').forEach(e=>e.disabled=false)"><label for="range">Date Range</label>
+  <input type="radio" id="week" name="period" checked><label for="week">Week</label>
+  <label for="from">From Date*</label><input class="date" id="from" disabled>
+  <label for="to">To Date*</label><input class="date" id="to" disabled>
+  ${[1,2].map(i=>`<div hidden><label for="from-hidden-${i}">From Date*</label><input id="from-hidden-${i}"><label for="to-hidden-${i}">To Date*</label><input id="to-hidden-${i}"></div>`).join('')}
+  <a href="#" id="lnkView" onclick="window.open('/report?source='+source+'&from='+encodeURIComponent(document.querySelector('#from').value)+'&to='+encodeURIComponent(document.querySelector('#to').value));return false">View Report</a>
+  <script>let source;const labels=${JSON.stringify(labels)};if(location.search)setTimeout(()=>document.querySelector('#reports').hidden=false,400);function choose(key){source=key;setTimeout(()=>document.querySelector('#selected').textContent='Selected Report: '+labels[key],400);}</script>`);return;
+ }
+ const marker=url.pathname==='/wrong-store'?'0665':'0365';
+ res.end(`<input placeholder="Barcode"><button onclick="document.querySelector('#main').hidden=false">Login</button>
+ <div id="main" hidden><span>Store Info: ${marker} | Fixture</span><span>Reports</span><a href="#" onclick="document.querySelector('#frame').src='/explorer';return false">Explorer</a><iframe id="frame"></iframe></div>`);
+});
+server.listen(3201,'127.0.0.1',()=>console.log('FIXTURE_NEBULA_READY'));
+process.on('SIGTERM',()=>server.close(()=>process.exit(0)));

@@ -1,16 +1,10 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { RtcImportForm } from "@/components/imports/rtc-import-form";
-import { storeRepository } from "@/repositories";
+import { RtcPageView } from "@/components/rtc-sales/rtc-page";
+import { listStores } from "@/lib/api/stores";
 
 export default async function RtcPage() {
-  const stores = await storeRepository.list();
-
-  return (
-    <AppShell
-      title="RTC (Reduce to Clear)"
-      description="Import reduce-to-clear quantities by store and date from Excel."
-    >
-      <RtcImportForm stores={stores} />
-    </AppShell>
-  );
+  const stores = await listStores();
+  if (!stores.success) {
+    throw new Error(stores.error);
+  }
+  return <RtcPageView stores={stores.data} />;
 }

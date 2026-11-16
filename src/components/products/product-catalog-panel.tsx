@@ -2,25 +2,14 @@ import { Building2, Copy, Layers } from "lucide-react";
 import { ProductFilters } from "@/components/products/product-filters";
 import { ProductListGrid } from "@/components/products/product-list-grid";
 import { ProductPagination } from "@/components/products/product-pagination";
+import type {
+  ProductRow,
+  ProductStoreRow,
+  SupplierCodeDuplicateCounts,
+} from "@/types/product";
+import type { DepartmentOption } from "@/types/department";
 
-type Store = { id: number; name: string; code: string; erpType?: string };
-
-type ProductRow = {
-  product: {
-    id: number;
-    name: string;
-    department: string;
-    isActive: boolean;
-  };
-  storeProduct: {
-    id: number;
-    storeProductCode: string;
-  };
-  store: {
-    id: number;
-    name: string;
-  };
-};
+type Store = ProductStoreRow;
 
 export function ProductCatalogPanel({
   stores,
@@ -28,6 +17,7 @@ export function ProductCatalogPanel({
   products,
   total,
   duplicateNames,
+  duplicateSupplierCodeCountsByProductId,
   selectedStore,
   safePage,
   pageSize,
@@ -39,10 +29,14 @@ export function ProductCatalogPanel({
   departmentFilter,
 }: {
   stores: Store[];
-  departments: string[];
+  departments: DepartmentOption[];
   products: ProductRow[];
   total: number;
   duplicateNames: Set<string>;
+  duplicateSupplierCodeCountsByProductId: Record<
+    number,
+    SupplierCodeDuplicateCounts
+  >;
   selectedStore: Store | undefined;
   safePage: number;
   pageSize: number;
@@ -109,7 +103,11 @@ export function ProductCatalogPanel({
       <div className="overflow-x-auto">
         <ProductListGrid
           products={products}
+          departments={departments}
           duplicateNames={duplicateNames}
+          duplicateSupplierCodeCountsByProductId={
+            duplicateSupplierCodeCountsByProductId
+          }
           lineOffset={lineOffset}
           search={search}
         />

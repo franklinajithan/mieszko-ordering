@@ -1,0 +1,12 @@
+{
+  "url": "https://REPLACE-WITH-AUTHORIZED-CRM-URL",
+  "headless": false,
+  "timeout_ms": 1200000,
+  "login_steps": [],
+  "reports": {
+    "normal_sales": [],
+    "rtc": [],
+    "wastage": [],
+    "book_stock": []
+  }
+}

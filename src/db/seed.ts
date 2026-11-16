@@ -1,7 +1,10 @@
-import "dotenv/config";
+import { config } from "dotenv";
+
+config({ path: ".env.local" });
+config();
 import { sql } from "drizzle-orm";
-import { getDb } from "./client";
-import { stores, suppliers } from "./schema";
+import { getDb } from "@/db/client";
+import { stores, suppliers } from "@/db/schema";
 
 const STORE_SEED = [
   { id: 1, name: "Sudbury", code: "SBH", erpType: "glopos" as const },

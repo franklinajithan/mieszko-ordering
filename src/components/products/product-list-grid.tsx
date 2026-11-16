@@ -1,35 +1,37 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useTransition } from "react";
 import { ArrowUpRight, PackageSearch } from "lucide-react";
+import { assignOrderDepartment } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Select } from "@/components/ui/input";
 import { cn } from "@/utils/cn";
+import type {
+  ProductRow,
+  SupplierCodeDuplicateCounts,
+} from "@/types/product";
+import type { DepartmentOption } from "@/types/department";
 
 export const PRODUCT_GRID_COLS =
-  "grid-cols-[2.75rem_minmax(5.5rem,7.5rem)_minmax(0,1fr)_minmax(5rem,9rem)_5.5rem_4.5rem]";
-
-type ProductRow = {
-  product: {
-    id: number;
-    name: string;
-    department: string;
-    isActive: boolean;
-  };
-  storeProduct: {
-    id: number;
-    storeProductCode: string;
-  };
-  store: {
-    id: number;
-  };
-};
+  "grid-cols-[2.75rem_minmax(5.5rem,7.5rem)_minmax(0,1fr)_minmax(4.5rem,6rem)_minmax(5rem,8rem)_minmax(7.5rem,10rem)_5.5rem_4.5rem]";
 
 export function ProductListGrid({
   products,
+  departments,
   duplicateNames,
+  duplicateSupplierCodeCountsByProductId,
   lineOffset,
   search,
 }: {
   products: ProductRow[];
+  departments: DepartmentOption[];
   duplicateNames: Set<string>;
+  duplicateSupplierCodeCountsByProductId: Record<
+    number,
+    SupplierCodeDuplicateCounts
+  >;
   lineOffset: number;
   search?: string;
 }) {
@@ -43,14 +45,14 @@ export function ProductListGrid({
         <p className="mt-1 max-w-sm text-sm text-zinc-500">
           {search
             ? `Nothing found for “${search}”. Try a different search or clear filters.`
-            : "Try changing department or status filters, or import products for this store."}
+            : "Try changing order department or status filters, or import products for this store."}
         </p>
       </div>
     );
   }
 
   return (
-    <div className="min-w-[44rem]">
+    <div className="min-w-[58rem]">
       <div
         className={cn(
           "sticky top-0 z-10 grid gap-x-3 border-b border-zinc-200/80 bg-zinc-50/95 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 backdrop-blur-sm",
@@ -60,7 +62,9 @@ export function ProductListGrid({
         <div className="text-right">#</div>
         <div>Code</div>
         <div>Product</div>
-        <div>Department</div>
+        <div className="text-right">Retail</div>
+        <div>Imported dept</div>
+        <div>Order department</div>
         <div>Status</div>
         <div className="text-right"> </div>
       </div>
@@ -68,7 +72,18 @@ export function ProductListGrid({
       <div className="divide-y divide-zinc-100">
         {products.map(({ product, storeProduct, store }, index) => {
           const isDuplicate = duplicateNames.has(product.name.trim().toLowerCase());
+          const supplierCodeDuplicates =
+            duplicateSupplierCodeCountsByProductId[product.id];
+          const duplicateSupplierCodeLabels = (["MM", "SP", "WAB"] as const)
+            .flatMap((key) => {
+              const duplicate = supplierCodeDuplicates?.[key];
+              if (!duplicate) return [];
+              return [
+                `${key} (${duplicate.count}): ${duplicate.storeProductCodes.join(", ")}`,
+              ];
+            });
           const lineNumber = lineOffset + index + 1;
+          const retailLabel = formatRetailPrice(storeProduct.retailPrice);
 
           return (
             <div
@@ -99,8 +114,33 @@ export function ProductListGrid({
                     Duplicate name
                   </p>
                 ) : null}
+                {duplicateSupplierCodeLabels.length ? (
+                  <p
+                    className="mt-0.5 truncate text-[11px] font-normal text-amber-700"
+                    title={`Duplicate supplier code — ${duplicateSupplierCodeLabels.join(", ")}`}
+                  >
+                    Duplicate code — {duplicateSupplierCodeLabels.join(" · ")}
+                  </p>
+                ) : null}
               </div>
-              <div className="self-center truncate text-zinc-600">{product.department}</div>
+              <div className="self-center text-right tabular-nums text-zinc-700">
+                {retailLabel ?? (
+                  <span className="text-zinc-300">—</span>
+                )}
+              </div>
+              <div
+                className="self-center truncate text-zinc-600"
+                title={product.department}
+              >
+                {product.department}
+              </div>
+              <div className="self-center">
+                <OrderDepartmentSelect
+                  productId={product.id}
+                  value={product.orderDepartment}
+                  departments={departments}
+                />
+              </div>
               <div className="self-center">
                 <Badge status={product.isActive ? "active" : "inactive"}>
                   {product.isActive ? "Active" : "Inactive"}
@@ -120,5 +160,54 @@ export function ProductListGrid({
         })}
       </div>
     </div>
+  );
+}
+
+function formatRetailPrice(value: string | null | undefined): string | null {
+  if (value == null || value === "") return null;
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return null;
+  return amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function OrderDepartmentSelect({
+  productId,
+  value,
+  departments,
+}: {
+  productId: number;
+  value: number | null;
+  departments: DepartmentOption[];
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <Select
+      value={value != null ? String(value) : ""}
+      disabled={pending || departments.length === 0}
+      className="h-8 text-xs"
+      onChange={(event) => {
+        const next =
+          event.target.value === "" ? null : Number(event.target.value);
+        startTransition(async () => {
+          await assignOrderDepartment({
+            productId,
+            orderDepartment: next,
+          });
+          router.refresh();
+        });
+      }}
+    >
+      <option value="">Unassigned</option>
+      {departments.map((department) => (
+        <option key={department.id} value={String(department.id)}>
+          {department.name}
+        </option>
+      ))}
+    </Select>
   );
 }

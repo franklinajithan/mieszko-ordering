@@ -1,8 +1,12 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AppShell } from "@/components/layout/app-shell";
-import { ProductDetailForms } from "@/components/products/product-detail-forms";
-import { productRepository, supplierRepository } from "@/repositories";
+import { ProductDetailPageView } from "@/components/products/product-detail-page";
+import { listDepartments } from "@/lib/api/departments";
+import {
+  getProduct,
+  listProductBarcodes,
+  listProductSupplierMappings,
+} from "@/lib/api/products";
+import { listSuppliers } from "@/lib/api/suppliers";
 import { parseRouteId } from "@/utils/parse-route-id";
 
 export default async function ProductDetailPage({
@@ -17,35 +21,47 @@ export default async function ProductDetailPage({
   const id = parseRouteId(idParam);
   if (id === null) notFound();
 
-  const product = await productRepository.getById(id);
-  if (!product) notFound();
+  const storeId =
+    query.storeId && /^\d+$/.test(query.storeId)
+      ? Number(query.storeId)
+      : undefined;
 
-  const [barcodes, supplierProducts, suppliers] = await Promise.all([
-    productRepository.getBarcodes(id),
-    productRepository.getSupplierProducts(id),
-    supplierRepository.list(),
-  ]);
+  const productResult = await getProduct(id);
+  if (!productResult.success) {
+    if (productResult.error === "Product not found") notFound();
+    throw new Error(productResult.error);
+  }
+
+  const [barcodesResult, supplierProductsResult, suppliersResult, departmentsResult] =
+    await Promise.all([
+      listProductBarcodes(id, storeId),
+      listProductSupplierMappings(id),
+      listSuppliers(),
+      listDepartments(),
+    ]);
+
+  if (!barcodesResult.success) throw new Error(barcodesResult.error);
+  if (!supplierProductsResult.success) throw new Error(supplierProductsResult.error);
+  if (!suppliersResult.success) throw new Error(suppliersResult.error);
+  if (!departmentsResult.success) throw new Error(departmentsResult.error);
+
+  const departments = departmentsResult.data
+    .filter((department) => department.isActive)
+    .map((department) => ({ id: department.id, name: department.name }));
 
   const backHref = query.storeId
     ? `/products?storeId=${encodeURIComponent(query.storeId)}`
     : "/products";
 
   return (
-    <AppShell
-      title={product.name}
-      description={`${product.department} — barcodes and supplier-specific product codes.`}
-    >
-      <div className="mb-4">
-        <Link href={backHref} className="text-sm text-zinc-600 underline">
-          ← Back to products
-        </Link>
-      </div>
-      <ProductDetailForms
-        productId={id}
-        barcodes={barcodes}
-        supplierProducts={supplierProducts}
-        suppliers={suppliers}
-      />
-    </AppShell>
+    <ProductDetailPageView
+      product={productResult.data}
+      storeId={storeId}
+      backHref={backHref}
+      departments={departments}
+      barcodes={barcodesResult.data}
+      supplierProducts={supplierProductsResult.data}
+      suppliers={suppliersResult.data}
+    />
   );
 }

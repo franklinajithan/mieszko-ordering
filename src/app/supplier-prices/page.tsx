@@ -1,15 +1,8 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { SupplierPriceImportForm } from "@/components/imports/supplier-price-import-form";
-import { supplierRepository } from "@/repositories";
+import { SupplierPricesPageView } from "@/components/supplier-prices/supplier-prices-page";
+import { listSuppliers } from "@/lib/api/suppliers";
 
 export default async function SupplierPricesPage() {
-  const suppliers = await supplierRepository.list();
-  return (
-    <AppShell
-      title="Supplier Prices"
-      description="Import net-price files and match rows by supplier code."
-    >
-      <SupplierPriceImportForm suppliers={suppliers} />
-    </AppShell>
-  );
+  const suppliers = await listSuppliers();
+  if (!suppliers.success) throw new Error(suppliers.error);
+  return <SupplierPricesPageView suppliers={suppliers.data} />;
 }

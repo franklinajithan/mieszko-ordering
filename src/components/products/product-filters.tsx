@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Search, Store, X } from "lucide-react";
+import type { DepartmentOption } from "@/types/department";
 import { Label } from "@/components/ui/label";
 import { Input, Select } from "@/components/ui/input";
 import { cn } from "@/utils/cn";
@@ -18,7 +19,7 @@ export function ProductFilters({
   activeSearch,
 }: {
   stores: StoreOption[];
-  departments: string[];
+  departments: DepartmentOption[];
   variant?: "default" | "catalog";
   activeDepartment?: string;
   activeStatus?: string;
@@ -28,9 +29,12 @@ export function ProductFilters({
   const searchParams = useSearchParams();
   const [searchValue, setSearchValue] = useState(searchParams.get("search") ?? "");
 
-  useEffect(() => {
-    setSearchValue(searchParams.get("search") ?? "");
-  }, [searchParams]);
+  const urlSearch = searchParams.get("search") ?? "";
+  const [previousSearch, setPreviousSearch] = useState(urlSearch);
+  if (previousSearch !== urlSearch) {
+    setPreviousSearch(urlSearch);
+    setSearchValue(urlSearch);
+  }
 
   function update(key: string, value: string, resetPage = true) {
     const params = new URLSearchParams(searchParams.toString());
@@ -64,10 +68,19 @@ export function ProductFilters({
   const storeSelected = Boolean(searchParams.get("storeId"));
   const statusValue = activeStatus ?? searchParams.get("active") ?? "true";
 
+  const departmentNameById = useMemo(
+    () => new Map(departments.map((department) => [String(department.id), department.name])),
+    [departments],
+  );
+
   const chips = useMemo(() => {
     const items: Array<{ key: string; label: string }> = [];
     if (activeSearch) items.push({ key: "search", label: `Search: ${activeSearch}` });
-    if (activeDepartment) items.push({ key: "department", label: activeDepartment });
+    if (activeDepartment) {
+      const label =
+        departmentNameById.get(activeDepartment) ?? activeDepartment;
+      items.push({ key: "department", label: `Order: ${label}` });
+    }
     if (statusValue && statusValue !== "true") {
       items.push({
         key: "active",
@@ -76,7 +89,7 @@ export function ProductFilters({
       });
     }
     return items;
-  }, [activeDepartment, activeSearch, statusValue]);
+  }, [activeDepartment, activeSearch, departmentNameById, statusValue]);
 
   const isCatalog = variant === "catalog";
 
@@ -121,16 +134,16 @@ export function ProductFilters({
           </div>
         </FilterField>
 
-        <FilterField label="Department">
+        <FilterField label="Order department">
           <Select
             defaultValue={searchParams.get("department") ?? ""}
             onChange={(e) => update("department", e.target.value)}
             disabled={!storeSelected}
           >
-            <option value="">All departments</option>
+            <option value="">All order departments</option>
             {departments.map((department) => (
-              <option key={department} value={department}>
-                {department}
+              <option key={department.id} value={String(department.id)}>
+                {department.name}
               </option>
             ))}
           </Select>
