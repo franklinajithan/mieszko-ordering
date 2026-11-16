@@ -181,10 +181,9 @@ def explicit_no_records(frame, sheet_name, report_name):
     )
 
 
-def drop_empty_spacer_columns(frame: pd.DataFrame) -> pd.DataFrame:
-    spacers = frame.columns.str.fullmatch(r"Unnamed(?:_|:\s*)\d+(?:[_.]\d+)?")
-    empty = frame.loc[:, spacers].replace(r"^\s*$", pd.NA, regex=True).isna().all()
-    return frame.drop(columns=empty.index[empty])
+def drop_unnamed_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    unnamed = frame.columns.str.fullmatch(r"(?i)Unnamed(?:[\s_:]*\d+(?:[_.]\d+)*)?")
+    return frame.loc[:, ~unnamed].copy()
 
 
 def main():
@@ -496,9 +495,9 @@ def main():
         subtotal_mask & subtotal_reason_norm.isin(move_reasons_normalized)
     )
 
-    df_store_use = df[store_mask].copy()
     report_row_mask = marker_mask | subtotal_mask | date_mask | grand_total_mask
-    df_items_remaining = df[~(store_mask | report_row_mask)].copy()
+    df_store_use = drop_unnamed_columns(df.loc[store_mask & ~marker_mask])
+    df_items_remaining = drop_unnamed_columns(df.loc[~(store_mask | report_row_mask)])
 
     description_col = next(
         (c for c in df_items_remaining.columns if "description" in str(c).strip().lower()),
@@ -807,6 +806,7 @@ def main():
                 re.sub(r"\s+", " ", str(c)).strip()
                 for c in raw_rtc_df.columns
             ]
+            raw_rtc_df = drop_unnamed_columns(raw_rtc_df)
 
             # -------------------------------------------------
             # STANDARDISE RTC COLUMN NAMES
@@ -1055,7 +1055,7 @@ def main():
             )
             if sales_header_idx is not None:
                 sales_df = pd.read_excel(sales_file, sheet_name=sales_sheet_name, header=sales_header_idx)
-                sales_df = sales_df.dropna(axis=1, how="all")
+                sales_df = drop_unnamed_columns(sales_df).dropna(axis=1, how="all")
                 desc_col = next((c for c in sales_df.columns if "description" in str(c).lower()), None)
                 if desc_col:
                     sales_df = sales_df[
@@ -1724,8 +1724,8 @@ def main():
         if "Barcode" in items_to_write.columns:
             normalize_barcode_inplace(items_to_write, "Barcode")
 
-        drop_empty_spacer_columns(items_to_write).to_excel(writer, sheet_name="items", index=False)
-        drop_empty_spacer_columns(df_store_use).to_excel(writer, sheet_name="Store use", index=False)
+        items_to_write.to_excel(writer, sheet_name="items", index=False)
+        df_store_use.to_excel(writer, sheet_name="Store use", index=False)
 
         if not dept_breakdown.empty:
             dept_breakdown.to_excel(writer, sheet_name="Dept Breakdown", index=False)
@@ -1740,9 +1740,9 @@ def main():
 
         if rtc_available:
             if rtc_items_df is not None:
-                drop_empty_spacer_columns(rtc_items_df).to_excel(writer, sheet_name="RTC items", index=False)
+                rtc_items_df.to_excel(writer, sheet_name="RTC items", index=False)
             if rtc_admin_df is not None:
-                drop_empty_spacer_columns(rtc_admin_df).to_excel(writer, sheet_name="Admin RTC", index=False)
+                rtc_admin_df.to_excel(writer, sheet_name="Admin RTC", index=False)
             if not rtc_summary_df.empty:
                 rtc_summary_df.to_excel(writer, sheet_name="RTC", index=False)
 
