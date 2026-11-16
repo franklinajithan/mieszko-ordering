@@ -106,6 +106,11 @@ class WeeklyWastageTest(unittest.TestCase):
                     self.assertEqual(book['RTC']['F2'].value, 0)
                     if name == 'Hayes':
                         self.assertEqual(list(book['Dept Breakdown'].values)[1][:4], ('Grand Total', 2, 6, 4))
+                        self.assertEqual(next(book['items'].values), (
+                            'Product Code', 'Description', 'Item Group', 'Qty', 'Amount', 'Cost',
+                            'Sum of Sales Qty', 'Sum of Sales Amt.', 'Sum of Cost Value', 'Wastage/Sales %',
+                        ))
+                        self.assertNotIn('Unnamed_1', next(book['Store use'].values))
                         self.assertNotIn('Transfer', {value for row in book['items'].values for value in row})
                         self.assertIn('Transfer', {value for row in book['Store use'].values for value in row})
                         self.assertIn('Transfer', {value for row in book['WastageReport'].values for value in row})

@@ -181,6 +181,12 @@ def explicit_no_records(frame, sheet_name, report_name):
     )
 
 
+def drop_empty_spacer_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    spacers = frame.columns.str.fullmatch(r"Unnamed(?:_|:\s*)\d+(?:[_.]\d+)?")
+    empty = frame.loc[:, spacers].replace(r"^\s*$", pd.NA, regex=True).isna().all()
+    return frame.drop(columns=empty.index[empty])
+
+
 def main():
     args = parse_args()
 
@@ -1718,8 +1724,8 @@ def main():
         if "Barcode" in items_to_write.columns:
             normalize_barcode_inplace(items_to_write, "Barcode")
 
-        items_to_write.to_excel(writer, sheet_name="items", index=False)
-        df_store_use.to_excel(writer, sheet_name="Store use", index=False)
+        drop_empty_spacer_columns(items_to_write).to_excel(writer, sheet_name="items", index=False)
+        drop_empty_spacer_columns(df_store_use).to_excel(writer, sheet_name="Store use", index=False)
 
         if not dept_breakdown.empty:
             dept_breakdown.to_excel(writer, sheet_name="Dept Breakdown", index=False)
@@ -1734,9 +1740,9 @@ def main():
 
         if rtc_available:
             if rtc_items_df is not None:
-                rtc_items_df.to_excel(writer, sheet_name="RTC items", index=False)
+                drop_empty_spacer_columns(rtc_items_df).to_excel(writer, sheet_name="RTC items", index=False)
             if rtc_admin_df is not None:
-                rtc_admin_df.to_excel(writer, sheet_name="Admin RTC", index=False)
+                drop_empty_spacer_columns(rtc_admin_df).to_excel(writer, sheet_name="Admin RTC", index=False)
             if not rtc_summary_df.empty:
                 rtc_summary_df.to_excel(writer, sheet_name="RTC", index=False)
 
