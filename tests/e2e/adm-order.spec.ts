@@ -75,6 +75,24 @@ test("ADM uses shop-specific Daily Sales, locks orders and keeps the last two qu
     expect((await pdf.body()).subarray(0, 5).toString()).toBe("%PDF-");
     expect((await request.get("/api/adm-order/pdf", { params: { ...params, storeId: 2 } })).status()).toBe(404);
 
+    const preview = await request.get("/api/adm-order/pdf", { params: { ...params, view: 1 } });
+    expect(preview.headers()["content-disposition"]).toMatch(/^inline;/);
+    expect((await preview.body()).subarray(0, 5).toString()).toBe("%PDF-");
+    const history = async (filters: Record<string, string>) => {
+      const response = await request.get("/adm-order/history", { params: filters });
+      expect(response.ok()).toBe(true);
+      return response.text();
+    };
+    const firstPdfQuery = `/api/adm-order/pdf?storeId=1&amp;deliveryDate=${deliveries[0]}`;
+    const secondPdfQuery = `/api/adm-order/pdf?storeId=1&amp;deliveryDate=${deliveries[1]}`;
+    const byShop = await history({ shop: "1" });
+    expect(byShop).toContain(firstPdfQuery);
+    expect(byShop).toContain(secondPdfQuery);
+    const byDate = await history({ deliveryDate: deliveries[1] });
+    expect(byDate).toContain(secondPdfQuery);
+    expect(byDate).not.toContain(firstPdfQuery);
+    expect(await history({ shop: "2", deliveryDate: deliveries[1] })).toContain("No submitted ADM orders for these filters.");
+
     const archiveDates = [addDaysIso(today, -6), addDaysIso(today, -3)];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([

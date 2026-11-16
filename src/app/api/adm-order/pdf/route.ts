@@ -41,7 +41,7 @@ export async function GET(request: Request) {
   const response = new Response(Readable.toWeb(document) as ReadableStream<Uint8Array>, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="ADM_Order_${shopName}_${date}.pdf"`,
+      "Content-Disposition": `${params.get("view") === "1" ? "inline" : "attachment"}; filename="ADM_Order_${shopName}_${date}.pdf"`,
       "Cache-Control": "private, no-store",
     },
   });
