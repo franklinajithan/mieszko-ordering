@@ -86,8 +86,21 @@ export async function getAdmOrder(
     date: deliveryDate,
     quantities: quantities as Record<string, number | null>,
   }));
-  if (workbookOrderDate && workbookOrderDate < deliveryDate && !previous.some((order) => order.date === workbookOrderDate)) {
-    previous.push({ date: workbookOrderDate, quantities: Object.fromEntries(catalog.map(({ name, previousQty }) => [name, previousQty])) });
+  const workbookHistory = new Map<string, Record<string, number | null>>();
+  for (const item of catalog) {
+    const quantities = {
+      ...(workbookOrderDate ? { [workbookOrderDate]: item.previousQty } : {}),
+      ...item.previousOrders,
+    };
+    for (const [date, quantity] of Object.entries(quantities)) {
+      if (date >= deliveryDate) continue;
+      const lines = workbookHistory.get(date) ?? Object.create(null) as Record<string, number | null>;
+      lines[item.name] = quantity;
+      workbookHistory.set(date, lines);
+    }
+  }
+  for (const [date, quantities] of workbookHistory) {
+    if (!previous.some((order) => order.date === date)) previous.push({ date, quantities });
   }
   previous.sort((a, b) => b.date.localeCompare(a.date));
   const history = previous.slice(0, 2);

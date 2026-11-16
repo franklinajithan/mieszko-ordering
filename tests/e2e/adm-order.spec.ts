@@ -75,9 +75,10 @@ test("ADM uses shop-specific Daily Sales, locks orders and keeps the last two qu
     expect((await pdf.body()).subarray(0, 5).toString()).toBe("%PDF-");
     expect((await request.get("/api/adm-order/pdf", { params: { ...params, storeId: 2 } })).status()).toBe(404);
 
+    const archiveDates = [addDaysIso(today, -6), addDaysIso(today, -3)];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
-      ["Item Code", "Product Name", "Unit"], ["10001", product, "PCS"], ["10003", "Excel vegetable", "kg"],
+      ["Item Code", "Product Name", "Unit", ...archiveDates], ["10001", product, "PCS", 3, 9], ["10003", "Excel vegetable", "kg", 1, 2],
     ]), "HOUNSLOW");
     async function importWorkbook() {
       const bytes: ArrayBuffer = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
@@ -86,6 +87,9 @@ test("ADM uses shop-specific Daily Sales, locks orders and keeps the last two qu
       expect(upload.ok()).toBe(true);
     }
     await importWorkbook();
+    const workbookHistory = await load(1, today);
+    expect(workbookHistory.previousDates).toEqual([archiveDates[1], archiveDates[0]]);
+    expect(workbookHistory.items[0].previousQuantities).toEqual([9, 3]);
     expect((await load(1, deliveries[2])).items.map(({ name }: { name: string }) => name)).toEqual([product, "Excel vegetable"]);
     const edit = await request.put("/api/adm-order", { data: {
       storeId: 1,

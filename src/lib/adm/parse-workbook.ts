@@ -16,6 +16,8 @@ const storeNames: Record<string, string[]> = {
   MITCHAM: ["MIT"],
 };
 
+export const isMisplacedAdmCode = (code: string) => /^(?:\.+|\d{1,3}|\d+\.\d+)$/.test(code);
+
 const normalize = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 export function admShopKey(value: string) {
@@ -63,7 +65,9 @@ export function parseAdmWorkbook(buffer: ArrayBuffer, today: string) {
       const date = deliveryDate(value);
       return date && date < today && sourceRows.some((row) => isQuantity(row[column])) ? [{ date, column }] : [];
     }).sort((a, b) => b.date.localeCompare(a.date) || b.column - a.column);
-    const previous = orderColumns[0];
+    const previousOrders = [...new Map([...orderColumns].reverse().map((order) => [order.date, order])).values()]
+      .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 2);
+    const previous = previousOrders[0];
     const names = new Set<string>();
     const items = sourceRows.flatMap((row) => {
       const product = row[productColumn];
@@ -76,11 +80,32 @@ export function parseAdmWorkbook(buffer: ArrayBuffer, today: string) {
       const barcode = productColumn - codeColumn === 2 ? String(row[productColumn - 1] ?? "").trim() : "";
       const salesUnit = { KG: "kg", SZT: "pcs", PCS: "pcs" }[String(unit).trim().toUpperCase()] ?? null;
       const qty = previous ? row[previous.column] : null;
-      return [{ name, code, barcode: /^\d+$/.test(barcode) ? barcode : null, salesUnit, previousQty: isQuantity(qty) ? qty : null }];
+      return [{ name, code, barcode: /^\d+$/.test(barcode) ? barcode : null, salesUnit, previousQty: isQuantity(qty) ? qty : null,
+        previousOrders: Object.fromEntries(previousOrders.map(({ date, column }) => [
+          date, isQuantity(row[column]) ? row[column] : null,
+        ])),
+      }];
     });
     if (!items.length) throw new InputError(`No ADM products found in ${sheet}.`);
     catalogs.set(shop, { items, previousDate: previous?.date ?? null });
   }
   if (!catalogs.size) throw new InputError("The Excel file has no recognized ADM shop tabs.");
+  const referenceCodes = new Map<string, Set<string>>();
+  for (const { items } of catalogs.values()) {
+    for (const { name, code } of items) {
+      if (!code || !/^M\d+$/i.test(code)) continue;
+      const matches = referenceCodes.get(name) ?? new Set<string>();
+      matches.add(code.toUpperCase());
+      referenceCodes.set(name, matches);
+    }
+  }
+  for (const [shop, { items }] of catalogs) {
+    if (shop === "SUDBURY" || shop === "MITCHAM") continue;
+    for (const item of items) {
+      if (!item.code || !isMisplacedAdmCode(item.code)) continue;
+      const matches = referenceCodes.get(item.name);
+      item.code = matches?.size === 1 ? [...matches][0] : null;
+    }
+  }
   return catalogs;
 }

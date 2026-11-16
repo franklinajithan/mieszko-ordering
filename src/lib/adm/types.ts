@@ -4,4 +4,5 @@ export type AdmCatalogItem = {
   barcode: string | null;
   salesUnit: string | null;
   previousQty: number | null;
+  previousOrders?: Record<string, number | null>;
 };

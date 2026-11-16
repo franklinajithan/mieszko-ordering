@@ -125,9 +125,12 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
   const dateStart = order?.comparisonDates[0];
   const dateEnd = order?.comparisonDates.at(-1);
   const comparisonHeading = dateStart && dateEnd ? `${comparisonDate(dateStart)} - ${comparisonDate(dateEnd)} Sales` : "";
+  const otherSalesDays = order?.dates.flatMap((date, index) =>
+    order.comparisonDates.includes(date) ? [] : [{ date, index }],
+  ) ?? [];
   const gridStyle = {
-    "--adm-grid-columns": `minmax(14rem,1fr) 7rem 7rem 6rem 7rem 7rem ${comparisonColumns ? `repeat(${comparisonColumns},3.75rem) ` : ""} repeat(10,3.5rem)`,
-    minWidth: `${83 + comparisonColumns * 3.75}rem`,
+    "--adm-grid-columns": `minmax(14rem,1fr) 7rem 7rem 6rem 7rem 7rem ${comparisonColumns ? `repeat(${comparisonColumns},3.75rem) ` : ""} ${otherSalesDays.length ? `repeat(${otherSalesDays.length},3.5rem)` : ""}`,
+    minWidth: `${48 + otherSalesDays.length * 3.5 + comparisonColumns * 3.75}rem`,
   } as CSSProperties;
   const enteredCount = order?.items.filter(({ name }) => entries[name]?.trim()).length ?? 0;
 
@@ -242,7 +245,8 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                           <div role="columnheader" aria-colspan={comparisonColumns} style={{ gridColumn: `span ${comparisonColumns}` }}
                             className={`${gridCell} bg-teal-100 text-teal-950`}>{comparisonHeading}</div>
                         )}
-                        <div role="columnheader" aria-colspan={10} className={`${gridCell} col-span-10`}>Daily Sales</div>
+                        {otherSalesDays.length > 0 && <div role="columnheader" aria-colspan={otherSalesDays.length}
+                          style={{ gridColumn: `span ${otherSalesDays.length}` }} className={gridCell}>Other Daily Sales</div>}
                       </div>
                       <div role="row" className={gridColumns}>
                         <div role="columnheader" className={`${gridCell} sticky left-0 z-10 bg-zinc-100`}>Product</div>
@@ -265,11 +269,11 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                           </div>
                         ))}
                         {comparisonColumns > 0 && <div role="columnheader" className={`${gridCell} justify-end bg-teal-100 text-teal-950`}>Total</div>}
-                        {order.dates.map((day) => {
+                        {otherSalesDays.map(({ date: day }) => {
                           const missing = order.missingSalesDates.includes(day);
                           return (
                             <div role="columnheader" key={day} title={missing ? "No Daily Sales import" : undefined}
-                              className={`${gridCell} justify-end ${order.comparisonDates.includes(day) ? "bg-teal-100 text-teal-950" : ""} ${missing ? "text-zinc-400" : ""}`}>
+                              className={`${gridCell} justify-end ${missing ? "text-zinc-400" : ""}`}>
                               {shortDate(day)}
                             </div>
                           );
@@ -314,12 +318,13 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                               {item.comparisonTotal === null ? "—" : Number(item.comparisonTotal)}
                             </div>
                           )}
-                          {item.sales.map((qty, index) => (
-                            <div role="gridcell" key={order.dates[index]}
-                              className={`${gridCell} justify-end tabular-nums ${order.comparisonDates.includes(order.dates[index]) ? "bg-teal-50" : ""} ${qty === null ? "text-zinc-400" : "text-zinc-900"}`}>
+                          {otherSalesDays.map(({ date: day, index }) => {
+                            const qty = item.sales[index];
+                            return <div role="gridcell" key={day}
+                              className={`${gridCell} justify-end tabular-nums ${qty === null ? "text-zinc-400" : "text-zinc-900"}`}>
                               {qty === null ? "—" : Number(qty)}
-                            </div>
-                          ))}
+                            </div>;
+                          })}
                         </div>
                       ))}
                     </div>
