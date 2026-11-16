@@ -282,7 +282,6 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                           className={`${gridColumns} group border-t border-zinc-100 even:bg-zinc-50 hover:bg-emerald-50/60`}>
                           <div role="rowheader" className={`${gridCell} sticky left-0 z-10 block bg-white font-medium text-zinc-900 group-even:bg-zinc-50 group-hover:bg-emerald-50`}>
                             {item.name}
-                            {item.salesUnit && <small className="block font-normal text-zinc-500">Sales in {item.salesUnit}</small>}
                           </div>
                           <div role="gridcell" className={`${gridCell} break-all font-mono text-xs text-zinc-600`}>{item.code ?? "—"}</div>
                           {[1, 0].map((index) => (
