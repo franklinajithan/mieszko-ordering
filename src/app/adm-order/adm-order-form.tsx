@@ -121,16 +121,15 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
   const visibleItems = order?.items.filter(({ name, code }) =>
     name.toLocaleLowerCase().includes(needle) || code?.toLocaleLowerCase().includes(needle),
   );
-  const comparisonColumns = order?.comparisonDates.length ? order.comparisonDates.length + 1 : 0;
   const dateStart = order?.comparisonDates[0];
   const dateEnd = order?.comparisonDates.at(-1);
-  const comparisonHeading = dateStart && dateEnd ? `${comparisonDate(dateStart)} - ${comparisonDate(dateEnd)} Sales` : "";
-  const otherSalesDays = order?.dates.flatMap((date, index) =>
-    order.comparisonDates.includes(date) ? [] : [{ date, index }],
-  ) ?? [];
+  const comparisonPeriod = dateStart && dateEnd ? `${comparisonDate(dateStart)} - ${comparisonDate(dateEnd)}`.toLowerCase() : "";
+  const comparisonDates = new Set(order?.comparisonDates);
+  const salesDates = [...new Set([...(order?.dates ?? []), ...comparisonDates])].sort();
+  const missingSalesDates = new Set([...(order?.missingSalesDates ?? []), ...(order?.missingComparisonDates ?? [])]);
   const gridStyle = {
-    "--adm-grid-columns": `minmax(14rem,1fr) 7rem ${comparisonColumns ? `repeat(${comparisonColumns},3.75rem) ` : ""}${otherSalesDays.length ? `repeat(${otherSalesDays.length},3.5rem) ` : ""}7rem 6rem 7rem 7rem`,
-    minWidth: `${48 + otherSalesDays.length * 3.5 + comparisonColumns * 3.75}rem`,
+    "--adm-grid-columns": `minmax(14rem,1fr) 7rem repeat(${salesDates.length},3.5rem) 7rem 6rem ${comparisonPeriod ? "6rem " : ""}7rem 7rem`,
+    minWidth: `${48 + salesDates.length * 3.5 + (comparisonPeriod ? 6 : 0)}rem`,
   } as CSSProperties;
   const enteredCount = order?.items.filter(({ name }) => entries[name]?.trim()).length ?? 0;
 
@@ -234,41 +233,33 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                     <div role="rowgroup" className="sticky top-0 z-20 bg-zinc-100 text-xs font-semibold text-zinc-700">
                       <div role="row" className={`${gridColumns} border-b border-zinc-200`}>
                         <div role="columnheader" aria-colspan={2} className={`${gridCell} col-span-2`}>Shop products</div>
-                        {comparisonColumns > 0 && (
-                          <div role="columnheader" aria-colspan={comparisonColumns} style={{ gridColumn: `span ${comparisonColumns}` }}
-                            className={`${gridCell} bg-teal-100 text-teal-950`}>{comparisonHeading}</div>
-                        )}
-                        {otherSalesDays.length > 0 && <div role="columnheader" aria-colspan={otherSalesDays.length}
-                          style={{ gridColumn: `span ${otherSalesDays.length}` }} className={gridCell}>Other Daily Sales</div>}
+                        <div role="columnheader" aria-colspan={salesDates.length} style={{ gridColumn: `span ${salesDates.length}` }}
+                          className={gridCell}>Daily Sales</div>
                         <div role="columnheader" aria-colspan={2} className={`${gridCell} col-span-2 justify-center`}>Previous orders</div>
-                        <div role="columnheader" aria-colspan={2} className={`${gridCell} col-span-2 justify-center bg-emerald-100 text-emerald-900`}>Order entry</div>
+                        <div role="columnheader" aria-colspan={comparisonPeriod ? 3 : 2}
+                          className={`${gridCell} ${comparisonPeriod ? "col-span-3" : "col-span-2"} justify-center bg-emerald-100 text-emerald-900`}>Order entry</div>
                       </div>
                       <div role="row" className={gridColumns}>
                         <div role="columnheader" className={`${gridCell} sticky left-0 z-10 bg-zinc-100`}>Product</div>
                         <div role="columnheader" className={gridCell}>Item Code</div>
-                        {order.comparisonDates.map((day) => (
-                          <div role="columnheader" key={day}
-                            title={order.missingComparisonDates.includes(day) ? "No Daily Sales import" : undefined}
-                            className={`${gridCell} justify-end bg-teal-50 ${order.missingComparisonDates.includes(day) ? "text-zinc-400" : "text-teal-950"}`}>
+                        {salesDates.map((day) => (
+                          <div role="columnheader" key={day} title={missingSalesDates.has(day) ? "No Daily Sales import" : undefined}
+                            className={`${gridCell} justify-end ${comparisonDates.has(day) ? "bg-teal-100" : ""} ${missingSalesDates.has(day) ? "text-zinc-400" : ""}`}>
                             {shortDate(day)}
                           </div>
                         ))}
-                        {comparisonColumns > 0 && <div role="columnheader" className={`${gridCell} justify-end bg-teal-100 text-teal-950`}>Total</div>}
-                        {otherSalesDays.map(({ date: day }) => {
-                          const missing = order.missingSalesDates.includes(day);
-                          return (
-                            <div role="columnheader" key={day} title={missing ? "No Daily Sales import" : undefined}
-                              className={`${gridCell} justify-end ${missing ? "text-zinc-400" : ""}`}>
-                              {shortDate(day)}
-                            </div>
-                          );
-                        })}
                         {[1, 0].map((index) => (
                           <div role="columnheader" className={`${gridCell} flex-col justify-center text-center`} key={index}>
                             {index === 0 ? "Last order" : "Order before last"}
                             {order.previousDates[index] && <small className="font-normal">{fullDate(order.previousDates[index])}</small>}
                           </div>
                         ))}
+                        {comparisonPeriod && (
+                          <div role="columnheader" className={`${gridCell} flex-col justify-center bg-teal-100 text-center text-teal-950`}>
+                            Total
+                            <small className="whitespace-nowrap text-[10px] font-normal">{comparisonPeriod}</small>
+                          </div>
+                        )}
                         <div role="columnheader" className={`${gridCell} justify-center bg-zinc-100 text-zinc-800`}>Physical Stock</div>
                         <div role="columnheader" className={`${gridCell} justify-center bg-emerald-50 text-emerald-900`}>
                           {order.current ? "Submitted qty" : "New order qty"}
@@ -283,29 +274,26 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                             {item.name}
                           </div>
                           <div role="gridcell" className={`${gridCell} break-all font-mono text-xs text-zinc-600`}>{item.code ?? "—"}</div>
-                          {item.comparisonSales.map((qty, index) => (
-                            <div role="gridcell" key={order.comparisonDates[index]}
-                              className={`${gridCell} justify-end bg-teal-50 tabular-nums ${qty === null ? "text-zinc-400" : ""}`}>
-                              {qty === null ? "—" : Number(qty)}
-                            </div>
-                          ))}
-                          {comparisonColumns > 0 && (
-                            <div role="gridcell" className={`${gridCell} justify-end bg-teal-100 font-semibold text-teal-950 tabular-nums`}>
-                              {item.comparisonTotal === null ? "—" : Number(item.comparisonTotal)}
-                            </div>
-                          )}
-                          {otherSalesDays.map(({ date: day, index }) => {
-                            const qty = item.sales[index];
-                            return <div role="gridcell" key={day}
-                              className={`${gridCell} justify-end tabular-nums ${qty === null ? "text-zinc-400" : "text-zinc-900"}`}>
-                              {qty === null ? "—" : Number(qty)}
-                            </div>;
+                          {salesDates.map((day) => {
+                            const comparisonIndex = order.comparisonDates.indexOf(day);
+                            const qty = comparisonIndex >= 0 ? item.comparisonSales[comparisonIndex] : item.sales[order.dates.indexOf(day)];
+                            return (
+                              <div role="gridcell" key={day}
+                                className={`${gridCell} justify-end tabular-nums ${comparisonIndex >= 0 ? "bg-teal-50" : ""} ${qty === null ? "text-zinc-400" : "text-zinc-900"}`}>
+                                {qty === null ? "—" : Number(qty)}
+                              </div>
+                            );
                           })}
                           {[1, 0].map((index) => (
                             <div role="gridcell" key={index} className={`${gridCell} justify-end tabular-nums`}>
                               {item.previousQuantities[index] ?? "—"}
                             </div>
                           ))}
+                          {comparisonPeriod && (
+                            <div role="gridcell" className={`${gridCell} justify-end bg-teal-100 font-semibold text-teal-950 tabular-nums`}>
+                              {item.comparisonTotal === null ? "—" : Number(item.comparisonTotal)}
+                            </div>
+                          )}
                           <div role="gridcell" className={`${gridCell} justify-end bg-zinc-50 text-right tabular-nums`}>
                             {order.current ? order.current.physicalStock[item.name] ?? "—" :
                               <input className={`${control} w-full text-right`} type="number" inputMode="decimal"

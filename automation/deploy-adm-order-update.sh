@@ -24,7 +24,7 @@ git fetch --no-tags https://github.com/franklinajithan/mieszko-ordering.git refs
 target="$(git rev-parse FETCH_HEAD)"
 applied=no
 matched=no
-for base in "${ADM_BASE_COMMIT:-63ee66a6933b846ad0bb6dfbc8d1d334af8dfc38}" 4fcb874307d751bbb3786f20dd1488b664318008 5d1f1220ddc9026fa53d2aadbbef8e7f54a39b69 49b56a67be917948cc8c1f7374cad04636d6d11e 25adf1ebd280e37c7db1cd3050ba6bd81e3bfb10 2e8d905b17fe168f0e22c4a8e8e7bb9aa5d9a9bb 042f1e83b6299431c7c1e8c7bf37068e3468ee9d; do
+for base in "${ADM_BASE_COMMIT:-da570340aea2aa2338916b734190466d2d3e2961}" 63ee66a6933b846ad0bb6dfbc8d1d334af8dfc38 4fcb874307d751bbb3786f20dd1488b664318008 5d1f1220ddc9026fa53d2aadbbef8e7f54a39b69 49b56a67be917948cc8c1f7374cad04636d6d11e 25adf1ebd280e37c7db1cd3050ba6bd81e3bfb10 2e8d905b17fe168f0e22c4a8e8e7bb9aa5d9a9bb 042f1e83b6299431c7c1e8c7bf37068e3468ee9d; do
   git diff --binary "$base" "$target" \
     -- src package.json package-lock.json automation/adm-report6-nightly.sh > "$tmp/adm.patch"
   [[ -s "$tmp/adm.patch" ]] || continue
