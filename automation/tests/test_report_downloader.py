@@ -13,6 +13,37 @@ import report_downloader as downloader
 
 
 class ReportDownloaderTests(unittest.TestCase):
+    def test_nebula_stock_filters_use_grouping_and_reason_widget(self):
+        for extra, wanted in [(False, downloader.REASONS[:3]), (True, downloader.REASONS)]:
+            with self.subTest(extra=extra):
+                reasons = (*downloader.REASONS, 'Store Transfers (Out)', 'Store Transfers (In)')
+                boxes = [Mock() for _ in reasons]
+                for box, reason in zip(boxes, reasons):
+                    box.evaluate.return_value = reason
+
+                frame = Mock()
+                group_by, group_level, toggle, menu, selected = (Mock() for _ in range(5))
+                frame.locator.side_effect = {
+                    'select#SelectGroupBy:visible': group_by,
+                    '#GroupLevelDiv select:visible': group_level,
+                    '#ReasonDiv button.ui-multiselect:visible': toggle,
+                    '.ui-multiselect-menu:visible': menu,
+                    '#SelectReason option:checked': selected,
+                }.__getitem__
+                for control in (group_by, group_level, toggle):
+                    control.count.return_value = 1
+                menu.filter.return_value = menu
+                menu.locator.return_value.all.return_value = boxes
+                selected.all_text_contents.return_value = list(wanted)
+
+                downloader.configure_stock_filters(frame, extra, Mock())
+
+                group_by.select_option.assert_called_once_with(label='Day')
+                group_level.select_option.assert_called_once_with(label='Item')
+                self.assertEqual(toggle.click.call_count, 2)
+                for box, reason in zip(boxes, reasons):
+                    box.set_checked.assert_called_once_with(reason in wanted)
+
     def test_report_numbers_are_verified(self):
         pattern = downloader.report_title_pattern('daily_item_volume', downloader.REPORTS['daily_item_volume'][1])
         self.assertTrue(pattern.fullmatch('22. Daily Item Volume'))
