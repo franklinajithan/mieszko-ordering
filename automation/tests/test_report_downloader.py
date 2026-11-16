@@ -61,7 +61,36 @@ class ReportDownloaderTests(unittest.TestCase):
             self.assertTrue(downloader.create_zip(root, root, rows))
             with ZipFile(root / 'reports.zip') as archive:
                 self.assertEqual(archive.namelist(), [
-                    'Streatham/item_sales_2026-10-29_to_2026-11-05.xlsx',
-                    'Hounslow/item_sales_2026-10-29_to_2026-11-05.xlsx',
+                    'Streatham/Item Sales 29.10.26-05.11.26.xlsx',
+                    'Hounslow/Item Sales 29.10.26-05.11.26.xlsx',
+                ])
+                self.assertIsNone(archive.testzip())
+
+    def test_download_names_keep_same_year_workbooks_distinct(self):
+        reports = [
+            ('rtc', '2025-12-29', '2026-01-02'),
+            ('rtc', '2026-01-03', '2026-01-04'),
+            ('wastage', '2026-01-03', '2026-01-04'),
+            ('wastage', '2026-01-05', '2026-01-06'),
+            ('stock_adjustment_extra', '2025-11-15', '2025-11-15'),
+            ('daily_item_volume', '2026-11-15', '2026-11-15'),
+        ]
+        rows = [dict(store='HNS', report=report, start=start, end=end, state='completed')
+                for report, start, end in reports]
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for row in rows:
+                source = downloader.report_path(root, row)
+                source.parent.mkdir(parents=True, exist_ok=True)
+                Workbook().save(source)
+            self.assertTrue(downloader.create_zip(root, root, rows))
+            with ZipFile(root / 'reports.zip') as archive:
+                self.assertEqual(archive.namelist(), [
+                    'Hounslow/RTC 2025.xlsx',
+                    'Hounslow/RTC 2026.xlsx',
+                    'Hounslow/wastage/2026-01-03_to_2026-01-04/Wastage 2026.xlsx',
+                    'Hounslow/wastage/2026-01-05_to_2026-01-06/Wastage 2026.xlsx',
+                    'Hounslow/Wastage 2025.xlsx',
+                    'Hounslow/Daily Item Volume 15.11.26-15.11.26.xlsx',
                 ])
                 self.assertIsNone(archive.testzip())

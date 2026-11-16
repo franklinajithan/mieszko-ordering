@@ -1,5 +1,6 @@
 """Run office-only Excel report batches using the configured Ubuntu worker."""
 import argparse
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 import fcntl
@@ -103,16 +104,33 @@ def report_path(root, row):
     return root / 'files' / STORES[row['store']] / row['report'] / filename
 
 
+def download_filename(row):
+    start = date.fromisoformat(row['start'])
+    report = row['report']
+    if report == 'rtc':
+        return f'RTC {start:%Y}.xlsx'
+    if report in ('wastage', 'stock_adjustment_extra'):
+        return f'Wastage {start:%Y}.xlsx'
+    end = date.fromisoformat(row['end'])
+    title = 'Item Sales' if report == 'item_sales' else 'Daily Item Volume'
+    return f'{title} {start:%d.%m.%y}-{end:%d.%m.%y}.xlsx'
+
+
 def create_zip(root, folder, rows):
-    files = [(report_path(root, row), row) for row in rows if row['state'] in ('completed', 'skipped')]
+    files = [(row, f"{STORES[row['store']]}/{download_filename(row)}")
+             for row in rows if row['state'] in ('completed', 'skipped')]
     if not files:
         return False
+    name_counts = Counter(name for _, name in files)
     temporary = folder / 'reports.part'
     try:
         with ZipFile(temporary, 'w') as archive:
-            for source, row in files:
-                name = f"{row['report']}_{source.name}"
-                archive.write(source, f"{STORES[row['store']]}/{name}")
+            for row, name in files:
+                source = report_path(root, row)
+                if name_counts[name] > 1:
+                    store, filename = name.split('/', 1)
+                    name = f"{store}/{row['report']}/{source.stem}/{filename}"
+                archive.write(source, name)
         temporary.replace(folder / 'reports.zip')
     finally:
         temporary.unlink(missing_ok=True)
