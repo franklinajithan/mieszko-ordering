@@ -343,6 +343,7 @@ CREATE TABLE adm_orders (
   store_id integer NOT NULL REFERENCES stores(id),
   delivery_date date NOT NULL,
   quantities jsonb NOT NULL,
+  physical_stock jsonb NOT NULL DEFAULT '{}'::jsonb,
   submitted_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (store_id, delivery_date)
 );

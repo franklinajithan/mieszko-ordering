@@ -11,9 +11,11 @@ import { todayIso } from "@/utils/order-sheet-form";
 
 const storeId = z.number().int().positive().max(2147483647);
 const day = z.string().refine(isIsoDateString, "Choose a valid delivery date.");
+const quantity = z.number().nonnegative().max(999999).multipleOf(0.001);
 const orderSchema = z.object({
   storeId, deliveryDate: day,
-  quantities: z.record(z.string(), z.number().nonnegative().max(999999).multipleOf(0.001)),
+  quantities: z.record(z.string(), quantity),
+  physicalStock: z.record(z.string(), quantity).default({}),
 });
 const assortmentSchema = z.object({
   storeId,
@@ -44,18 +46,18 @@ export const GET = route(async (req) => {
 export const POST = route(async (req) => {
   const parsed = await parseJson(req, orderSchema);
   if (!parsed.ok) return parsed.response;
-  const { storeId: id, deliveryDate, quantities } = parsed.data;
+  const { storeId: id, deliveryDate, quantities, physicalStock } = parsed.data;
   if (deliveryDate < todayIso()) return apiError("Choose today or a future delivery date.");
   const catalog = await shopCatalog(id);
   if (!catalog) return apiError("ADM ordering is unavailable for this shop.", 404);
   const assortment = await getAdmAssortment(id, catalog.items);
   const lines = Object.keys(quantities);
   if (!lines.length) return apiError("Enter at least one order quantity.");
-  if (lines.some((name) => !Object.hasOwn(assortment, name))) {
+  if ([...lines, ...Object.keys(physicalStock)].some((name) => !Object.hasOwn(assortment, name))) {
     return apiError("The shop’s product list changed. Reload the order and try again.", 409);
   }
 
-  const [order] = await db.insert(admOrders).values({ storeId: id, deliveryDate, quantities })
+  const [order] = await db.insert(admOrders).values({ storeId: id, deliveryDate, quantities, physicalStock })
     .onConflictDoNothing().returning({ submittedAt: admOrders.submittedAt });
   if (!order) return apiError("This shop already submitted an order for that delivery date.", 409);
   return apiOk(order, 201);

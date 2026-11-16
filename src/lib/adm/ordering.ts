@@ -62,10 +62,11 @@ export async function getAdmOrder(
   }
   const current = currentRows[0];
   const knownNames = new Set(catalog.map(({ name }) => name));
-  const removedItems = Object.keys(current?.quantities ?? {}).filter((name) => !knownNames.has(name))
+  const savedItemNames = new Set([...Object.keys(current?.quantities ?? {}), ...Object.keys(current?.physicalStock ?? {})]);
+  const removedItems = [...savedItemNames].filter((name) => !knownNames.has(name))
     .map((name) => ({ name, code: null, barcode: null, salesUnit: null, previousQty: null }));
   const items = [...catalog, ...removedItems].filter((item) => Object.hasOwn(assortment, item.name)
-    || (current && Object.hasOwn(current.quantities, item.name))).map((item) => {
+    || savedItemNames.has(item.name)).map((item) => {
     const code = Object.hasOwn(assortment, item.name) ? assortment[item.name] : item.code;
     const id = code ? byCode.get(code) : undefined;
     if (id !== undefined) return { ...item, code, id };
@@ -97,7 +98,7 @@ export async function getAdmOrder(
     submittedShops: submittedShops.map(({ name }) => name),
     previousDates: history.map(({ date }) => date),
     missingSalesDates: dates.filter((date) => !availableDays.has(date)),
-    current: current ? { quantities: current.quantities, submittedAt: current.submittedAt.toISOString() } : null,
+    current: current ? { quantities: current.quantities, physicalStock: current.physicalStock, submittedAt: current.submittedAt.toISOString() } : null,
     items: items.map(({ name, code, id, salesUnit }) => {
       const comparisonSales = comparisonDates.map((date) => byItemAndDay.get(`${id}/${date}`) ?? null);
       const recorded = comparisonSales.filter((qty): qty is string => qty !== null);

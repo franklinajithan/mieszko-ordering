@@ -11,6 +11,11 @@ const button = "rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text
 const gridColumns = "grid grid-cols-[var(--adm-grid-columns)]";
 const gridCell = "flex min-w-0 items-center border-r border-zinc-100 px-2.5 py-2";
 const shortDate = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+const comparisonDate = (iso: string) => {
+  const date = new Date(`${iso}T00:00:00Z`);
+  const month = new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "UTC" }).format(date);
+  return `${date.getUTCDate()}-${month}`;
+};
 const fullDate = (iso: string) => iso.split("-").reverse().join(".");
 
 function moveQuantityFocus(event: KeyboardEvent<HTMLDivElement>) {
@@ -18,7 +23,8 @@ function moveQuantityFocus(event: KeyboardEvent<HTMLDivElement>) {
   if (!(input instanceof HTMLInputElement) || !input.hasAttribute("data-order-qty")) return;
   if (event.key !== "Enter" && event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   event.preventDefault();
-  const inputs = [...event.currentTarget.querySelectorAll<HTMLInputElement>("[data-order-qty]:enabled")];
+  const inputs = [...event.currentTarget.querySelectorAll<HTMLInputElement>("[data-order-qty]:enabled")]
+    .filter((cell) => cell.dataset.orderQty === input.dataset.orderQty);
   const offset = event.key === "ArrowUp" || (event.key === "Enter" && event.shiftKey) ? -1 : 1;
   inputs[inputs.indexOf(input) + offset]?.focus();
 }
@@ -51,6 +57,7 @@ export function AdmOrderForm({ shops, initialDate, catalogRevision = 0 }: { shop
 function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; catalogRevision: number }) {
   const [search, setSearch] = useState("");
   const [order, setOrder] = useState<Order | null>(null);
+  const [stock, setStock] = useState<Record<string, string>>({});
   const [entries, setEntries] = useState<Record<string, string>>({});
   const [settings, setSettings] = useState<Order["assortment"] | null>(null);
   const [addedProducts, setAddedProducts] = useState<{ name: string; code: string }[]>([]);
@@ -104,7 +111,10 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
     const quantities = Object.fromEntries(order.items.flatMap(({ name }) =>
       entries[name]?.trim() ? [[name, Number(entries[name])]] : [],
     ));
-    void save("POST", { deliveryDate: date, quantities });
+    const physicalStock = Object.fromEntries(order.items.flatMap(({ name }) =>
+      stock[name]?.trim() ? [[name, Number(stock[name])]] : [],
+    ));
+    void save("POST", { deliveryDate: date, quantities, physicalStock });
   }
 
   const needle = search.trim().toLocaleLowerCase();
@@ -112,9 +122,12 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
     name.toLocaleLowerCase().includes(needle) || code?.toLocaleLowerCase().includes(needle),
   );
   const comparisonColumns = order?.comparisonDates.length ? order.comparisonDates.length + 1 : 0;
+  const dateStart = order?.comparisonDates[0];
+  const dateEnd = order?.comparisonDates.at(-1);
+  const comparisonHeading = dateStart && dateEnd ? `${comparisonDate(dateStart)} - ${comparisonDate(dateEnd)} Sales` : "";
   const gridStyle = {
-    "--adm-grid-columns": `minmax(14rem,1fr) 7rem 6rem 7rem 7rem ${comparisonColumns ? `repeat(${comparisonColumns},3.75rem) ` : ""} repeat(10,3.5rem)`,
-    minWidth: `${76 + comparisonColumns * 3.75}rem`,
+    "--adm-grid-columns": `minmax(14rem,1fr) 7rem 7rem 6rem 7rem 7rem ${comparisonColumns ? `repeat(${comparisonColumns},3.75rem) ` : ""} repeat(10,3.5rem)`,
+    minWidth: `${83 + comparisonColumns * 3.75}rem`,
   } as CSSProperties;
   const enteredCount = order?.items.filter(({ name }) => entries[name]?.trim()).length ?? 0;
 
@@ -134,7 +147,7 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
               </p>
               {comparisonColumns > 0 && (
                 <p className="mt-2 text-sm font-medium text-teal-900">
-                  Comparison sales · {fullDate(order.comparisonDates[0])}–{fullDate(order.comparisonDates.at(-1)!)}
+                  {comparisonHeading}
                 </p>
               )}
               <p className="mt-1 text-sm text-zinc-600">
@@ -224,22 +237,23 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                       <div role="row" className={`${gridColumns} border-b border-zinc-200`}>
                         <div role="columnheader" aria-colspan={2} className={`${gridCell} col-span-2`}>Shop products</div>
                         <div role="columnheader" aria-colspan={2} className={`${gridCell} col-span-2 justify-center`}>Previous orders</div>
-                        <div role="columnheader" className={`${gridCell} justify-center bg-emerald-100 text-emerald-900`}>Order</div>
+                        <div role="columnheader" aria-colspan={2} className={`${gridCell} col-span-2 justify-center bg-emerald-100 text-emerald-900`}>Order entry</div>
                         {comparisonColumns > 0 && (
                           <div role="columnheader" aria-colspan={comparisonColumns} style={{ gridColumn: `span ${comparisonColumns}` }}
-                            className={`${gridCell} bg-teal-100 text-teal-950`}>Comparison sales</div>
+                            className={`${gridCell} bg-teal-100 text-teal-950`}>{comparisonHeading}</div>
                         )}
                         <div role="columnheader" aria-colspan={10} className={`${gridCell} col-span-10`}>Daily Sales</div>
                       </div>
                       <div role="row" className={gridColumns}>
                         <div role="columnheader" className={`${gridCell} sticky left-0 z-10 bg-zinc-100`}>Product</div>
                         <div role="columnheader" className={gridCell}>Item Code</div>
-                        {[0, 1].map((index) => (
+                        {[1, 0].map((index) => (
                           <div role="columnheader" className={`${gridCell} flex-col justify-center text-center`} key={index}>
                             {index === 0 ? "Last order" : "Order before last"}
                             {order.previousDates[index] && <small className="font-normal">{fullDate(order.previousDates[index])}</small>}
                           </div>
                         ))}
+                        <div role="columnheader" className={`${gridCell} justify-center bg-zinc-100 text-zinc-800`}>Physical Stock</div>
                         <div role="columnheader" className={`${gridCell} justify-center bg-emerald-50 text-emerald-900`}>
                           {order.current ? "Submitted qty" : "New order qty"}
                         </div>
@@ -255,7 +269,7 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                           const missing = order.missingSalesDates.includes(day);
                           return (
                             <div role="columnheader" key={day} title={missing ? "No Daily Sales import" : undefined}
-                              className={`${gridCell} justify-end ${missing ? "text-zinc-400" : ""}`}>
+                              className={`${gridCell} justify-end ${order.comparisonDates.includes(day) ? "bg-teal-100 text-teal-950" : ""} ${missing ? "text-zinc-400" : ""}`}>
                               {shortDate(day)}
                             </div>
                           );
@@ -271,15 +285,22 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                             {item.salesUnit && <small className="block font-normal text-zinc-500">Sales in {item.salesUnit}</small>}
                           </div>
                           <div role="gridcell" className={`${gridCell} break-all font-mono text-xs text-zinc-600`}>{item.code ?? "—"}</div>
-                          {[0, 1].map((index) => (
+                          {[1, 0].map((index) => (
                             <div role="gridcell" key={index} className={`${gridCell} justify-end tabular-nums`}>
                               {item.previousQuantities[index] ?? "—"}
                             </div>
                           ))}
+                          <div role="gridcell" className={`${gridCell} justify-end bg-zinc-50 text-right tabular-nums`}>
+                            {order.current ? order.current.physicalStock[item.name] ?? "—" :
+                              <input className={`${control} w-full text-right`} type="number" inputMode="decimal"
+                                min={0} max={999999} step="0.001" disabled={saving} data-order-qty="stock"
+                                aria-label={`Physical stock for ${item.name}`} value={stock[item.name] ?? ""}
+                                onChange={(event) => setStock({ ...stock, [item.name]: event.target.value })} />}
+                          </div>
                           <div role="gridcell" className={`${gridCell} justify-end bg-emerald-50/70 text-right tabular-nums`}>
                             {order.current ? order.current.quantities[item.name] ?? "—" :
                               <input className={`${control} w-full text-right`} type="number" inputMode="decimal"
-                                min={0} max={999999} step="0.001" disabled={saving} data-order-qty
+                                min={0} max={999999} step="0.001" disabled={saving} data-order-qty="order"
                                 aria-label={`Order quantity for ${item.name}`} value={entries[item.name] ?? ""}
                                 onChange={(event) => setEntries({ ...entries, [item.name]: event.target.value })} />}
                           </div>
@@ -296,7 +317,7 @@ function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; 
                           )}
                           {item.sales.map((qty, index) => (
                             <div role="gridcell" key={order.dates[index]}
-                              className={`${gridCell} justify-end tabular-nums ${qty === null ? "text-zinc-400" : "text-zinc-900"}`}>
+                              className={`${gridCell} justify-end tabular-nums ${order.comparisonDates.includes(order.dates[index]) ? "bg-teal-50" : ""} ${qty === null ? "text-zinc-400" : "text-zinc-900"}`}>
                               {qty === null ? "—" : Number(qty)}
                             </div>
                           ))}

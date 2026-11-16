@@ -24,7 +24,7 @@ git fetch --no-tags https://github.com/franklinajithan/mieszko-ordering.git refs
 target="$(git rev-parse FETCH_HEAD)"
 applied=no
 matched=no
-for base in "${ADM_BASE_COMMIT:-25adf1ebd280e37c7db1cd3050ba6bd81e3bfb10}" 2e8d905b17fe168f0e22c4a8e8e7bb9aa5d9a9bb 042f1e83b6299431c7c1e8c7bf37068e3468ee9d; do
+for base in "${ADM_BASE_COMMIT:-49b56a67be917948cc8c1f7374cad04636d6d11e}" 25adf1ebd280e37c7db1cd3050ba6bd81e3bfb10 2e8d905b17fe168f0e22c4a8e8e7bb9aa5d9a9bb 042f1e83b6299431c7c1e8c7bf37068e3468ee9d; do
   git diff --binary "$base" "$target" \
     -- src package.json package-lock.json automation/adm-report6-nightly.sh > "$tmp/adm.patch"
   [[ -s "$tmp/adm.patch" ]] || continue
@@ -59,6 +59,13 @@ rollback() {
   fi
   sudo systemctl restart "$web"
 }
+
+migration=migrations/manual/2026-11-16-adm-physical-stock.sql
+if ! git show "$target:$migration" > "$tmp/adm-stock.sql" \
+    || ! sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d mieszko-order -f - < "$tmp/adm-stock.sql"; then
+  rollback
+  exit 1
+fi
 
 if { [[ ! -x node_modules/.bin/next ]] && ! npm ci; } || ! npm run build || ! sudo systemctl restart "$web"; then
   rollback

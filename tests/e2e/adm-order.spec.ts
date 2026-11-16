@@ -43,10 +43,14 @@ test("ADM uses shop-specific Daily Sales, locks orders and keeps the last two qu
       .toEqual([0, null, null, null, null, null, null, null, null, 4]);
 
     for (const [index, qty] of [3.125, 5].entries()) {
-      const data = { storeId: 1, deliveryDate: deliveries[index], quantities: { [product]: qty } };
+      const data = { storeId: 1, deliveryDate: deliveries[index], quantities: { [product]: qty },
+        ...(index === 0 ? { physicalStock: { [product]: 0, "Natural Yogurt 200G": 4.5 } } : {}),
+      };
       expect((await request.post("/api/adm-order", { data })).status()).toBe(201);
       expect((await request.post("/api/adm-order", { data })).status()).toBe(409);
-      expect((await load(1, deliveries[index])).current.quantities[product]).toBe(qty);
+      const submitted = (await load(1, deliveries[index])).current;
+      expect(submitted.quantities[product]).toBe(qty);
+      expect(submitted.physicalStock).toEqual(index === 0 ? { [product]: 0, "Natural Yogurt 200G": 4.5 } : {});
     }
     const next = await load(1, deliveries[2]);
     expect(next.previousDates).toEqual([deliveries[1], deliveries[0]]);

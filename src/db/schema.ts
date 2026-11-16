@@ -996,6 +996,7 @@ export const admOrders = pgTable("adm_orders", {
   storeId: integer("store_id").notNull().references(() => stores.id),
   deliveryDate: date("delivery_date").notNull(),
   quantities: jsonb("quantities").$type<Record<string, number>>().notNull(),
+  physicalStock: jsonb("physical_stock").$type<Record<string, number>>().notNull().default({}),
   submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [primaryKey({ columns: [table.storeId, table.deliveryDate] })]);
 
