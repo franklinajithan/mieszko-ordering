@@ -47,18 +47,41 @@ def set_dates(frame, start, end):
         raise ValueError('CRM did not retain both report dates')
 
 
-def configure_stock_filters(frame, extra):
+def configure_stock_filters(frame, extra, progress):
+    progress('Setting the stock adjustment date and gains/losses filters')
     for label in ('ALL', 'Stock Adjustment Date'):
         frame.get_by_label(label, exact=True).check()
-    group = frame.get_by_label(re.compile(r'^Group Level\s*:?$')).and_(frame.locator('select'))
-    if group.count() != 1:
-        group = frame.locator('select').filter(has=frame.get_by_role('option', name='Item Group', exact=True))
+    progress('Setting stock adjustment grouping to Day and Item')
+    group_by = frame.locator('select#SelectGroupBy:visible')
+    if group_by.count():
+        group_by.select_option(label='Day')
+    group = frame.locator('#GroupLevelDiv select:visible')
+    if not group.count():
+        group = frame.get_by_label(re.compile(r'^Group Level\s*:?$')).and_(frame.locator('select:visible'))
     group.select_option(label='Item')
 
     # Handle native multi-selects and checkbox-based CRM controls.
+    progress('Selecting stock adjustment reasons')
     reason_field = frame.get_by_text(re.compile(r'^Stock Adj\.\s*Reason\s*:$', re.I)).locator('xpath=..')
-    native = reason_field.locator('select[multiple]:visible')
     wanted = REASONS if extra else REASONS[:3]
+    nebula_toggle = frame.locator('#ReasonDiv button.ui-multiselect:visible')
+    if nebula_toggle.count():
+        nebula_toggle.click()
+        menu = frame.locator('.ui-multiselect-menu:visible').filter(
+            has=frame.get_by_role('checkbox', name=wanted[0], exact=True)
+        )
+        for label in wanted:
+            menu.get_by_role('checkbox', name=label, exact=True).wait_for(state='visible')
+        for box in menu.locator('.ui-multiselect-checkboxes input[type=checkbox]').all():
+            label = box.evaluate('(input) => input.labels[0]?.textContent.trim()')
+            box.set_checked(label in wanted)
+        selected = frame.locator('#SelectReason option:checked').all_text_contents()
+        if {text.strip() for text in selected} != set(wanted):
+            raise ValueError('CRM did not retain the requested stock adjustment reasons')
+        nebula_toggle.click()
+        return
+
+    native = reason_field.locator('select[multiple]:visible')
     if native.count() == 1:
         native.select_option(label=list(wanted))
         selected = native.locator('option:checked').all_text_contents()
@@ -170,8 +193,7 @@ def run_reports(root, job, settings, update):
                         progress('Setting the report dates')
                         set_dates(frame, row['start'], row['end'])
                         if report in ('wastage', 'stock_adjustment_extra'):
-                            progress('Setting the stock adjustment filters')
-                            configure_stock_filters(frame, report == 'stock_adjustment_extra')
+                            configure_stock_filters(frame, report == 'stock_adjustment_extra', progress)
                         progress('Verifying report, dates and store')
                         selected = re.search(r'Selected Report[ \t]*:[ \t]*([^\n]+)', frame.locator('body').inner_text())
                         if not selected or not report_title_pattern(report, title).fullmatch(selected.group(1)):
