@@ -24,7 +24,7 @@ git fetch --no-tags https://github.com/franklinajithan/mieszko-ordering.git refs
 target="$(git rev-parse FETCH_HEAD)"
 applied=no
 matched=no
-for base in "${ADM_BASE_COMMIT:-2e8d905b17fe168f0e22c4a8e8e7bb9aa5d9a9bb}" 042f1e83b6299431c7c1e8c7bf37068e3468ee9d; do
+for base in "${ADM_BASE_COMMIT:-25adf1ebd280e37c7db1cd3050ba6bd81e3bfb10}" 2e8d905b17fe168f0e22c4a8e8e7bb9aa5d9a9bb 042f1e83b6299431c7c1e8c7bf37068e3468ee9d; do
   git diff --binary "$base" "$target" \
     -- src package.json package-lock.json automation/adm-report6-nightly.sh > "$tmp/adm.patch"
   [[ -s "$tmp/adm.patch" ]] || continue

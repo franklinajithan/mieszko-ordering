@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { admOrders, admShopAssortments, crmProductCodeAliases, productBarcodes, storeProducts, stores } from "@/db/schema";
 import { dailySalesRepository } from "@/repositories/daily-sales";
+import { Decimal } from "@/utils/decimal";
 import { addDaysIso, todayIso } from "@/utils/order-sheet-form";
 import type { AdmCatalogItem } from "./types";
 
@@ -24,6 +25,12 @@ export async function getAdmOrder(
   const today = todayIso();
   const salesEnd = deliveryDate < today ? deliveryDate : today;
   const dates = Array.from({ length: 10 }, (_, index) => addDaysIso(salesEnd, index - 10));
+  const weekday = new Date(`${deliveryDate}T00:00:00Z`).getUTCDay();
+  const comparisonDays = weekday === 0 ? 3 : weekday === 3 ? 4 : 0;
+  const comparisonDates = Array.from({ length: comparisonDays }, (_, index) => addDaysIso(deliveryDate, index - 14));
+  const queryDates = [...dates, ...comparisonDates.filter((date) => date < today)].sort();
+  const startDate = queryDates[0];
+  const endDate = queryDates[queryDates.length - 1];
   const assortment = await getAdmAssortment(storeId, catalog);
   const codes = Object.values(assortment).filter((code): code is string => Boolean(code));
   const barcodes = catalog.flatMap((item) => item.barcode ? [item.barcode] : []);
@@ -41,7 +48,7 @@ export async function getAdmOrder(
     barcodes.length ? db.select({ barcode: productBarcodes.barcode, id: storeProducts.id, code: storeProducts.storeProductCode }).from(productBarcodes)
       .innerJoin(storeProducts, eq(storeProducts.id, productBarcodes.storeProductId))
       .where(and(eq(storeProducts.storeId, storeId), eq(productBarcodes.storeId, storeId), inArray(productBarcodes.barcode, barcodes))) : [],
-    dailySalesRepository.listDateSummariesForStoresInRange([storeId], dates[0], dates[9]),
+    dailySalesRepository.listDateSummariesForStoresInRange([storeId], startDate, endDate),
     db.select({ name: stores.name }).from(admOrders).innerJoin(stores, eq(stores.id, admOrders.storeId))
       .where(and(eq(admOrders.deliveryDate, deliveryDate), eq(stores.erpType, "msp")))
       .orderBy(stores.name),
@@ -67,7 +74,7 @@ export async function getAdmOrder(
     return { ...item, code: barcodeMatch?.[1] ?? code, id: barcodeMatch?.[0] };
   });
   const salesRows = await dailySalesRepository.getSalesByProductsInRange(
-    items.flatMap(({ id }) => id === undefined ? [] : [id]), dates[0], dates[9],
+    items.flatMap(({ id }) => id === undefined ? [] : [id]), startDate, endDate,
   );
   const byItemAndDay = new Map(salesRows.map(({ storeProductId, salesDate, soldQty }) => [
     `${storeProductId}/${salesDate}`, soldQty,
@@ -84,16 +91,23 @@ export async function getAdmOrder(
   previous.sort((a, b) => b.date.localeCompare(a.date));
   const history = previous.slice(0, 2);
   return {
-    dates, assortment,
+    dates, comparisonDates, assortment,
+    missingComparisonDates: comparisonDates.filter((date) => !availableDays.has(date)),
     catalog: catalog.map(({ name, code }) => ({ name, code })),
     submittedShops: submittedShops.map(({ name }) => name),
     previousDates: history.map(({ date }) => date),
     missingSalesDates: dates.filter((date) => !availableDays.has(date)),
     current: current ? { quantities: current.quantities, submittedAt: current.submittedAt.toISOString() } : null,
-    items: items.map(({ name, code, id, salesUnit }) => ({
-      name, code, salesUnit,
-      sales: dates.map((date) => byItemAndDay.get(`${id}/${date}`) ?? null),
-      previousQuantities: history.map(({ quantities }) => quantities[name] ?? null),
-    })),
+    items: items.map(({ name, code, id, salesUnit }) => {
+      const comparisonSales = comparisonDates.map((date) => byItemAndDay.get(`${id}/${date}`) ?? null);
+      const recorded = comparisonSales.filter((qty): qty is string => qty !== null);
+      const comparisonTotal = recorded.length && comparisonDates.every((date) => availableDays.has(date))
+        ? Decimal.sum(...recorded).toString() : null;
+      return {
+        name, code, salesUnit, comparisonSales, comparisonTotal,
+        sales: dates.map((date) => byItemAndDay.get(`${id}/${date}`) ?? null),
+        previousQuantities: history.map(({ quantities }) => quantities[name] ?? null),
+      };
+    }),
   };
 }

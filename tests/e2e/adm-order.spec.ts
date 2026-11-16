@@ -56,6 +56,14 @@ test("ADM uses shop-specific Daily Sales, locks orders and keeps the last two qu
     expect(otherShop.previousDates).toEqual([]);
     expect(Number(otherShop.items[0].sales[9])).toBe(8);
 
+    const wednesday = await load(1, "2026-10-14");
+    expect(wednesday.comparisonDates).toEqual(["2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03"]);
+    expect(wednesday.items[0].comparisonTotal).toBe("16");
+    const sunday = await load(1, "2026-10-18");
+    expect(sunday.comparisonDates).toEqual(["2026-10-04", "2026-10-05", "2026-10-06"]);
+    expect(sunday.items[0].comparisonTotal).toBe("12");
+    expect((await load(1, "2026-10-19")).comparisonDates).toEqual([]);
+
     const params = { storeId: 1, deliveryDate: deliveries[0] };
     const pdf = await request.get("/api/adm-order/pdf", { params });
     expect(pdf.headers()["content-type"]).toBe("application/pdf");
