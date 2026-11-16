@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { getAdmOrder } from "@/lib/adm/ordering";
 
 type Order = Awaited<ReturnType<typeof getAdmOrder>>;
-type Shop = { id: number; name: string; catalog: { name: string; code: string | null }[] };
+type Shop = { id: number; name: string };
 const control = "rounded-md border bg-background px-3 py-2 text-sm";
 const button = "rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50";
 const shortDate = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
@@ -14,11 +14,11 @@ export function AdmOrderForm({ shops, initialDate }: { shops: Shop[]; initialDat
   const [shopId, setShopId] = useState(shops[0]?.id ?? 0);
   const [date, setDate] = useState(initialDate);
   const shop = shops.find((item) => item.id === shopId);
-  if (!shop) return <p>No active ADM shops are configured.</p>;
+  if (!shop) return <p>No active Nebula shops are configured.</p>;
 
   return (
     <>
-      <div className="flex flex-wrap gap-3">
+      <div className="mb-5 flex flex-wrap gap-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <label className="grid gap-1 text-sm">
           Shop
           <select className={control} value={shopId} onChange={(event) => setShopId(Number(event.target.value))}>
@@ -99,14 +99,17 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">
-              Nightly System Sales {shortDate(order.dates[0])}–{shortDate(order.dates[9])}
+              Report 6 sales {shortDate(order.dates[0])}–{shortDate(order.dates[9])}
               {" · "}— means no imported quantity
             </p>
-            <button type="button" className={control} disabled={saving}
+            <button type="button" className={control} disabled={saving || !order.catalog.length}
               onClick={() => setSettings(settings ? null : { ...order.assortment })}>
               {settings ? "Close shop products" : "Manage shop products"}
             </button>
           </div>
+          <p className="text-sm text-zinc-600">
+            Submitted for {fullDate(date)}{order.submittedShops.length ? ` · ${order.submittedShops.join(", ")}` : " · No shops yet"}
+          </p>
           {settings ? (
             <form className="space-y-3 rounded-lg border p-3" onSubmit={(event) => {
               event.preventDefault();
@@ -114,7 +117,7 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
               void save("PUT", { items });
             }}>
               <fieldset className="space-y-2" disabled={saving}>
-                {shop.catalog.map(({ name, code }) => {
+                {order.catalog.map(({ name, code }) => {
                   const enabled = Object.hasOwn(settings, name);
                   return (
                     <div key={name} className="flex flex-wrap items-center justify-between gap-2">
@@ -138,16 +141,18 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
             </form>
           ) : (
             <form className="space-y-3" onSubmit={submit}>
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
                 <table className="w-full text-sm [&_td]:px-2 [&_td]:py-2 [&_th]:px-2 [&_th]:py-2">
                   <thead className="bg-muted">
                     <tr>
                       <th scope="col" className="sticky left-0 bg-muted text-left">Product</th>
                       <th scope="col" className="min-w-24 text-left">Item Code</th>
-                      <th scope="col" className="min-w-24">
-                        Previous order
-                        {order.previousDate && <small className="block font-normal">{fullDate(order.previousDate)}{order.previousSource === "workbook" && " (workbook)"}</small>}
-                      </th>
+                      {[0, 1].map((index) => (
+                        <th scope="col" className="min-w-24" key={index}>
+                          {index === 0 ? "Last order" : "Order before last"}
+                          {order.previousDates[index] && <small className="block font-normal">{fullDate(order.previousDates[index])}</small>}
+                        </th>
+                      ))}
                       <th scope="col" className="min-w-24">{order.current ? "Submitted qty" : "New order qty"}</th>
                       {order.dates.map((day) => <th scope="col" key={day}>{shortDate(day)}</th>)}
                     </tr>
@@ -158,11 +163,13 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
                         <th scope="row" className="sticky left-0 min-w-36 bg-background text-left font-medium">
                           {item.name}
                           <small className="block font-normal text-muted-foreground">
-                            {[item.salesUnit ? `Sales in ${item.salesUnit}` : null, !item.matched ? "Sales item unmapped" : null].filter(Boolean).join(" · ")}
+                            {item.salesUnit ? `Sales in ${item.salesUnit}` : null}
                           </small>
                         </th>
                         <td className="whitespace-nowrap font-mono">{item.code ?? "—"}</td>
-                        <td className="text-right tabular-nums">{item.previousQty ?? "—"}</td>
+                        {[0, 1].map((index) => (
+                          <td key={index} className="text-right tabular-nums">{item.previousQuantities[index] ?? "—"}</td>
+                        ))}
                         <td className="text-right tabular-nums">
                           {order.current ? order.current.quantities[item.name] ?? "—" :
                             <input className={`${control} w-24 text-right`} type="number" inputMode="decimal"
@@ -178,8 +185,24 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
                   </tbody>
                 </table>
               </div>
-              {!order.items.length && <p className="text-sm">Use Manage shop products to add items.</p>}
-              {order.current ? <p className="text-sm">Submitted for delivery on {fullDate(date)}.</p> :
+              {!order.items.length && (
+                <p className="text-sm text-zinc-600">
+                  {order.catalog.length
+                    ? "Use Manage shop products to select the products this shop carries."
+                    : "No products in this shop are linked to supplier ADM. Add ADM supplier codes in the product catalog."}
+                </p>
+              )}
+              {order.missingSalesDates.length > 0 && (
+                <p className="text-sm text-zinc-600">Report 6 unavailable for {order.missingSalesDates.map(shortDate).join(", ")}.</p>
+              )}
+              {order.current ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="rounded bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+                    {shop.name} submitted this order.
+                  </p>
+                  <a className={control} href={`/api/adm-order/pdf?storeId=${shop.id}&deliveryDate=${date}`}>Download PDF</a>
+                </div>
+              ) :
                 <button className={button} disabled={saving || !order.items.some(({ name }) => entries[name]?.trim())}>
                   {saving ? "Submitting…" : "Submit order"}
                 </button>}

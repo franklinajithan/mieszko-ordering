@@ -21,7 +21,7 @@ const assortmentSchema = z.object({
 
 async function shopCatalog(id: number) {
   const shop = await storeRepository.getById(id);
-  return shop?.isActive ? getAdmCatalog(id) : null;
+  return shop?.isActive && shop.erpType === "msp" ? { ...await getAdmCatalog(id), code: shop.code } : null;
 }
 
 export const GET = route(async (req) => {
@@ -33,7 +33,7 @@ export const GET = route(async (req) => {
   const { storeId: id, deliveryDate } = query.data;
   const catalog = await shopCatalog(id);
   if (!catalog) return apiError("ADM ordering is unavailable for this shop.", 404);
-  return apiOk(await getAdmOrder(id, catalog.items, deliveryDate, catalog.previousDate));
+  return apiOk(await getAdmOrder(id, catalog.code, catalog.items, deliveryDate, catalog.previousDate));
 });
 
 export const POST = route(async (req) => {

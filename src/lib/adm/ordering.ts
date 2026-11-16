@@ -1,8 +1,8 @@
 import "server-only";
 import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { db } from "@/db";
-import { admOrders, admShopAssortments, crmProductCodeAliases, productBarcodes, storeProducts } from "@/db/schema";
-import { dailySalesRepository } from "@/repositories/daily-sales";
+import { admOrders, admShopAssortments, crmProductCodeAliases, productBarcodes, storeProducts, stores } from "@/db/schema";
+import { admReport6Store, loadAdmReport6 } from "./report6-sales";
 import { addDaysIso, todayIso } from "@/utils/order-sheet-form";
 import type { AdmCatalogItem } from "./types";
 
@@ -17,6 +17,7 @@ export async function getAdmAssortment(storeId: number, catalog: AdmCatalogItem[
 
 export async function getAdmOrder(
   storeId: number,
+  storeCode: string,
   catalog: AdmCatalogItem[],
   deliveryDate: string,
   workbookOrderDate: string | null,
@@ -28,10 +29,10 @@ export async function getAdmOrder(
   const codes = Object.values(assortment).filter((code): code is string => Boolean(code));
   const barcodes = catalog.flatMap((item) => item.barcode ? [item.barcode] : []);
 
-  const [currentRows, previousRows, matchedCodes, matchedAliases, matchedBarcodes] = await Promise.all([
+  const [currentRows, previousRows, matchedCodes, matchedAliases, matchedBarcodes, reportSales, submittedShops] = await Promise.all([
     db.select().from(admOrders).where(and(eq(admOrders.storeId, storeId), eq(admOrders.deliveryDate, deliveryDate))),
     db.select().from(admOrders).where(and(eq(admOrders.storeId, storeId), lt(admOrders.deliveryDate, deliveryDate)))
-      .orderBy(desc(admOrders.deliveryDate)).limit(1),
+      .orderBy(desc(admOrders.deliveryDate)).limit(2),
     codes.length ? db.select({ code: storeProducts.storeProductCode, id: storeProducts.id }).from(storeProducts)
       .where(and(eq(storeProducts.storeId, storeId), inArray(storeProducts.storeProductCode, codes))) : [],
     codes.length ? db.select({ code: crmProductCodeAliases.identifier, id: storeProducts.id }).from(crmProductCodeAliases)
@@ -41,9 +42,14 @@ export async function getAdmOrder(
     barcodes.length ? db.select({ barcode: productBarcodes.barcode, id: storeProducts.id, code: storeProducts.storeProductCode }).from(productBarcodes)
       .innerJoin(storeProducts, eq(storeProducts.id, productBarcodes.storeProductId))
       .where(and(eq(storeProducts.storeId, storeId), eq(productBarcodes.storeId, storeId), inArray(productBarcodes.barcode, barcodes))) : [],
+    loadAdmReport6(admReport6Store(storeCode), dates),
+    db.select({ name: stores.name }).from(admOrders).innerJoin(stores, eq(stores.id, admOrders.storeId))
+      .where(and(eq(admOrders.deliveryDate, deliveryDate), eq(stores.erpType, "msp")))
+      .orderBy(stores.name),
   ]);
 
   const byCode = new Map([...matchedAliases, ...matchedCodes].map((row) => [row.code, row.id]));
+  const catalogCodes = new Map(matchedCodes.map((row) => [row.id, row.code]));
   const byBarcode = new Map<string, Map<number, string>>();
   for (const row of matchedBarcodes) {
     if (!byBarcode.has(row.barcode)) byBarcode.set(row.barcode, new Map());
@@ -57,27 +63,34 @@ export async function getAdmOrder(
     || (current && Object.hasOwn(current.quantities, item.name))).map((item) => {
     const code = Object.hasOwn(assortment, item.name) ? assortment[item.name] : item.code;
     const id = code ? byCode.get(code) : undefined;
-    if (id !== undefined) return { ...item, code, id };
+    if (id !== undefined) return { ...item, code, lookupCode: catalogCodes.get(id) ?? item.code };
     const barcodeMatches = item.barcode && code === item.code ? byBarcode.get(item.barcode) : undefined;
     const barcodeMatch = barcodeMatches?.size === 1 ? [...barcodeMatches][0] : undefined;
-    return { ...item, code: barcodeMatch?.[1] ?? code, id: barcodeMatch?.[0] };
+    return { ...item, code: barcodeMatch?.[1] ?? code, lookupCode: barcodeMatch?.[1] ?? item.code };
   });
-  // The nightly System Sales importer aggregates each store product and date into daily_sales.
-  const sales = await dailySalesRepository.getSalesByProductsInRange(
-    items.flatMap((item) => item.id === undefined ? [] : [item.id]), dates[0], dates[9],
-  );
-  const byDay = new Map(sales.map((row) => [`${row.storeProductId}/${row.salesDate}`, row.soldQty]));
-  const previous = previousRows[0];
-  const useWorkbook = workbookOrderDate && deliveryDate > workbookOrderDate && (!previous || previous.deliveryDate < workbookOrderDate);
+  const previous = previousRows.map(({ deliveryDate, quantities }) => ({
+    date: deliveryDate,
+    quantities: quantities as Record<string, number | null>,
+  }));
+  if (workbookOrderDate && workbookOrderDate < deliveryDate && !previous.some((order) => order.date === workbookOrderDate)) {
+    previous.push({ date: workbookOrderDate, quantities: Object.fromEntries(catalog.map(({ name, previousQty }) => [name, previousQty])) });
+  }
+  previous.sort((a, b) => b.date.localeCompare(a.date));
+  const history = previous.slice(0, 2);
   return {
     dates, assortment,
-    previousDate: useWorkbook ? workbookOrderDate : previous?.deliveryDate ?? null,
-    previousSource: useWorkbook ? "workbook" : previous ? "app" : null,
+    catalog: catalog.map(({ name, code }) => ({ name, code })),
+    submittedShops: submittedShops.map(({ name }) => name),
+    previousDates: history.map(({ date }) => date),
+    missingSalesDates: dates.filter((_, index) => !reportSales[index]),
     current: current ? { quantities: current.quantities, submittedAt: current.submittedAt.toISOString() } : null,
-    items: items.map(({ name, code, salesUnit, previousQty, id }) => ({
-      name, code, salesUnit, matched: id !== undefined,
-      sales: dates.map((date) => byDay.get(`${id}/${date}`) ?? null),
-      previousQty: useWorkbook ? previousQty : previous?.quantities[name] ?? null,
+    items: items.map(({ name, code, lookupCode, salesUnit }) => ({
+      name, code, salesUnit,
+      sales: reportSales.map((pivot) =>
+        (code ? pivot?.get(code.toUpperCase()) : undefined)?.toString()
+        ?? (lookupCode ? pivot?.get(lookupCode.toUpperCase()) : undefined)?.toString() ?? null,
+      ),
+      previousQuantities: history.map(({ quantities }) => quantities[name] ?? null),
     })),
   };
 }
