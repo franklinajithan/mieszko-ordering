@@ -1,31 +1,16 @@
 import { expect, test } from "@playwright/test";
 import postgres from "postgres";
-import { mkdirSync, rmSync } from "node:fs";
-import path from "node:path";
 import * as XLSX from "xlsx";
 import { parseAdmWorkbook } from "../../src/lib/adm/parse-workbook";
 import { addDaysIso, todayIso } from "../../src/utils/order-sheet-form";
 
-test("ADM uses shop-specific Report 6 pivots, locks orders and keeps the last two quantities", async ({ request }) => {
+test("ADM uses shop-specific Daily Sales, locks orders and keeps the last two quantities", async ({ request }) => {
   const db = postgres("postgresql://postgres:postgres@127.0.0.1:55432/postgres?sslmode=disable");
-  const archive = path.resolve("test-results/adm-report6");
   const product = "MLEKPOL Milk 1L";
   const today = todayIso();
   const yesterday = addDaysIso(today, -1);
   const day10 = addDaysIso(today, -10);
   const deliveries = [1, 3, 6].map((offset) => addDaysIso(today, offset));
-
-  function writeReport(shop: string, day: string, quantities: number[]) {
-    const folder = path.join(archive, "item-sales-enquiry", "files", shop);
-    mkdirSync(folder, { recursive: true });
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([
-      ["6. Item Sales Enquiry"], ["Item Code", "Description", "Sales Qty"],
-      ...quantities.map((qty) => ["10001", "Unrelated display name", qty]),
-      ["99999", product, 100], ["Grand Total", "", 1000],
-    ]), "Sales");
-    XLSX.writeFile(book, path.join(folder, `${day}.xlsx`));
-  }
 
   async function load(storeId: number, deliveryDate: string) {
     const response = await request.get("/api/adm-order", { params: { storeId, deliveryDate } });
@@ -45,17 +30,17 @@ test("ADM uses shop-specific Report 6 pivots, locks orders and keeps the last tw
     expect(html).toContain("Import shop lists from Excel");
 
     expect((await load(1, deliveries[0])).items[0].sales[9]).toBeNull();
-    writeReport("HNS", yesterday, [1.25, 2.75]);
-    writeReport("PVL", yesterday, [8]);
-    writeReport("HNS", day10, [0]);
-    writeReport("HNS", today, [120]);
+    await db`INSERT INTO daily_sales (store_product_id, sales_date, sold_qty)
+      VALUES (11, ${yesterday}, 4), (21, ${yesterday}, 8),
+             (11, ${day10}, 0), (11, ${today}, 120)`;
 
     const first = await load(1, deliveries[0]);
     expect(first.previousDates).toEqual([]);
     expect(first.items.map(({ code }: { code: string }) => code)).toEqual(["10001", "10002"]);
     expect(first.dates).toHaveLength(10);
     expect(first.missingSalesDates).toHaveLength(8);
-    expect(first.items[0].sales).toEqual(["0", null, null, null, null, null, null, null, null, "4"]);
+    expect(first.items[0].sales.map((qty: string | null) => qty === null ? null : Number(qty)))
+      .toEqual([0, null, null, null, null, null, null, null, null, 4]);
 
     for (const [index, qty] of [3.125, 5].entries()) {
       const data = { storeId: 1, deliveryDate: deliveries[index], quantities: { [product]: qty } };
@@ -69,7 +54,7 @@ test("ADM uses shop-specific Report 6 pivots, locks orders and keeps the last tw
     expect(next.current).toBeNull();
     const otherShop = await load(2, deliveries[2]);
     expect(otherShop.previousDates).toEqual([]);
-    expect(otherShop.items[0].sales[9]).toBe("8");
+    expect(Number(otherShop.items[0].sales[9])).toBe(8);
 
     const params = { storeId: 1, deliveryDate: deliveries[0] };
     const pdf = await request.get("/api/adm-order/pdf", { params });
@@ -107,7 +92,7 @@ test("ADM uses shop-specific Report 6 pivots, locks orders and keeps the last tw
     await db`DELETE FROM adm_shop_catalogs WHERE store_id = 1`;
     await db`DELETE FROM supplier_products WHERE supplier_id = 991`;
     await db`DELETE FROM suppliers WHERE id = 991`;
-    rmSync(archive, { recursive: true, force: true });
+    await db`DELETE FROM daily_sales WHERE store_product_id IN (11, 21) AND sales_date IN (${yesterday}, ${day10}, ${today})`;
     await db.end();
   }
 });

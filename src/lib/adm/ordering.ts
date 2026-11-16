@@ -2,7 +2,7 @@ import "server-only";
 import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { admOrders, admShopAssortments, crmProductCodeAliases, productBarcodes, storeProducts, stores } from "@/db/schema";
-import { admReport6Store, loadAdmReport6 } from "./report6-sales";
+import { dailySalesRepository } from "@/repositories/daily-sales";
 import { addDaysIso, todayIso } from "@/utils/order-sheet-form";
 import type { AdmCatalogItem } from "./types";
 
@@ -17,7 +17,6 @@ export async function getAdmAssortment(storeId: number, catalog: AdmCatalogItem[
 
 export async function getAdmOrder(
   storeId: number,
-  storeCode: string,
   catalog: AdmCatalogItem[],
   deliveryDate: string,
   workbookOrderDate: string | null,
@@ -29,7 +28,7 @@ export async function getAdmOrder(
   const codes = Object.values(assortment).filter((code): code is string => Boolean(code));
   const barcodes = catalog.flatMap((item) => item.barcode ? [item.barcode] : []);
 
-  const [currentRows, previousRows, matchedCodes, matchedAliases, matchedBarcodes, reportSales, submittedShops] = await Promise.all([
+  const [currentRows, previousRows, matchedCodes, matchedAliases, matchedBarcodes, daySummaries, submittedShops] = await Promise.all([
     db.select().from(admOrders).where(and(eq(admOrders.storeId, storeId), eq(admOrders.deliveryDate, deliveryDate))),
     db.select().from(admOrders).where(and(eq(admOrders.storeId, storeId), lt(admOrders.deliveryDate, deliveryDate)))
       .orderBy(desc(admOrders.deliveryDate)).limit(2),
@@ -42,14 +41,13 @@ export async function getAdmOrder(
     barcodes.length ? db.select({ barcode: productBarcodes.barcode, id: storeProducts.id, code: storeProducts.storeProductCode }).from(productBarcodes)
       .innerJoin(storeProducts, eq(storeProducts.id, productBarcodes.storeProductId))
       .where(and(eq(storeProducts.storeId, storeId), eq(productBarcodes.storeId, storeId), inArray(productBarcodes.barcode, barcodes))) : [],
-    loadAdmReport6(admReport6Store(storeCode), dates),
+    dailySalesRepository.listDateSummariesForStoresInRange([storeId], dates[0], dates[9]),
     db.select({ name: stores.name }).from(admOrders).innerJoin(stores, eq(stores.id, admOrders.storeId))
       .where(and(eq(admOrders.deliveryDate, deliveryDate), eq(stores.erpType, "msp")))
       .orderBy(stores.name),
   ]);
 
   const byCode = new Map([...matchedAliases, ...matchedCodes].map((row) => [row.code, row.id]));
-  const catalogCodes = new Map(matchedCodes.map((row) => [row.id, row.code]));
   const byBarcode = new Map<string, Map<number, string>>();
   for (const row of matchedBarcodes) {
     if (!byBarcode.has(row.barcode)) byBarcode.set(row.barcode, new Map());
@@ -63,11 +61,19 @@ export async function getAdmOrder(
     || (current && Object.hasOwn(current.quantities, item.name))).map((item) => {
     const code = Object.hasOwn(assortment, item.name) ? assortment[item.name] : item.code;
     const id = code ? byCode.get(code) : undefined;
-    if (id !== undefined) return { ...item, code, lookupCode: catalogCodes.get(id) ?? item.code };
+    if (id !== undefined) return { ...item, code, id };
     const barcodeMatches = item.barcode && code === item.code ? byBarcode.get(item.barcode) : undefined;
     const barcodeMatch = barcodeMatches?.size === 1 ? [...barcodeMatches][0] : undefined;
-    return { ...item, code: barcodeMatch?.[1] ?? code, lookupCode: barcodeMatch?.[1] ?? item.code };
+    return { ...item, code: barcodeMatch?.[1] ?? code, id: barcodeMatch?.[0] };
   });
+  const salesRows = await dailySalesRepository.getSalesByProductsInRange(
+    items.flatMap(({ id }) => id === undefined ? [] : [id]), dates[0], dates[9],
+  );
+  const byItemAndDay = new Map(salesRows.map(({ storeProductId, salesDate, soldQty }) => [
+    `${storeProductId}/${salesDate}`, soldQty,
+  ]));
+  const availableDays = new Set(daySummaries.map(({ salesDate }) => salesDate));
+
   const previous = previousRows.map(({ deliveryDate, quantities }) => ({
     date: deliveryDate,
     quantities: quantities as Record<string, number | null>,
@@ -82,14 +88,11 @@ export async function getAdmOrder(
     catalog: catalog.map(({ name, code }) => ({ name, code })),
     submittedShops: submittedShops.map(({ name }) => name),
     previousDates: history.map(({ date }) => date),
-    missingSalesDates: dates.filter((_, index) => !reportSales[index]),
+    missingSalesDates: dates.filter((date) => !availableDays.has(date)),
     current: current ? { quantities: current.quantities, submittedAt: current.submittedAt.toISOString() } : null,
-    items: items.map(({ name, code, lookupCode, salesUnit }) => ({
+    items: items.map(({ name, code, id, salesUnit }) => ({
       name, code, salesUnit,
-      sales: reportSales.map((pivot) =>
-        (code ? pivot?.get(code.toUpperCase()) : undefined)?.toString()
-        ?? (lookupCode ? pivot?.get(lookupCode.toUpperCase()) : undefined)?.toString() ?? null,
-      ),
+      sales: dates.map((date) => byItemAndDay.get(`${id}/${date}`) ?? null),
       previousQuantities: history.map(({ quantities }) => quantities[name] ?? null),
     })),
   };

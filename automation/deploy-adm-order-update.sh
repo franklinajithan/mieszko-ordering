@@ -22,7 +22,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 git fetch --no-tags https://github.com/franklinajithan/mieszko-ordering.git refs/heads/feat/adm-ordering
 target="$(git rev-parse FETCH_HEAD)"
-git diff --binary "${ADM_BASE_COMMIT:-f69f0fa7eb0d0f2778d32323c7b9e9bbd48b8d14}" "$target" \
+git diff --binary "${ADM_BASE_COMMIT:-042f1e83b6299431c7c1e8c7bf37068e3468ee9d}" "$target" \
   -- src package.json package-lock.json automation/adm-report6-nightly.sh > "$tmp/adm.patch"
 test -s "$tmp/adm.patch"
 
@@ -33,7 +33,7 @@ if ! git apply --reverse --check "$tmp/adm.patch" 2>/dev/null; then
   applied=yes
 fi
 
-backup=".next.before-adm-report6-$(date +%Y%m%d-%H%M%S)-$$"
+backup=".next.before-adm-daily-sales-$(date +%Y%m%d-%H%M%S)-$$"
 if [[ -d .next ]]; then
   cp -a .next "$backup"
 fi
@@ -43,13 +43,13 @@ rollback() {
     git apply --reverse "$tmp/adm.patch" || true
   fi
   if [[ -d "$backup" ]]; then
-    mv .next ".next.failed-adm-report6-$$" 2>/dev/null || true
+    mv .next ".next.failed-adm-daily-sales-$$" 2>/dev/null || true
     mv "$backup" .next
   fi
   sudo systemctl restart "$web"
 }
 
-if ! npm ci || ! npm run build || ! sudo systemctl restart "$web"; then
+if { [[ ! -x node_modules/.bin/next ]] && ! npm ci; } || ! npm run build || ! sudo systemctl restart "$web"; then
   rollback
   exit 1
 fi
@@ -70,33 +70,8 @@ if [[ "$ready" != yes ]]; then
   exit 1
 fi
 
-cat > "$tmp/mieszko-adm-report6.service" <<UNIT
-[Unit]
-Description=Queue Report 6 sales for ADM ordering
-After=network-online.target $web
-
-[Service]
-Type=oneshot
-User=$user
-WorkingDirectory=$app
-ExecStart=/bin/bash "$app/automation/adm-report6-nightly.sh"
-UNIT
-cat > "$tmp/mieszko-adm-report6.timer" <<'UNIT'
-[Unit]
-Description=Refresh archived Report 6 sales for ADM ordering
-
-[Timer]
-OnCalendar=*-*-* 03:30:00 Europe/London
-OnCalendar=*-*-* 06:00:00 Europe/London
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-UNIT
-
-sudo install -m 644 "$tmp/mieszko-adm-report6.service" "$tmp/mieszko-adm-report6.timer" /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now mieszko-adm-report6.timer
-echo "ADM Order is live. Starting the initial Report 6 archive check:"
-sudo systemctl start mieszko-adm-report6.service
-sudo journalctl -u mieszko-adm-report6.service -n 8 --no-pager
+# ADM uses the existing Nightly Normal Sales imports.
+if systemctl cat mieszko-adm-report6.timer >/dev/null 2>&1; then
+  sudo systemctl disable --now mieszko-adm-report6.timer
+fi
+echo "ADM Order is live and reads from Daily Sales."

@@ -43,6 +43,7 @@ export function AdmWorkbookImport({ shops, initialDate }: { shops: { id: number;
 
   return (
     <div className="space-y-4">
+      <AdmOrderForm shops={shops} initialDate={initialDate} catalogRevision={revision} />
       <details className="rounded-xl border border-zinc-200 bg-white p-3 text-sm">
         <summary className="cursor-pointer font-medium">Import shop lists from Excel</summary>
         <form className="mt-3 flex flex-wrap items-end gap-3" onSubmit={upload}>
@@ -57,7 +58,6 @@ export function AdmWorkbookImport({ shops, initialDate }: { shops: { id: number;
         {error && <p role="alert" className="mt-2 text-destructive">{error}</p>}
         {status && <p role="status" className="mt-2">{status}</p>}
       </details>
-      <AdmOrderForm shops={shops} initialDate={initialDate} catalogRevision={revision} />
     </div>
   );
 }
