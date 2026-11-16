@@ -26,9 +26,19 @@ class WeeklyWastageTest(unittest.TestCase):
 
         def process_fixture(folder, name, url, code, start, end):
             exports = {
-                'Wastage': ('Wastage', [['Wastage'], ['No Records Available']] if name == 'Zero' else [
-                    ['Item Code', 'Description', 'Item Group', 'Qty', 'Amount', 'Cost'],
-                    ['1001', 'Ham', 'DELI', 2, 6, 4],
+                'Wastage': ('WastageReport', [['WastageReport'], ['No Records Available']] if name == 'Zero' else [
+                    [None, None, 'Item Code', 'Description', 'Item Group', 'Qty', 'Amount', 'Cost'],
+                    [None, 'Reason Code : 30   Reason Description : Damaged'],
+                    [None, None, '1001', 'Ham', 'DELI', 1, 3, 2],
+                    [None, 'Reason Code :\xa0 38 \xa0\xa0Reason Description :\xa0 Store Transfers (Out)'],
+                    [None, None, '1002', 'Transfer', 'DELI', 152, 1573.28, 961.56],
+                    [None, None, None, None, 'Total for Store Transfers (Out) :', 152, 1573.28, 961.56],
+                    [None, None, None, None, 'Total for 10/11/2026 :', 153, 1576.28, 963.56],
+                    [None, 'Date : 09/11/2026'],
+                    [None, 'Reason Code : 38'],
+                    [None, None, '1003', 'Transfer without description', 'DELI', 1, 8, 5],
+                    [None, 'Reason Code : 31'],
+                    [None, None, '1001', 'Ham', 'DELI', 1, 3, 2],
                 ]),
                 'RTC': ('RTC', [['Price Override & RTC Sales History'], ['No Records Available']]),
                 'Sales': ('Sales', [
@@ -66,6 +76,7 @@ class WeeklyWastageTest(unittest.TestCase):
             summary = final / 'Weekly_Wastage_Summary.xlsx'
             with closing(load_workbook(summary)) as updated:
                 sheet = updated['Weekly Summary']
+                self.assertEqual(tuple(sheet[f'B{row}'].value for row in (3, 4, 5)), (2, 4, 6))
                 self.assertEqual((sheet['A7'].value, sheet['B7'].value, sheet['C7'].value),
                                  ('Total Waste %', '=B5/B6', '=C5/C6'))
                 self.assertEqual(sheet['B7'].number_format, '0.00%')
@@ -93,6 +104,11 @@ class WeeklyWastageTest(unittest.TestCase):
                     book = load_workbook(stream, data_only=True)
                     self.assertEqual(book['Dept Breakdown']['D2'].value, expected_cost)
                     self.assertEqual(book['RTC']['F2'].value, 0)
+                    if name == 'Hayes':
+                        self.assertEqual(list(book['Dept Breakdown'].values)[1][:4], ('Grand Total', 2, 6, 4))
+                        self.assertNotIn('Transfer', {value for row in book['items'].values for value in row})
+                        self.assertIn('Transfer', {value for row in book['Store use'].values for value in row})
+                        self.assertIn('Transfer', {value for row in book['WastageReport'].values for value in row})
 
     def test_redownload_replaces_a_week_only_after_a_successful_run(self):
         with TemporaryDirectory() as temp:

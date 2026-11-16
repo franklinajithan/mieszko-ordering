@@ -443,14 +443,29 @@ def main():
     # -----------------------------
     # Parse reasons for store use
     # -----------------------------
-    first_col_name = df.columns[0]
-    first_col_text = df[first_col_name].astype(str).fillna("")
-
-    marker_mask = first_col_text.str.strip().str.lower().str.startswith("reason")
-    subtotal_mask = first_col_text.str.strip().str.lower().str.startswith("total for")
-
-    reason_desc = first_col_text.str.extract(r"(?i)reason\s*description\s*:\s*(.+)", expand=False)
-    parsed_reason = reason_desc.where(marker_mask).ffill()
+    # CRM can put merged reason headers and subtotals after leading blank cells.
+    row_text = pd.Series(
+        [next((str(value).strip() for value in row if pd.notna(value)), "")
+         for row in df.itertuples(index=False, name=None)],
+        index=df.index, dtype="string",
+    )
+    marker_mask = row_text.str.match(r"(?i)^reason\s*(?:code|description)\s*:")
+    subtotal_mask = row_text.str.match(r"(?i)^total\s+for\b")
+    date_mask = row_text.str.match(r"(?i)^date\s*:")
+    grand_total_mask = row_text.str.match(r"(?i)^grand\s+total\b")
+    reason_headers = pd.Series(
+        [" ".join(str(value).strip() for value in row if pd.notna(value))
+         for row in df.loc[marker_mask].itertuples(index=False, name=None)],
+        index=df.index[marker_mask], dtype="string",
+    )
+    section = (
+        reason_headers.reindex(df.index)
+        .mask(date_mask | grand_total_mask, "")
+        .ffill()
+        .fillna("")
+    )
+    reason_code = section.str.extract(r"(?i)reason\s*code\s*:\s*(\d+)\b", expand=False)
+    reason_desc = section.str.extract(r"(?i)reason\s*description\s*:\s*(.+)", expand=False)
 
     move_reasons = {
         "Stock Correction (+)",
@@ -464,16 +479,20 @@ def main():
     }
     move_reasons_normalized = {s.strip().lower() for s in move_reasons}
 
-    reason_norm_full = parsed_reason.fillna("").astype(str).str.strip().str.lower()
-    subtotal_reason = first_col_text.str.extract(r"(?i)^total\s*for\s*(.+?)\s*:", expand=False)
+    reason_norm_full = reason_desc.fillna("").str.strip().str.lower()
+    subtotal_reason = row_text.str.extract(r"(?i)^total\s*for\s*(.+?)\s*:", expand=False)
     subtotal_reason_norm = subtotal_reason.fillna("").astype(str).str.strip().str.lower()
 
-    store_mask = reason_norm_full.isin(move_reasons_normalized) | (
+    store_mask = (
+        (reason_code.fillna("").eq("38") | reason_norm_full.isin(move_reasons_normalized))
+        & ~subtotal_mask
+    ) | (
         subtotal_mask & subtotal_reason_norm.isin(move_reasons_normalized)
     )
 
     df_store_use = df[store_mask].copy()
-    df_items_remaining = df[(~store_mask) & (~marker_mask) & (~subtotal_mask)].copy()
+    report_row_mask = marker_mask | subtotal_mask | date_mask | grand_total_mask
+    df_items_remaining = df[~(store_mask | report_row_mask)].copy()
 
     description_col = next(
         (c for c in df_items_remaining.columns if "description" in str(c).strip().lower()),
