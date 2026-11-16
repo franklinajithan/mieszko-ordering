@@ -1,3 +1,4 @@
+import type { AdmCatalogItem } from "@/lib/adm/types";
 import { bigint, boolean, date, index, integer, jsonb, numeric, pgTable, primaryKey, check, text, timestamp, unique, varchar, uuid, } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
@@ -985,3 +986,22 @@ export const crmPartialPublications=pgTable('crm_partial_publications',{
 },t=>[primaryKey({columns:[t.storeId,t.sourceType,t.reportDate]}),index('crm_partial_publications_run_idx').on(t.runId),
  check('crm_partial_publications_source_type_check',sql`${t.sourceType} IN ('normal_sales','rtc','wastage')`),
  check('crm_partial_publications_published_row_count_check',sql`${t.publishedRowCount}>0`)]);
+
+export const admShopAssortments = pgTable("adm_shop_assortments", {
+  storeId: integer("store_id").primaryKey().references(() => stores.id),
+  items: jsonb("items").$type<Record<string, string | null>>().notNull(),
+});
+
+export const admOrders = pgTable("adm_orders", {
+  storeId: integer("store_id").notNull().references(() => stores.id),
+  deliveryDate: date("delivery_date").notNull(),
+  quantities: jsonb("quantities").$type<Record<string, number>>().notNull(),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [primaryKey({ columns: [table.storeId, table.deliveryDate] })]);
+
+
+export const admShopCatalogs = pgTable("adm_shop_catalogs", {
+  storeId: integer("store_id").primaryKey().references(() => stores.id),
+  items: jsonb("items").$type<AdmCatalogItem[]>().notNull(),
+  previousDate: date("previous_date"),
+});

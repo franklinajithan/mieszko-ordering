@@ -334,3 +334,21 @@ CREATE TABLE IF NOT EXISTS import_quality_observations (
  last_seen_at timestamptz NOT NULL DEFAULT now(),
  CONSTRAINT import_quality_observations_identity_unique UNIQUE(store_id,source_type,problem_type,reference)
 );
+CREATE TABLE adm_shop_assortments (
+  store_id integer PRIMARY KEY REFERENCES stores(id),
+  items jsonb NOT NULL
+);
+
+CREATE TABLE adm_orders (
+  store_id integer NOT NULL REFERENCES stores(id),
+  delivery_date date NOT NULL,
+  quantities jsonb NOT NULL,
+  submitted_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (store_id, delivery_date)
+);
+
+CREATE TABLE adm_shop_catalogs (
+  store_id integer PRIMARY KEY REFERENCES stores(id),
+  items jsonb NOT NULL,
+  previous_date date
+);
