@@ -47,7 +47,7 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
   useEffect(() => {
     const controller = new AbortController();
     const query = new URLSearchParams({ storeId: String(shop.id), deliveryDate: date });
-    fetch(`/api/adm-order?${query}`, { signal: controller.signal })
+    fetch(`/api/adm-order?${query}`, { signal: controller.signal, cache: "no-store" })
       .then((response) => response.json())
       .then((result) => {
         if (controller.signal.aborted) return;
@@ -99,8 +99,8 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">
-              Daily sales {shortDate(order.dates[0])}–{shortDate(order.dates[9])}
-              {" · "}— means no sales data
+              Nightly System Sales {shortDate(order.dates[0])}–{shortDate(order.dates[9])}
+              {" · "}— means no imported quantity
             </p>
             <button type="button" className={control} disabled={saving}
               onClick={() => setSettings(settings ? null : { ...order.assortment })}>
@@ -143,6 +143,7 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
                   <thead className="bg-muted">
                     <tr>
                       <th scope="col" className="sticky left-0 bg-muted text-left">Product</th>
+                      <th scope="col" className="min-w-24 text-left">Item Code</th>
                       <th scope="col" className="min-w-24">
                         Previous order
                         {order.previousDate && <small className="block font-normal">{fullDate(order.previousDate)}{order.previousSource === "workbook" && " (workbook)"}</small>}
@@ -157,9 +158,10 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
                         <th scope="row" className="sticky left-0 min-w-36 bg-background text-left font-medium">
                           {item.name}
                           <small className="block font-normal text-muted-foreground">
-                            {[item.code, item.salesUnit ? `Sales in ${item.salesUnit}` : null, !item.matched ? "Sales item unmapped" : null].filter(Boolean).join(" · ")}
+                            {[item.salesUnit ? `Sales in ${item.salesUnit}` : null, !item.matched ? "Sales item unmapped" : null].filter(Boolean).join(" · ")}
                           </small>
                         </th>
+                        <td className="whitespace-nowrap font-mono">{item.code ?? "—"}</td>
                         <td className="text-right tabular-nums">{item.previousQty ?? "—"}</td>
                         <td className="text-right tabular-nums">
                           {order.current ? order.current.quantities[item.name] ?? "—" :
