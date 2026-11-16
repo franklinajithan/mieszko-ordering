@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
+import { parseAdmWorkbook } from "../../src/lib/adm/parse-workbook";
 import { addDaysIso, todayIso } from "../../src/utils/order-sheet-form";
 
 test("ADM uses shop-specific Report 6 pivots, locks orders and keeps the last two quantities", async ({ request }) => {
@@ -41,8 +42,7 @@ test("ADM uses shop-specific Report 6 pivots, locks orders and keeps the last tw
     const html = await page.text();
     expect(html).toContain("Hounslow");
     expect(html).toContain("Order History");
-    expect(html).not.toContain("Import ADM workbook");
-    expect((await request.post("/api/adm-order/workbook")).status()).toBe(404);
+    expect(html).toContain("Import shop lists from Excel");
 
     expect((await load(1, deliveries[0])).items[0].sales[9]).toBeNull();
     writeReport("HNS", yesterday, [1.25, 2.75]);
@@ -77,8 +77,34 @@ test("ADM uses shop-specific Report 6 pivots, locks orders and keeps the last tw
     expect(pdf.headers()["content-disposition"]).toContain("ADM_Order_Hounslow_");
     expect((await pdf.body()).subarray(0, 5).toString()).toBe("%PDF-");
     expect((await request.get("/api/adm-order/pdf", { params: { ...params, storeId: 2 } })).status()).toBe(404);
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ["Item Code", "Product Name", "Unit"], ["10001", product, "PCS"], ["10003", "Excel vegetable", "kg"],
+    ]), "HOUNSLOW");
+    async function importWorkbook() {
+      const bytes: ArrayBuffer = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
+      const catalogs = Object.fromEntries(parseAdmWorkbook(bytes, today));
+      const upload = await request.post("/api/adm-order/workbook", { data: { catalogs } });
+      expect(upload.ok()).toBe(true);
+    }
+    await importWorkbook();
+    expect((await load(1, deliveries[2])).items.map(({ name }: { name: string }) => name)).toEqual([product, "Excel vegetable"]);
+    const edit = await request.put("/api/adm-order", { data: {
+      storeId: 1,
+      items: { [product]: "10001", "New vegetable": "ADM-NEW" },
+      addedProducts: [{ name: "New vegetable", code: "ADM-NEW" }],
+    } });
+    expect(edit.ok()).toBe(true);
+    await importWorkbook();
+    expect((await load(1, deliveries[2])).items.map(({ name }: { name: string }) => name)).toEqual([product, "New vegetable"]);
+    expect((await load(2, deliveries[2])).items.map(({ name }: { name: string }) => name)).toEqual([product, "Natural Yogurt 200G"]);
+    expect((await load(1, deliveries[0])).current.quantities[product]).toBe(3.125);
+
   } finally {
     await db`DELETE FROM adm_orders WHERE store_id = 1 AND delivery_date IN ${db(deliveries)}`;
+    await db`DELETE FROM adm_shop_assortments WHERE store_id = 1`;
+    await db`DELETE FROM adm_shop_catalogs WHERE store_id = 1`;
     await db`DELETE FROM supplier_products WHERE supplier_id = 991`;
     await db`DELETE FROM suppliers WHERE id = 991`;
     rmSync(archive, { recursive: true, force: true });

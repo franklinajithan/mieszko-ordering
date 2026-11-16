@@ -10,7 +10,7 @@ const button = "rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary
 const shortDate = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 const fullDate = (iso: string) => iso.split("-").reverse().join(".");
 
-export function AdmOrderForm({ shops, initialDate }: { shops: Shop[]; initialDate: string }) {
+export function AdmOrderForm({ shops, initialDate, catalogRevision = 0 }: { shops: Shop[]; initialDate: string; catalogRevision?: number }) {
   const [shopId, setShopId] = useState(shops[0]?.id ?? 0);
   const [date, setDate] = useState(initialDate);
   const shop = shops.find((item) => item.id === shopId);
@@ -30,15 +30,18 @@ export function AdmOrderForm({ shops, initialDate }: { shops: Shop[]; initialDat
           <input className={control} type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </label>
       </div>
-      {date && <ShopOrder key={`${shopId}/${date}`} shop={shop} date={date} />}
+      {date && <ShopOrder key={`${shopId}/${date}`} shop={shop} date={date} catalogRevision={catalogRevision} />}
     </>
   );
 }
 
-function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
+function ShopOrder({ shop, date, catalogRevision }: { shop: Shop; date: string; catalogRevision: number }) {
   const [order, setOrder] = useState<Order | null>(null);
   const [entries, setEntries] = useState<Record<string, string>>({});
   const [settings, setSettings] = useState<Order["assortment"] | null>(null);
+  const [addedProducts, setAddedProducts] = useState<{ name: string; code: string }[]>([]);
+  const [newName, setNewName] = useState("");
+  const [newCode, setNewCode] = useState("");
   const [revision, refresh] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -56,7 +59,7 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
       })
       .catch((error) => { if (!controller.signal.aborted) setError(error.message); });
     return () => controller.abort();
-  }, [shop.id, date, revision]);
+  }, [shop.id, date, revision, catalogRevision]);
 
   async function save(method: "POST" | "PUT", body: object) {
     setSaving(true);
@@ -102,8 +105,14 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
               Report 6 sales {shortDate(order.dates[0])}–{shortDate(order.dates[9])}
               {" · "}— means no imported quantity
             </p>
-            <button type="button" className={control} disabled={saving || !order.catalog.length}
-              onClick={() => setSettings(settings ? null : { ...order.assortment })}>
+            <button type="button" className={control} disabled={saving}
+              onClick={() => {
+                setAddedProducts([]);
+                setNewName("");
+                setNewCode("");
+                setError("");
+                setSettings(settings ? null : { ...order.assortment });
+              }}>
               {settings ? "Close shop products" : "Manage shop products"}
             </button>
           </div>
@@ -114,25 +123,49 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
             <form className="space-y-3 rounded-lg border p-3" onSubmit={(event) => {
               event.preventDefault();
               const items = Object.fromEntries(Object.entries(settings).map(([name, code]) => [name, code?.trim() || null]));
-              void save("PUT", { items });
+              void save("PUT", { items, addedProducts: addedProducts.filter(({ name }) => Object.hasOwn(items, name)) });
             }}>
               <fieldset className="space-y-2" disabled={saving}>
-                {order.catalog.map(({ name, code }) => {
+                <div className="flex flex-wrap items-end gap-2 border-b pb-4">
+                  <label className="grid gap-1 text-sm">
+                    Product name
+                    <input className={control} maxLength={500} value={newName}
+                      onChange={(event) => setNewName(event.target.value)} />
+                  </label>
+                  <label className="grid gap-1 text-sm">
+                    Item Code
+                    <input className={control} maxLength={100} value={newCode}
+                      onChange={(event) => setNewCode(event.target.value)} />
+                  </label>
+                  <button type="button" className={control} disabled={!newName.trim() || !newCode.trim()} onClick={() => {
+                    const name = newName.trim();
+                    const code = newCode.trim();
+                    if ([...order.catalog, ...addedProducts].some((item) => item.name === name || item.code?.toUpperCase() === code.toUpperCase())) {
+                      setError("That product already exists in this shop’s list. Use Add beside the existing product.");
+                      return;
+                    }
+                    setError("");
+                    setAddedProducts([...addedProducts, { name, code }]);
+                    setSettings({ ...settings, [name]: code });
+                    setNewName("");
+                    setNewCode("");
+                  }}>Add product</button>
+                </div>
+                {[...order.catalog, ...addedProducts].map(({ name, code }) => {
                   const enabled = Object.hasOwn(settings, name);
                   return (
-                    <div key={name} className="flex flex-wrap items-center justify-between gap-2">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={enabled} onChange={(event) => {
-                          const next = { ...settings };
-                          if (event.target.checked) next[name] = code;
-                          else delete next[name];
-                          setSettings(next);
-                        }} />
-                        {name}
-                      </label>
+                    <div key={name} className="flex flex-wrap items-center justify-between gap-2 border-b py-2">
+                      <span className="min-w-40 flex-1 text-sm">{name}</span>
                       {enabled && <input className={control} maxLength={100} placeholder="ERP item code"
                         aria-label={`ERP item code for ${name}`} value={settings[name] ?? ""}
                         onChange={(event) => setSettings({ ...settings, [name]: event.target.value })} />}
+                      <button type="button" className={control} aria-label={`${enabled ? "Remove" : "Add"} ${name}`}
+                        onClick={() => {
+                          const next = { ...settings };
+                          if (enabled) delete next[name];
+                          else next[name] = code;
+                          setSettings(next);
+                        }}>{enabled ? "Remove" : "Add"}</button>
                     </div>
                   );
                 })}
@@ -189,7 +222,7 @@ function ShopOrder({ shop, date }: { shop: Shop; date: string }) {
                 <p className="text-sm text-zinc-600">
                   {order.catalog.length
                     ? "Use Manage shop products to select the products this shop carries."
-                    : "No products in this shop are linked to supplier ADM. Add ADM supplier codes in the product catalog."}
+                    : "Import the starting shop list from Excel or add a product under Manage shop products."}
                 </p>
               )}
               {order.missingSalesDates.length > 0 && (

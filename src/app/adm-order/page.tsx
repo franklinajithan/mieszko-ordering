@@ -1,7 +1,7 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { storeRepository } from "@/repositories/stores";
 import { addDaysIso, todayIso } from "@/utils/order-sheet-form";
-import { AdmOrderForm } from "./adm-order-form";
+import { AdmWorkbookImport } from "./adm-workbook-import";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ export default async function AdmOrderPage() {
 
   return (
     <AppShell title="ADM Order">
-      <AdmOrderForm shops={shops} initialDate={deliveryDate} />
+      <AdmWorkbookImport shops={shops} initialDate={deliveryDate} />
     </AppShell>
   );
 }

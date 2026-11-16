@@ -4,11 +4,11 @@ import { db } from "@/db";
 import { admShopCatalogs, products, storeProducts, supplierProducts, suppliers } from "@/db/schema";
 import type { AdmCatalogItem } from "./types";
 
-export async function getAdmCatalog(storeId: number): Promise<{ items: AdmCatalogItem[]; previousDate: string | null }> {
-  const [saved] = await db.select().from(admShopCatalogs).where(eq(admShopCatalogs.storeId, storeId));
+export async function getAdmCatalog(storeId: number, database: Pick<typeof db, "select"> = db): Promise<{ items: AdmCatalogItem[]; previousDate: string | null }> {
+  const [saved] = await database.select().from(admShopCatalogs).where(eq(admShopCatalogs.storeId, storeId));
   if (saved) return saved;
 
-  const rows = await db.select({ name: products.name, code: storeProducts.storeProductCode })
+  const rows = await database.select({ name: products.name, code: storeProducts.storeProductCode })
     .from(storeProducts)
     .innerJoin(products, eq(products.id, storeProducts.productId))
     .innerJoin(supplierProducts, eq(supplierProducts.productId, products.id))

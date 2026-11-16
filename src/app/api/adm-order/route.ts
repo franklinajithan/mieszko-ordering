@@ -1,6 +1,7 @@
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { admOrders, admShopAssortments } from "@/db/schema";
+import { admOrders, admShopAssortments, admShopCatalogs, stores } from "@/db/schema";
 import { getAdmCatalog } from "@/lib/adm/catalog";
 import { getAdmAssortment, getAdmOrder } from "@/lib/adm/ordering";
 import { apiError, apiOk, parseJson, route } from "@/lib/api/http";
@@ -17,6 +18,10 @@ const orderSchema = z.object({
 const assortmentSchema = z.object({
   storeId,
   items: z.record(z.string(), z.string().trim().min(1).max(100).nullable()),
+  addedProducts: z.array(z.object({
+    name: z.string().trim().min(1).max(500),
+    code: z.string().trim().min(1).max(100),
+  })).max(100).default([]),
 });
 
 async function shopCatalog(id: number) {
@@ -59,12 +64,28 @@ export const POST = route(async (req) => {
 export const PUT = route(async (req) => {
   const parsed = await parseJson(req, assortmentSchema);
   if (!parsed.ok) return parsed.response;
-  const { storeId: id, items } = parsed.data;
-  const catalog = await shopCatalog(id);
-  if (!catalog) return apiError("ADM ordering is unavailable for this shop.", 404);
-  const names = new Set(catalog.items.map((item) => item.name));
-  if (Object.keys(items).some((name) => !names.has(name))) return apiError("The list contains an unknown ADM product.");
-  await db.insert(admShopAssortments).values({ storeId: id, items })
-    .onConflictDoUpdate({ target: admShopAssortments.storeId, set: { items } });
-  return apiOk({ saved: true });
+  const { storeId: id, items, addedProducts } = parsed.data;
+  return db.transaction(async (tx) => {
+    const [shop] = await tx.select().from(stores).where(eq(stores.id, id)).for("update");
+    if (!shop?.isActive || shop.erpType !== "msp") return apiError("ADM ordering is unavailable for this shop.", 404);
+    const catalog = await getAdmCatalog(id, tx);
+    const names = new Set(catalog.items.map((item) => item.name));
+    const itemCodes = new Set(catalog.items.map((item) => item.code?.toUpperCase()));
+    for (const { name, code } of addedProducts) {
+      if (names.has(name) || itemCodes.has(code.toUpperCase())) return apiError("That product name or item code is already in this shop’s catalog. Select it from the list.");
+      names.add(name);
+      itemCodes.add(code.toUpperCase());
+    }
+    if (Object.keys(items).some((name) => !names.has(name))) return apiError("The list contains an unknown ADM product.");
+    if (addedProducts.length) {
+      const updated = { ...catalog, items: [...catalog.items, ...addedProducts.map(({ name, code }) => ({
+        name, code, barcode: null, salesUnit: null, previousQty: null,
+      }))] };
+      await tx.insert(admShopCatalogs).values({ storeId: id, ...updated })
+        .onConflictDoUpdate({ target: admShopCatalogs.storeId, set: updated });
+    }
+    await tx.insert(admShopAssortments).values({ storeId: id, items })
+      .onConflictDoUpdate({ target: admShopAssortments.storeId, set: { items } });
+    return apiOk({ saved: true });
+  });
 });

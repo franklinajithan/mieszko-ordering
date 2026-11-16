@@ -22,7 +22,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 git fetch --no-tags https://github.com/franklinajithan/mieszko-ordering.git refs/heads/feat/adm-ordering
 target="$(git rev-parse FETCH_HEAD)"
-git diff --binary afd3a8805769579ea36ccc7d5bfb0e25ecbcee89 "$target" \
+git diff --binary "${ADM_BASE_COMMIT:-f69f0fa7eb0d0f2778d32323c7b9e9bbd48b8d14}" "$target" \
   -- src package.json package-lock.json automation/adm-report6-nightly.sh > "$tmp/adm.patch"
 test -s "$tmp/adm.patch"
 
@@ -57,7 +57,7 @@ fi
 ready=no
 for attempt in {1..20}; do
   if curl -fsS --max-time 5 http://127.0.0.1:3100/adm-order -o "$tmp/page" 2>/dev/null \
-      && grep -q 'ADM Order' "$tmp/page" && ! grep -q 'Import ADM workbook' "$tmp/page"; then
+      && grep -q 'ADM Order' "$tmp/page" && grep -q 'Import shop lists from Excel' "$tmp/page"; then
     ready=yes
     break
   fi
