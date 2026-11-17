@@ -37,6 +37,44 @@ def open_till_receive(page):
                     'Receive button is unavailable', timeout=20000)
 
 
+def till_status(page, marker):
+    from playwright.sync_api import Error
+
+    for frame in page.frames:
+        try:
+            rows = frame.locator('tr:visible, [role="row"]:visible').evaluate_all(
+                '''rows => rows.flatMap(row => {
+                    const cells = [...row.children].map(cell => cell.innerText?.trim() ?? '');
+                    const checkbox = row.querySelector('input[type="checkbox"], [role="checkbox"]');
+                    const checked = checkbox
+                        ? checkbox.checked ?? (checkbox.getAttribute('aria-checked') === 'true')
+                        : null;
+                    return cells.flatMap((cell, i) => cell.match(/^\\d{4}TILL\\d+$/i)
+                        ? [[cell.toUpperCase(), cells[i + 1] ?? '', checked]] : []);
+                })'''
+            )
+        except Error:
+            if frame.is_detached():
+                continue
+            raise
+        matched = {name: (stamp, checked) for name, stamp, checked in rows
+                   if name.startswith(marker)}
+        if matched:
+            return matched
+    return {}
+
+
+def newer_success(before, after):
+    from datetime import datetime
+
+    try:
+        stamp = datetime.strptime(after, '%d/%m/%Y %H:%M:%S')
+        return not before or stamp > datetime.strptime(before, '%d/%m/%Y %H:%M:%S')
+    except ValueError:
+        return False
+
+
+
 def run_store(url, marker, preview, progress):
     from playwright.sync_api import Error
 
@@ -45,8 +83,14 @@ def run_store(url, marker, preview, progress):
         progress('Opening Utilities > Till Receive')
         button = open_till_receive(page)
         check_store_marker(page.locator('body').inner_text(), marker)
+        baseline = wait_for(page, lambda: till_status(page, marker) or None,
+                            'Could not read the till rows. Receive was not clicked.',
+                            timeout=15000)
+        selected = {name: stamp for name, (stamp, checked) in baseline.items() if checked}
+        if not selected:
+            raise ValueError('Could not verify any selected tills. Receive was not clicked.')
         if preview:
-            return 'Receive button found (preview)'
+            return f'Receive button found (preview). {len(selected)} selected till(s) verified.'
 
         dialogs = []
 
@@ -54,15 +98,33 @@ def run_store(url, marker, preview, progress):
             dialogs.append(dialog.type)
             dialog.dismiss()
 
+        def completion():
+            if dialogs:
+                raise ValueError('Nebula displayed a dialog after the click. Check Nebula before rerunning.')
+            current = till_status(page, marker)
+            if all(newer_success(previous, current.get(name, ('', None))[0])
+                   for name, previous in selected.items()):
+                return True
+            return None
+
         page.on('dialog', record_dialog)
         try:
-            button.click(timeout=10000)
-            page.wait_for_load_state('networkidle', timeout=30000)
+            button.click(trial=True, timeout=10000)
         except Error as exc:
-            raise ValueError('Receive outcome uncertain. Check Nebula before rerunning.') from exc
-        if dialogs:
-            raise ValueError('Nebula displayed a dialog. Check the store in Nebula before rerunning.')
-        return "Receive clicked. Check 'Last succeed' in Nebula for completion."
+            raise ValueError('Receive control was not ready. Receive was not clicked.') from exc
+        try:
+            button.click(timeout=10000)
+        except Error as exc:
+            raise ValueError('Click outcome uncertain. Check Nebula before rerunning.') from exc
+
+        progress(f'Receive clicked. Waiting for Last succeed on {len(selected)} selected till(s).')
+        try:
+            wait_for(page, completion,
+                     'Receive clicked, but some Last succeed timestamps did not advance. '
+                     'Check Nebula before rerunning.', timeout=120000)
+        except Error as exc:
+            raise ValueError('Receive clicked, but the status could not be read. Check Nebula before rerunning.') from exc
+        return f'Confirmed by Last succeed on all {len(selected)} selected till(s).'
 
 
 def main():

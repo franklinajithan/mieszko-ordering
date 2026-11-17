@@ -290,4 +290,5 @@ Receive. The second command runs all active Nebula stores in sequence. Use
 `--store HNS` without `--preview` to run Hounslow only. The command uses the
 saved CRM Downloads URLs and the worker's existing Nebula login. It verifies
 the store code before clicking Receive and uses the till selections on the
-screen. Check **Last succeed** in Nebula to confirm completion.
+screen. The command checks that **Last succeed** advances for each selected
+till. If a click or completion is uncertain, check Nebula before rerunning.
