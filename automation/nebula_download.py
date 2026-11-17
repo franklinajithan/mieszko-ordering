@@ -386,7 +386,7 @@ def export_report(context, page, frame, output, timeout, progress=None, *, pdf_o
 
 
 @contextmanager
-def report_session(url, store_code, login_env, progress):
+def nebula_session(url, store_code, login_env, progress):
     checked_url(url)
     if not re.fullmatch(r'\d{4}', store_code):
         raise ValueError('Invalid CRM store code')
@@ -416,12 +416,18 @@ def report_session(url, store_code, login_env, progress):
             wait_for(page, lambda: visible(page.get_by_text('Reports', exact=True)), 'CRM login did not reach the reports menu')
             progress('Verifying store identity')
             check_store_marker(page.locator('body').inner_text(), store_code)
-            progress('Opening Reports > Explorer')
-            open_explorer(page)
             yield context, page
         finally:
             context.close()
             browser.close()
+
+
+@contextmanager
+def report_session(url, store_code, login_env, progress):
+    with nebula_session(url, store_code, login_env, progress) as (context, page):
+        progress('Opening Reports > Explorer')
+        open_explorer(page)
+        yield context, page
 
 
 def download(url, store_code, source, start, end, output, login_env='MIESZKO_CRM_LOGIN_CODE', timeout=1200000, progress=None, *, pdf_only=False):

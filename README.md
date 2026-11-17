@@ -275,3 +275,20 @@ wastage worker and archive paths, or set these overrides to absolute paths:
   subdirectory.
 - Install `libreoffice-calc` on the Ubuntu host if any store returns legacy XLS.
   Native XLSX exports require no additional system package.
+
+### Till Receive
+
+From the Mieszko Ordering checkout on the Ubuntu office worker, run:
+
+```bash
+.worker-runtime/venv/bin/python automation/till_receive.py --store HNS --preview
+.worker-runtime/venv/bin/python automation/till_receive.py
+```
+
+The preview opens the Hounslow Till Receive screen and stops before clicking
+Receive. The second command runs all active Nebula stores in sequence. Use
+`--store HNS` without `--preview` to run Hounslow only. The command uses the
+saved CRM Downloads URLs and the worker's existing Nebula login. It verifies
+the store code before clicking Receive and uses the till selections on the
+screen. The command checks that **Last succeed** advances for each selected
+till. If a click or completion is uncertain, check Nebula before rerunning.
