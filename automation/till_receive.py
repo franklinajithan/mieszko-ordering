@@ -8,7 +8,47 @@ import re
 import sys
 
 from linux_worker import runtime_environment
-from nebula_download import check_store_marker, nebula_session, visible, wait_for
+from nebula_download import check_store_marker, checked_url, visible, wait_for
+from contextlib import contextmanager
+
+
+@contextmanager
+def till_receive_session(url, marker, login_env, progress):
+    """Sign in without navigating into the Reports explorer."""
+    checked_url(url)
+    code = os.environ.get(login_env)
+    if not code:
+        raise ValueError('CRM login environment variable is missing')
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=True,
+            executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH') or None,
+        )
+        context = browser.new_context()
+        try:
+            page = context.new_page()
+            page.set_default_timeout(15000)
+            for attempt in range(3):
+                try:
+                    progress(f'Opening CRM login page (attempt {attempt + 1}/3)')
+                    page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                    page.get_by_placeholder('Barcode').wait_for(timeout=15000)
+                    break
+                except Exception:
+                    if attempt == 2:
+                        raise ValueError('CRM login page did not become ready') from None
+            progress('Signing in to CRM')
+            page.get_by_placeholder('Barcode').fill(code)
+            page.get_by_role('button', name='Login', exact=True).click()
+            wait_for(page, lambda: visible(page.get_by_text('Utilities', exact=True)),
+                     'CRM Utilities menu did not become ready', timeout=30000)
+            progress('Verifying store identity')
+            check_store_marker(page.locator('body').inner_text(), marker)
+            yield context, page
+        finally:
+            context.close()
+            browser.close()
 from worker import crm_store_code, get_store_config
 
 
@@ -78,7 +118,7 @@ def newer_success(before, after):
 def run_store(url, marker, preview, progress):
     from playwright.sync_api import Error
 
-    with nebula_session(url, marker, 'MIESZKO_CRM_LOGIN_CODE', progress) as (_, page):
+    with till_receive_session(url, marker, 'MIESZKO_CRM_LOGIN_CODE', progress) as (_, page):
         page.set_default_timeout(10000)
         progress('Opening Utilities > Till Receive')
         button = open_till_receive(page)
