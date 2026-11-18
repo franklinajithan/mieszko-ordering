@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 type Entry = { at: string; store: string; mode: string; status: string; output: string };
-type Progress = {active:boolean;current:string|null;stores:string[];results:Entry[];completed:number;total:number;startedAt?:string};
+type Progress = {mode?:string;active:boolean;current:string|null;stores:string[];results:Entry[];completed:number;total:number;startedAt?:string};
 type Schedule = { frequency: string; time: string; stores: string[]; paused: boolean };
 const labels: Record<string,string> = { HNS:"Hounslow", PRV:"Perivale", EHM:"East Ham", HAY:"Hayes", GRV:"Gravesend", WAT:"Watford", STR:"Streatham" };
 const defaults: Schedule = { frequency:"nightly", time:"00:00", stores:Object.keys(labels), paused:true };
@@ -34,12 +34,11 @@ export function TillReceivePanel() {
   useEffect(()=>{void refresh().catch(e=>setError(String(e))).finally(()=>setLoading(false));},[]);
 
   useEffect(()=>{
-    if(!running)return;
     const poll=()=>fetch("/api/scheduled-activity/till-receive/manual",{cache:"no-store"}).then(r=>r.json()).then((p:Progress)=>{if(p.startedAt)setProgress(p);}).catch(()=>{});
     void poll();
     const timer=setInterval(()=>void poll(),1200);
     return ()=>clearInterval(timer);
-  },[running]);
+  },[]);
   async function save(paused=schedule.paused) {
     setSaving(true);setMessage("");setError("");
     try {
@@ -55,10 +54,10 @@ export function TillReceivePanel() {
     }catch(e){setError(String(e));}finally{setSaving(false);}
   }
   async function runManual(){
-    if(!schedule.stores.length)return;
+    if(!schedule.stores.length||progress?.active)return;
     const names=schedule.stores.map(s=>labels[s]).join(", ");
     if(!window.confirm(`Run actual Till Receive NOW for ${schedule.stores.length} store(s): ${names}?`))return;
-    setRunning(true);setProgress(null);setError("");setMessage("");
+    setRunning(true);setError("");setMessage("");
     try {
       const response=await fetch("/api/scheduled-activity/till-receive/manual",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({stores:schedule.stores,confirmation:"RECEIVE"})});
       const data=await response.json();
@@ -104,12 +103,12 @@ export function TillReceivePanel() {
           className={`rounded-lg border px-5 py-2.5 text-sm font-medium ${schedule.paused?"border-green-700 text-green-800":"border-amber-700 text-amber-800"}`}>
           {schedule.paused?"Resume schedule":"Pause schedule"}
         </button>
-        <button disabled={loading||saving||running||!schedule.stores.length} onClick={()=>void runManual()} className="rounded-lg bg-amber-700 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40">{running?"Receiving tills…":`Run Now (${schedule.stores.length})`}</button>
+        <button disabled={loading||saving||running||Boolean(progress?.active)||!schedule.stores.length} onClick={()=>void runManual()} className="rounded-lg bg-amber-700 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40">{running?"Receiving tills…":progress?.active?"Another run active":`Run Now (${schedule.stores.length})`}</button>
         {changed&&<span className="text-sm text-amber-700">Unsaved changes</span>}
       </div>
-      {!enabled&&<p className="text-sm text-amber-800">Automatic receiving is not yet activated on the Ubuntu server. The schedule can be configured and paused safely.</p>}
-      {(running||progress)&&<div role="status" className="rounded-lg border p-4 space-y-3 text-sm">
-        <div className="font-semibold">{running?"Till Receive in progress": "Latest manual run"} · {progress?`${progress.completed}/${progress.total} completed`:"Starting…"}</div>
+      {!enabled&&<p className="text-sm text-amber-800">The Ubuntu scheduler timer or execution setting is disabled. Automatic receiving is not active.</p>}
+      {(running||progress?.active)&&<div role="status" className="rounded-lg border p-4 space-y-3 text-sm">
+        <div className="font-semibold">{progress?.mode==="scheduled"?"Scheduled Till Receive in progress":"Manual Till Receive in progress"} · {progress?`${progress.completed}/${progress.total} completed`:"Starting…"}</div>
         {progress&&<><div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-emerald-600 transition-all" style={{width:`${progress.total?Math.round(progress.completed/progress.total*100):0}%`}}/></div>
         <div className="grid gap-2 sm:grid-cols-2">{progress.stores.map((store,index)=>{const result=progress.results.find(r=>r.store===store);const state=result?result.status:progress.current===store?"running":"waiting";return <div key={store} className="rounded border p-2"><span className="font-medium">{labels[store]||store}</span> · <span className={state==="success"?"text-green-700":state==="failed"?"text-red-700":"text-slate-600"}>{state==="running"?"Running…":state==="waiting"?"Waiting":state==="success"?"Success":"Failed"}</span>{result?.status==="failed"&&<details className="mt-1"><summary className="cursor-pointer text-red-700">Error details</summary><pre className="whitespace-pre-wrap text-xs">{result.output}</pre></details>}</div>})}</div></>}
       </div>}
