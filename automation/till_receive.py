@@ -138,14 +138,20 @@ def run_store(url, marker, preview, progress):
             dialogs.append(dialog.type)
             dialog.dismiss()
 
-        def completion():
-            if dialogs:
-                raise ValueError('Nebula displayed a dialog after the click. Check Nebula before rerunning.')
-            current = till_status(page, marker)
-            if all(newer_success(previous, current.get(name, ('', None))[0])
-                   for name, previous in selected.items()):
-                return True
-            return None
+        def processing_state():
+            # Nebula uses a blocking overlay during Till Receive processing.
+            # Last succeed timestamps need not advance immediately.
+            busy = False
+            messages = []
+            for frame in page.frames:
+                if frame.is_detached():
+                    continue
+                try:
+                    busy = busy or frame.locator('.blockUI.blockOverlay:visible, .blockUI.blockMsg:visible').count() > 0
+                    messages.append(frame.locator('body').inner_text(timeout=2000))
+                except Error:
+                    continue
+            return busy, "\n".join(messages)
 
         page.on('dialog', record_dialog)
         try:
@@ -157,14 +163,29 @@ def run_store(url, marker, preview, progress):
         except Error as exc:
             raise ValueError('Click outcome uncertain. Check Nebula before rerunning.') from exc
 
-        progress(f'Receive clicked. Waiting for Last succeed on {len(selected)} selected till(s).')
+        progress(f'Receive clicked for {len(selected)} selected till(s). Waiting for Nebula processing to finish.')
+        observed_processing = False
+
+        def completion():
+            nonlocal observed_processing
+            if dialogs:
+                raise ValueError('Nebula displayed a dialog after the click. Check Nebula before rerunning.')
+            busy, text = processing_state()
+            if re.search(r'receive (?:data )?(?:failed|error)|error (?:receiving|during receive)', text, re.I):
+                raise ValueError('Nebula reported a receiving error.')
+            if busy or re.search(r'Receive data started', text, re.I):
+                observed_processing = True
+            if observed_processing and not busy:
+                return True
+            return None
+
         try:
             wait_for(page, completion,
-                     'Receive clicked, but some Last succeed timestamps did not advance. '
-                     'Check Nebula before rerunning.', timeout=120000)
+                     'Nebula receiving did not finish within two minutes. Check Nebula before rerunning.',
+                     timeout=120000)
         except Error as exc:
-            raise ValueError('Receive clicked, but the status could not be read. Check Nebula before rerunning.') from exc
-        return f'Confirmed by Last succeed on all {len(selected)} selected till(s).'
+            raise ValueError('Nebula completion could not be verified. Check Nebula before rerunning.') from exc
+        return f'Nebula completed Receive processing for {len(selected)} selected till(s).'
 
 
 def main():
