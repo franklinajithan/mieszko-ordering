@@ -9,8 +9,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const exec = promisify(execFile);
 const directory = process.env.TILL_RECEIVE_STATE_DIRECTORY || path.join(os.homedir(), ".mieszko-till-receive");
+const progressFile = path.join(directory, "progress.json");
 const allStores = ["HNS", "PRV", "EHM", "HAY", "GRV", "WAT", "STR"];
 type Entry = { at: string; store: string; mode: string; status: string; output: string };
+export async function GET() {
+  try { return NextResponse.json(JSON.parse(await readFile(progressFile,"utf8"))); }
+  catch { return NextResponse.json({ active:false, results:[], stores:[] }); }
+}
 export async function POST(request: NextRequest) {
   const origin = request.headers.get("origin");
   if (!origin || new URL(origin).host !== request.headers.get("host"))
@@ -30,10 +35,17 @@ export async function POST(request: NextRequest) {
   try { lock = await open(lockFile, "wx", 0o600); }
   catch { return NextResponse.json({ error: "Till Receive is already running. Try again after it finishes." }, { status: 409 }); }
   const results: Entry[] = [];
+  const selected = body.stores as string[];
+  const startedAt = new Date().toISOString();
+  const publish = async (current: string | null, active: boolean) => {
+    await writeFile(progressFile, JSON.stringify({ active, startedAt, current, stores:selected, results, completed:results.length, total:selected.length }), {mode:0o600});
+  };
+  await publish(null,true);
   try {
     const python = process.env.TILL_RECEIVE_PYTHON || [process.cwd(), ".worker-runtime", "venv", "bin", "python"].join("/");
     const script = process.env.TILL_RECEIVE_SCRIPT || path.join(process.cwd(), "automation", "till_receive.py");
-    for (const store of body.stores as string[]) {
+    for (const store of selected) {
+      await publish(store,true);
       const entry: Entry = { at: new Date().toISOString(), store, mode: "manual", status: "failed", output: "" };
       try {
         const result = await exec(python, [script, "--store", store], {
@@ -46,12 +58,14 @@ export async function POST(request: NextRequest) {
         entry.output = ((failure.stdout || "") + "\n" + (failure.stderr || "") + "\n" + failure.message).slice(-12000);
       }
       results.push(entry);
+      await publish(null,true);
       const historyFile = path.join(directory, "history.json");
       let previous: Entry[] = [];
       try { previous = JSON.parse(await readFile(historyFile, "utf8")) as Entry[]; } catch {}
       await writeFile(historyFile, JSON.stringify([entry, ...previous].slice(0, 200), null, 2), { mode: 0o600 });
     }
   } finally {
+    await publish(null,false).catch(()=>{});
     await lock.close();
     await unlink(lockFile).catch(() => {});
   }
