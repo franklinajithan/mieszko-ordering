@@ -148,7 +148,110 @@ def run_store(url, marker, preview, progress):
                     continue
                 try:
                     busy = busy or frame.locator('.blockUI.blockOverlay:visible, .blockUI.blockMsg:visible').count() > 0
-                    messages.append(frame.locator('body').inner_text(timeout=2000))
+                    # Inspect only Till Receive table's Message column, not unrelated
+                    # page text (navigation, hidden dialogs or old errors).
+                    rows = frame.locator('tr:visible')
+                    for row in rows.all():
+                        cells = row.locator('td')
+                        if cells.count() < 7:
+                            continue
+                        till = cells.nth(2).inner_text(timeout=1000).strip().upper()
+                        if till.startswith(marker) and re.match(r'^\\d{4}TILL\\d+
+                except Error:
+                    continue
+            return busy, "\n".join(messages)
+
+        page.on('dialog', record_dialog)
+        try:
+            button.click(trial=True, timeout=10000)
+        except Error as exc:
+            raise ValueError('Receive control was not ready. Receive was not clicked.') from exc
+        try:
+            button.click(timeout=10000)
+        except Error as exc:
+            raise ValueError('Click outcome uncertain. Check Nebula before rerunning.') from exc
+
+        progress(f'Receive clicked for {len(selected)} selected till(s). Waiting for Nebula processing to finish.')
+        observed_processing = False
+
+        def completion():
+            nonlocal observed_processing
+            if dialogs:
+                raise ValueError('Nebula displayed a dialog after the click. Check Nebula before rerunning.')
+            busy, text = processing_state()
+            if re.search(r'\\b(?:receive (?:data )?(?:failed|error)|error (?:receiving|during receive))\\b', text, re.I):
+                raise ValueError('Nebula Till Receive row reported an error: ' + text[:300])
+            if busy or re.search(r'Receive data started', text, re.I):
+                observed_processing = True
+            if observed_processing and not busy:
+                return True
+            return None
+
+        try:
+            wait_for(page, completion,
+                     'Nebula receiving did not finish within two minutes. Check Nebula before rerunning.',
+                     timeout=120000)
+        except Error as exc:
+            raise ValueError('Nebula completion could not be verified. Check Nebula before rerunning.') from exc
+        return f'Nebula completed Receive processing for {len(selected)} selected till(s).'
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--store', type=str.upper, help='Ordering store code, e.g. HNS')
+    parser.add_argument('--preview', action='store_true', help='Stop before clicking Receive')
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[1]
+
+    try:
+        import psycopg
+
+        os.environ.update(runtime_environment(root, os.environ))
+        config_path = root / 'automation/config.local.json'
+        config = (json.loads(config_path.read_text(encoding='utf-8-sig'))
+                  if config_path.exists() else
+                  {'store_settings_source': 'database', 'store_defaults': {}})
+        if config.get('store_settings_source') != 'database':
+            raise ValueError('Till Receive requires the database-backed CRM Downloads settings')
+
+        with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True, connect_timeout=10) as conn:
+            stores = conn.execute(
+                "SELECT id, code FROM stores WHERE is_active AND erp_type = 'msp' ORDER BY code"
+            ).fetchall()
+            if args.store:
+                stores = [(store_id, code) for store_id, code in stores if code.upper() == {'PRV': 'PVL', 'EHM': 'EAS', 'HAY': 'HYS', 'WAT': 'WTF'}.get(args.store, args.store)]
+            if not stores:
+                raise ValueError('No active Nebula stores matched')
+
+            failures = 0
+            for store_id, code in stores:
+                def progress(message):
+                    print(f'[{code}] {message}', flush=True)
+
+                try:
+                    settings = get_store_config(conn, config, store_id)
+                    progress(run_store(settings['crm_url'], crm_store_code(code), args.preview, progress))
+                except ValueError as exc:
+                    failures += 1
+                    progress(f'Failed: {exc}')
+                except Exception as exc:
+                    failures += 1
+                    progress(f'Failed: {type(exc).__name__}. Check the worker and Nebula.')
+
+        print(f'{len(stores) - failures}/{len(stores)} stores processed successfully.')
+        return int(failures > 0)
+    except (OSError, ValueError) as exc:
+        print(exc, file=sys.stderr)
+    except Exception as exc:
+        print(f'Till Receive could not start or finish ({type(exc).__name__}). Check the worker configuration.',
+              file=sys.stderr)
+    return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
+, till):
+                            messages.append(cells.nth(6).inner_text(timeout=1000).strip())
                 except Error:
                     continue
             return busy, "\n".join(messages)
