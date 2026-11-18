@@ -43,6 +43,7 @@ export const navGroups: NavGroup[] = [
       { href:"/data-quality",label:"Data Quality",icon:Layers },
       { href: "/automation", label: "CRM Downloads", icon: FileSpreadsheet },
       { href: "/scheduled-activity", label: "Scheduled Activity", icon: CalendarClock },
+      { href: "/sales-report", label: "Sales Report", icon: FileSpreadsheet },
       { href: "/downloads", label: "Download Queue", icon: FileSpreadsheet },
       { href: "/weekly-wastage", label: "Weekly Wastage", icon: Trash2 },
     ],
