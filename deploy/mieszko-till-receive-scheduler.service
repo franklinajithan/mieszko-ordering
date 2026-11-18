@@ -1,0 +1,10 @@
+[Unit]
+Description=Mieszko Till Receive schedule check
+[Service]
+Type=oneshot
+User=backend
+WorkingDirectory=/home/backend/mieszko-weekly-wastage
+Environment=TZ=Europe/London
+Environment=TILL_RECEIVE_EXECUTION_ENABLED=0
+ExecStart=/home/backend/mieszko-weekly-wastage/.worker-runtime/venv/bin/python /home/backend/mieszko-weekly-wastage/automation/till_receive_scheduler.py
+TimeoutStartSec=1800
