@@ -1,0 +1,253 @@
+"""Run Utilities > Till Receive for active Ordering stores from the office worker."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import sys
+
+from linux_worker import runtime_environment
+from nebula_download import check_store_marker, checked_url, visible, wait_for
+from contextlib import contextmanager
+
+
+@contextmanager
+def till_receive_session(url, marker, login_env, progress):
+    """Sign in without navigating into the Reports explorer."""
+    checked_url(url)
+    code = os.environ.get(login_env)
+    if not code:
+        raise ValueError('CRM login environment variable is missing')
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=True,
+            executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH') or None,
+        )
+        context = browser.new_context()
+        try:
+            page = context.new_page()
+            page.set_default_timeout(15000)
+            for attempt in range(3):
+                try:
+                    progress(f'Opening CRM login page (attempt {attempt + 1}/3)')
+                    page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                    page.get_by_placeholder('Barcode').wait_for(timeout=15000)
+                    break
+                except Exception:
+                    if attempt == 2:
+                        raise ValueError('CRM login page did not become ready') from None
+            progress('Signing in to CRM')
+            page.get_by_placeholder('Barcode').fill(code)
+            page.get_by_role('button', name='Login', exact=True).click()
+            wait_for(page, lambda: visible(page.get_by_text('Utilities', exact=True)),
+                     'CRM Utilities menu did not become ready', timeout=30000)
+            progress('Verifying store identity')
+            check_store_marker(page.locator('body').inner_text(), marker)
+            yield context, page
+        finally:
+            context.close()
+            browser.close()
+from worker import crm_store_code, get_store_config
+
+
+def receive_button(page):
+    for frame in page.frames:
+        button = visible(frame.get_by_role('button', name='Receive', exact=True))
+        if button is None:
+            button = visible(frame.get_by_text('Receive', exact=True))
+        if button is not None:
+            return button
+    return None
+
+
+def open_till_receive(page):
+    utilities = wait_for(
+        page, lambda: visible(page.get_by_text(re.compile(r'^Utilities$', re.I))),
+        'Utilities menu is unavailable', timeout=15000,
+    )
+    menu = page.get_by_text(re.compile(r'^Till Receive$', re.I))
+    utilities.hover(timeout=10000)
+    if visible(menu) is None:
+        utilities.click(timeout=10000)
+    wait_for(page, lambda: visible(menu), 'Till Receive menu is unavailable',
+             timeout=10000).click(timeout=10000)
+    return wait_for(page, lambda: receive_button(page),
+                    'Receive button is unavailable', timeout=20000)
+
+
+def till_status(page, marker):
+    from playwright.sync_api import Error
+
+    for frame in page.frames:
+        try:
+            rows = frame.locator('tr:visible, [role="row"]:visible').evaluate_all(
+                '''rows => rows.flatMap(row => {
+                    const cells = [...row.children].map(cell => cell.innerText?.trim() ?? '');
+                    const checkbox = row.querySelector('input[type="checkbox"], [role="checkbox"]');
+                    const checked = checkbox
+                        ? checkbox.checked ?? (checkbox.getAttribute('aria-checked') === 'true')
+                        : null;
+                    return cells.flatMap((cell, i) => cell.match(/^\\d{4}TILL\\d+$/i)
+                        ? [[cell.toUpperCase(), cells[i + 1] ?? '', checked]] : []);
+                })'''
+            )
+        except Error:
+            if frame.is_detached():
+                continue
+            raise
+        matched = {name: (stamp, checked) for name, stamp, checked in rows
+                   if name.startswith(marker)}
+        if matched:
+            return matched
+    return {}
+
+
+def newer_success(before, after):
+    from datetime import datetime
+
+    try:
+        stamp = datetime.strptime(after, '%d/%m/%Y %H:%M:%S')
+        return not before or stamp > datetime.strptime(before, '%d/%m/%Y %H:%M:%S')
+    except ValueError:
+        return False
+
+
+
+def run_store(url, marker, preview, progress):
+    from playwright.sync_api import Error
+
+    with till_receive_session(url, marker, 'MIESZKO_CRM_LOGIN_CODE', progress) as (_, page):
+        page.set_default_timeout(10000)
+        progress('Opening Utilities > Till Receive')
+        button = open_till_receive(page)
+        check_store_marker(page.locator('body').inner_text(), marker)
+        baseline = wait_for(page, lambda: till_status(page, marker) or None,
+                            'Could not read the till rows. Receive was not clicked.',
+                            timeout=15000)
+        selected = {name: stamp for name, (stamp, checked) in baseline.items() if checked}
+        if not selected:
+            raise ValueError('Could not verify any selected tills. Receive was not clicked.')
+        if preview:
+            return f'Receive button found (preview). {len(selected)} selected till(s) verified.'
+
+        dialogs = []
+
+        def record_dialog(dialog):
+            dialogs.append(dialog.type)
+            dialog.dismiss()
+
+        def processing_state():
+            # Nebula uses a blocking overlay during Till Receive processing.
+            # Last succeed timestamps need not advance immediately.
+            busy = False
+            messages = []
+            for frame in page.frames:
+                if frame.is_detached():
+                    continue
+                try:
+                    busy = busy or frame.locator('.blockUI.blockOverlay:visible, .blockUI.blockMsg:visible').count() > 0
+                    # Inspect only Till Receive table's Message column, not unrelated
+                    # page text (navigation, hidden dialogs or old errors).
+                    rows = frame.locator('tr:visible')
+                    for row in rows.all():
+                        cells = row.locator('td')
+                        if cells.count() < 7:
+                            continue
+                        till = cells.nth(2).inner_text(timeout=1000).strip().upper()
+                        if till.startswith(marker) and re.match(r'^\d{4}TILL\d+$', till):
+                            messages.append(cells.nth(6).inner_text(timeout=1000).strip())
+                except Error:
+                    continue
+            return busy, "\n".join(messages)
+
+        page.on('dialog', record_dialog)
+        try:
+            button.click(trial=True, timeout=10000)
+        except Error as exc:
+            raise ValueError('Receive control was not ready. Receive was not clicked.') from exc
+        try:
+            button.click(timeout=10000)
+        except Error as exc:
+            raise ValueError('Click outcome uncertain. Check Nebula before rerunning.') from exc
+
+        progress(f'Receive clicked for {len(selected)} selected till(s). Waiting for Nebula processing to finish.')
+        observed_processing = False
+
+        def completion():
+            nonlocal observed_processing
+            if dialogs:
+                raise ValueError('Nebula displayed a dialog after the click. Check Nebula before rerunning.')
+            busy, text = processing_state()
+            if re.search(r'\\b(?:receive (?:data )?(?:failed|error)|error (?:receiving|during receive))\\b', text, re.I):
+                raise ValueError('Nebula Till Receive row reported an error: ' + text[:300])
+            if busy or re.search(r'Receive data started', text, re.I):
+                observed_processing = True
+            if observed_processing and not busy:
+                return True
+            return None
+
+        try:
+            wait_for(page, completion,
+                     'Nebula receiving did not finish within two minutes. Check Nebula before rerunning.',
+                     timeout=120000)
+        except Error as exc:
+            raise ValueError('Nebula completion could not be verified. Check Nebula before rerunning.') from exc
+        return f'Nebula completed Receive processing for {len(selected)} selected till(s).'
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--store', type=str.upper, help='Ordering store code, e.g. HNS')
+    parser.add_argument('--preview', action='store_true', help='Stop before clicking Receive')
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[1]
+
+    try:
+        import psycopg
+
+        os.environ.update(runtime_environment(root, os.environ))
+        config_path = root / 'automation/config.local.json'
+        config = (json.loads(config_path.read_text(encoding='utf-8-sig'))
+                  if config_path.exists() else
+                  {'store_settings_source': 'database', 'store_defaults': {}})
+        if config.get('store_settings_source') != 'database':
+            raise ValueError('Till Receive requires the database-backed CRM Downloads settings')
+
+        with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True, connect_timeout=10) as conn:
+            stores = conn.execute(
+                "SELECT id, code FROM stores WHERE is_active AND erp_type = 'msp' ORDER BY code"
+            ).fetchall()
+            if args.store:
+                stores = [(store_id, code) for store_id, code in stores if code.upper() == {'PRV': 'PVL', 'EHM': 'EAS', 'HAY': 'HYS', 'WAT': 'WTF'}.get(args.store, args.store)]
+            if not stores:
+                raise ValueError('No active Nebula stores matched')
+
+            failures = 0
+            for store_id, code in stores:
+                def progress(message):
+                    print(f'[{code}] {message}', flush=True)
+
+                try:
+                    settings = get_store_config(conn, config, store_id)
+                    progress(run_store(settings['crm_url'], crm_store_code(code), args.preview, progress))
+                except ValueError as exc:
+                    failures += 1
+                    progress(f'Failed: {exc}')
+                except Exception as exc:
+                    failures += 1
+                    progress(f'Failed: {type(exc).__name__}. Check the worker and Nebula.')
+
+        print(f'{len(stores) - failures}/{len(stores)} stores processed successfully.')
+        return int(failures > 0)
+    except (OSError, ValueError) as exc:
+        print(exc, file=sys.stderr)
+    except Exception as exc:
+        print(f'Till Receive could not start or finish ({type(exc).__name__}). Check the worker configuration.',
+              file=sys.stderr)
+    return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,0 +1,11 @@
+[Unit]
+Description=Mieszko previous-day sales reports at 06:00 UK
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 Europe/London
+Persistent=true
+AccuracySec=1min
+Unit=mieszko-daily-sales-reports.service
+
+[Install]
+WantedBy=timers.target

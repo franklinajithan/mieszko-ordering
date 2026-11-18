@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Truck,
   BadgePercent,
+  CalendarClock,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
@@ -41,6 +42,8 @@ export const navGroups: NavGroup[] = [
       { href:"/operations",label:"Office Operations",icon:LayoutDashboard },
       { href:"/data-quality",label:"Data Quality",icon:Layers },
       { href: "/automation", label: "CRM Downloads", icon: FileSpreadsheet },
+      { href: "/scheduled-activity", label: "Scheduled Activity", icon: CalendarClock },
+      { href: "/sales-report", label: "Sales Report", icon: FileSpreadsheet },
       { href: "/downloads", label: "Download Queue", icon: FileSpreadsheet },
       { href: "/weekly-wastage", label: "Weekly Wastage", icon: Trash2 },
     ],
