@@ -18,6 +18,7 @@ export function TillReceivePanel() {
   const [error,setError]=useState("");
   const [running,setRunning]=useState(false);
   const [progress,setProgress]=useState<Progress|null>(null);
+  const [tracking,setTracking]=useState(false);
   const changed=JSON.stringify(schedule)!==JSON.stringify(saved);
 
   async function refresh() {
@@ -34,7 +35,23 @@ export function TillReceivePanel() {
   useEffect(()=>{void refresh().catch(e=>setError(String(e))).finally(()=>setLoading(false));},[]);
 
   useEffect(()=>{
-    const poll=()=>fetch("/api/scheduled-activity/till-receive/manual",{cache:"no-store"}).then(r=>r.json()).then((p:Progress)=>{if(p.startedAt)setProgress(p);}).catch(()=>{});
+    const poll=async()=>{
+      try {
+        const response=await fetch("/api/scheduled-activity/till-receive/manual",{cache:"no-store"});
+        if(!response.ok||!response.headers.get("content-type")?.includes("application/json"))return;
+        const p:Progress=await response.json();
+        if(p.startedAt){
+          setProgress(p);
+          if(!p.active){
+            setTracking(false);
+            const succeeded=p.results.filter(r=>r.status==="success").length;
+            const failed=p.results.filter(r=>r.status==="failed").length;
+            setMessage(`Till Receive completed: ${succeeded} successful, ${failed} failed.`);
+            void fetch("/api/scheduled-activity/till-receive",{cache:"no-store"}).then(r=>r.ok?r.json():null).then(d=>{if(d?.history)setHistory(d.history)}).catch(()=>{});
+          }
+        }
+      }catch{}
+    };
     void poll();
     const timer=setInterval(()=>void poll(),1200);
     return ()=>clearInterval(timer);
@@ -57,16 +74,25 @@ export function TillReceivePanel() {
     if(!schedule.stores.length||progress?.active)return;
     const names=schedule.stores.map(s=>labels[s]).join(", ");
     if(!window.confirm(`Run actual Till Receive NOW for ${schedule.stores.length} store(s): ${names}?`))return;
-    setRunning(true);setError("");setMessage("");
+    setRunning(true);setTracking(true);setError("");setMessage("");
     try {
       const response=await fetch("/api/scheduled-activity/till-receive/manual",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({stores:schedule.stores,confirmation:"RECEIVE"})});
+      const contentType=response.headers.get("content-type")||"";
+      if(!contentType.includes("application/json")){
+        // A proxy can return an HTML timeout while the server-side job continues.
+        setMessage("The request connection ended. Checking live store progress for the actual result.");
+        return;
+      }
       const data=await response.json();
-      if(!response.ok)throw new Error(data.error||"Manual run failed");
-      setMessage(`Manual run completed: ${data.success} succeeded, ${data.failed} failed. See execution history below.`);
-      const finalProgress=await fetch("/api/scheduled-activity/till-receive/manual",{cache:"no-store"}).then(r=>r.json());setProgress(finalProgress);
-      const updated=await fetch("/api/scheduled-activity/till-receive",{cache:"no-store"}).then(r=>r.json());
-      setHistory(updated.history||[]);
-    }catch(e){setError(String(e))}finally{setRunning(false)}
+      if(!response.ok){
+        setTracking(false);
+        throw new Error(data.error||"Unable to start Till Receive");
+      }
+      setMessage(`Till Receive finished: ${data.success} successful, ${data.failed} failed.`);
+    }catch(e){
+      setMessage("Connection interrupted. Checking live store progress; do not start another run.");
+    }finally{setRunning(false)}
+
   }
   function update(next:Partial<Schedule>){setSchedule(previous=>({...previous,...next}));}
   return <div className="space-y-5">
@@ -107,7 +133,7 @@ export function TillReceivePanel() {
         {changed&&<span className="text-sm text-amber-700">Unsaved changes</span>}
       </div>
       {!enabled&&<p className="text-sm text-amber-800">The Ubuntu scheduler timer or execution setting is disabled. Automatic receiving is not active.</p>}
-      {(running||progress?.active)&&<div role="status" className="rounded-lg border p-4 space-y-3 text-sm">
+      {(running||tracking||progress?.active)&&<div role="status" className="rounded-lg border p-4 space-y-3 text-sm">
         <div className="font-semibold">{progress?.mode==="scheduled"?"Scheduled Till Receive in progress":"Manual Till Receive in progress"} · {progress?`${progress.completed}/${progress.total} completed`:"Starting…"}</div>
         {progress&&<><div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-emerald-600 transition-all" style={{width:`${progress.total?Math.round(progress.completed/progress.total*100):0}%`}}/></div>
         <div className="grid gap-2 sm:grid-cols-2">{progress.stores.map((store,index)=>{const result=progress.results.find(r=>r.store===store);const state=result?result.status:progress.current===store?"running":"waiting";return <div key={store} className="rounded border p-2"><span className="font-medium">{labels[store]||store}</span> · <span className={state==="success"?"text-green-700":state==="failed"?"text-red-700":"text-slate-600"}>{state==="running"?"Running…":state==="waiting"?"Waiting":state==="success"?"Success":"Failed"}</span>{result?.status==="failed"&&<details className="mt-1"><summary className="cursor-pointer text-red-700">Error details</summary><pre className="whitespace-pre-wrap text-xs">{result.output}</pre></details>}</div>})}</div></>}
