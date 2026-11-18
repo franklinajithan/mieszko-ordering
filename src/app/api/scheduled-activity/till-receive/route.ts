@@ -14,12 +14,20 @@ const historyFile = path.join(directory, "history.json");
 const lockFile = path.join(directory, "run.lock");
 
 type Entry = { at: string; store: string; mode: string; status: string; output: string };
+async function schedulerStatus() {
+  try {
+    const unit = await readFile("/etc/systemd/system/mieszko-till-receive-scheduler.service","utf8");
+    const { stdout } = await exec("systemctl",["is-active","mieszko-till-receive-scheduler.timer"],{timeout:3000});
+    return { enabled: stdout.trim()==="active" && /^Environment=TILL_RECEIVE_EXECUTION_ENABLED=1\s*$/m.test(unit), timerActive:stdout.trim()==="active" };
+  } catch { return { enabled:false, timerActive:false }; }
+}
 async function history(): Promise<Entry[]> {
   try { return JSON.parse(await readFile(historyFile, "utf8")) as Entry[]; }
   catch { return []; }
 }
 export async function GET() {
-  return NextResponse.json({ stores, history: (await history()).slice(0, 40), executionEnabled: process.env.TILL_RECEIVE_EXECUTION_ENABLED === "1" });
+  const scheduler = await schedulerStatus();
+  return NextResponse.json({ stores, history: (await history()).slice(0, 40), executionEnabled:scheduler.enabled, timerActive:scheduler.timerActive });
 }
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
