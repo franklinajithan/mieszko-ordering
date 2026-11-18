@@ -9,6 +9,6 @@ export async function GET(_req:NextRequest,{params}:{params:Promise<{date:string
   const filename=`Mieszko_Sales_Reports_${date}.zip`;
   try {
     const bytes=await readFile(path.join(root,filename));
-    return new NextResponse(bytes,{headers:{"Content-Type":"application/zip","Content-Disposition":`attachment; filename="${filename}"`,"Content-Length":String(bytes.byteLength),"Cache-Control":"no-store"}});
+    return new NextResponse(new Uint8Array(bytes),{headers:{"Content-Type":"application/zip","Content-Disposition":`attachment; filename="${filename}"`,"Content-Length":String(bytes.byteLength),"Cache-Control":"no-store"}});
   } catch {return NextResponse.json({error:"ZIP not available for this date"},{status:404});}
 }
