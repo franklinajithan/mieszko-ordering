@@ -1,0 +1,9 @@
+[Unit]
+Description=Check Mieszko Till Receive schedule every minute
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+AccuracySec=10s
+Unit=mieszko-till-receive-scheduler.service
+[Install]
+WantedBy=timers.target
