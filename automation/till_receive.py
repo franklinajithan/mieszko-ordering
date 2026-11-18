@@ -178,7 +178,10 @@ def main():
         import psycopg
 
         os.environ.update(runtime_environment(root, os.environ))
-        config = json.loads((root / 'automation/config.local.json').read_text(encoding='utf-8-sig'))
+        config_path = root / 'automation/config.local.json'
+        config = (json.loads(config_path.read_text(encoding='utf-8-sig'))
+                  if config_path.exists() else
+                  {'store_settings_source': 'database', 'store_defaults': {}})
         if config.get('store_settings_source') != 'database':
             raise ValueError('Till Receive requires the database-backed CRM Downloads settings')
 
@@ -187,7 +190,7 @@ def main():
                 "SELECT id, code FROM stores WHERE is_active AND erp_type = 'msp' ORDER BY code"
             ).fetchall()
             if args.store:
-                stores = [(store_id, code) for store_id, code in stores if code.upper() == args.store]
+                stores = [(store_id, code) for store_id, code in stores if code.upper() == {'PRV': 'PVL', 'EHM': 'EAS', 'HAY': 'HYS', 'WAT': 'WTF'}.get(args.store, args.store)]
             if not stores:
                 raise ValueError('No active Nebula stores matched')
 
