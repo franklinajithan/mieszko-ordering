@@ -62,7 +62,15 @@ def main():
         history_path = STATE / "history.json"
         history = read_json(history_path, [])
         python = os.environ.get("TILL_RECEIVE_PYTHON", str(ROOT / ".worker-runtime/venv/bin/python"))
-        for store in stores:
+        selected = list(stores)
+        results = []
+        started_at = datetime.now(timezone.utc).isoformat()
+        progress_path = STATE / "progress.json"
+        def publish(current, active):
+            progress_path.write_text(json.dumps({"mode": "scheduled", "active": active, "startedAt": started_at, "current": current, "stores": selected, "results": results, "completed": len(results), "total": len(selected)}))
+        publish(None, True)
+        for store in selected:
+            publish(store, True)
             try:
                 result = subprocess.run([python, str(ROOT / "automation/till_receive.py"), "--store", store],
                     cwd=ROOT, capture_output=True, text=True, timeout=240, check=False)
@@ -70,10 +78,14 @@ def main():
                 status = "success" if result.returncode == 0 else "failed"
             except (OSError, subprocess.TimeoutExpired) as exc:
                 output, status = str(exc), "failed"
-            history.insert(0, {"at": datetime.now(timezone.utc).isoformat(), "store": store,
-                               "mode": "scheduled", "status": status, "output": output})
+            entry = {"at": datetime.now(timezone.utc).isoformat(), "store": store,
+                     "mode": "scheduled", "status": status, "output": output}
+            history.insert(0, entry)
+            results.append(entry)
+            publish(None, True)
             history_path.write_text(json.dumps(history[:200], indent=2))
             print(store, status, flush=True)
+        publish(None, False)
     finally:
         lock_path.unlink(missing_ok=True)
     return 0
