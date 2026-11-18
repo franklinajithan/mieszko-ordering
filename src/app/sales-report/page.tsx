@@ -25,6 +25,9 @@ export default function SalesReportPage(){
   try{const response=await fetch("/api/sales-report/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date})});const type=response.headers.get("content-type")||"";if(!type.includes("application/json"))throw new Error("Server returned an unexpected response");const data=await response.json();if(!response.ok)throw new Error(data.error||"Unable to start");setNotice(`Download started for ${date}. Progress will update automatically.`);await refresh()}catch(e){setError(String(e))}finally{setStarting(false)}
  }
  const latest=archives.find(a=>a.date===date);
+ const stores=["Hounslow","Perivale","East Ham","Hayes","Gravesend","Watford","Streatham"];
+ const logStore=(store:string)=>store==="East Ham"?"Eastham":store;
+ const storeStatus=(store:string)=>{const s=logStore(store);const lines=(run?.log||"").split("\\n");const successes=lines.filter(l=>l.includes(`[SUCCESS] ${s} |`)||l.includes(`[SKIPPED] ${s} |`)).length;const failures=lines.filter(l=>l.includes(`[STORE ERROR] ${s} |`)).length;const started=lines.some(l=>l.includes(`${s} | Pass`));return {successes,failures,status:successes>=6?"Complete":run?.active&&started?"Processing":failures?"Errors":"Waiting"};};
  return <AppShell title="Sales Report" description="Daily Nebula sales reports · Select date · Download ZIP">
  <div className="space-y-5">
  <section className="rounded-xl border bg-white p-5 text-slate-900 space-y-4">
@@ -42,6 +45,7 @@ export default function SalesReportPage(){
  <h2 className="text-lg font-semibold">Download status</h2>
  {run?.run?<><div className="flex flex-wrap justify-between gap-2 text-sm"><span><strong>{run.active?"Running":"Last manual run"}</strong> · {run.run.date}</span><span>{run.completed} reports downloaded or reused</span></div>
  <div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-emerald-600 transition-all" style={{width:`${Math.min(100,run.completed/42*100)}%`}}/></div>
+ <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{stores.map(s=>{const info=storeStatus(s);return <div key={s} className="rounded-lg border p-3 text-sm"><div className="font-medium">{s}</div><div className="text-slate-600">{info.successes}/6 reports · {info.status}</div></div>})}</div>
  <details><summary className="cursor-pointer text-sm font-medium">Detailed download log</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-100 p-3 text-xs">{run.log||"Waiting for first report…"}</pre></details>
  {!run.active&&run.log&&!run.log.includes("Daily ZIP:")&&<p className="text-sm text-amber-700">The last run ended without a confirmed ZIP. Review the log.</p>}
  </>:<p className="text-sm text-slate-600">No manual download started yet. Choose a date above or wait for the scheduled 06:00 run.</p>}
