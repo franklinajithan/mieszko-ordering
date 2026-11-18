@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
   const entry: Entry = { at: new Date().toISOString(), store, mode: String(mode), status: "failed", output: "" };
   try {
     const script = process.env.TILL_RECEIVE_SCRIPT || path.join(process.cwd(), "automation", "till_receive.py");
-    const python = process.env.TILL_RECEIVE_PYTHON || "/usr/bin/python3";
+    const python = process.env.TILL_RECEIVE_PYTHON || [process.cwd(), ".worker-runtime", "venv", "bin", "python"].join("/");
     const args = [script, "--store", store];
     if (mode === "preview") args.push("--preview");
     const result = await exec(python, args, { cwd: process.cwd(), timeout: 240000, maxBuffer: 1024 * 1024, env: process.env });
