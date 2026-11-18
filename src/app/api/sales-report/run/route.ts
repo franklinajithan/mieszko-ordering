@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 const root="/home/backend/mieszko-daily-sales-reports";
 const output=path.join(root,"output");
 const state=path.join(root,"manual-run.json");
@@ -28,7 +27,9 @@ export async function POST(req:NextRequest){
  const body=await req.json().catch(()=>null);
  const date=body?.date;
  if(typeof date!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(date)||new Date(date+"T00:00:00Z").toISOString().slice(0,10)!==date)return NextResponse.json({error:"Invalid date"},{status:400});
- const now=new Date().toLocaleDateString("en-CA",{timeZone:"Europe/London"});
+ const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/London",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+ const values=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+ const now=`${values.year}-${values.month}-${values.day}`;
  if(date>=now)return NextResponse.json({error:"Select a previous date"},{status:400});
  await mkdir(root,{recursive:true});
  const current=await status();
@@ -36,7 +37,7 @@ export async function POST(req:NextRequest){
  try{await readFile(script)}catch{return NextResponse.json({error:"Downloader is not installed on Ubuntu yet"},{status:503})}
  // systemd timer also runs this script; flock is shared with its service.
  const logfile=path.join(root,`manual-${date}.log`);
- const command=`exec 9>"${root}/run.lock"; flock -n 9 || { echo "Another sales report download is active"; exit 75; }; "${python}" "${script}" --date "${date}" >> "${logfile}" 2>&1`;
+ const command=`exec 9>"${root}/run.lock"; flock -n 9 || { echo "Another sales report download is active"; exit 75; }; "${python}" -u "${script}" --date "${date}" >> "${logfile}" 2>&1`;
  const child=spawn("/bin/bash",["-c",command],{cwd:root,detached:true,stdio:"ignore"});
  if(!child.pid)return NextResponse.json({error:"Unable to start download"},{status:500});
  await writeFile(state,JSON.stringify({pid:child.pid,date,startedAt:new Date().toISOString()}));
