@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 
 type Entry = { at: string; store: string; mode: string; status: string; output: string };
+type Progress = {active:boolean;current:string|null;stores:string[];results:Entry[];completed:number;total:number;startedAt?:string};
 type Schedule = { frequency: string; time: string; stores: string[]; paused: boolean };
 const labels: Record<string,string> = { HNS:"Hounslow", PRV:"Perivale", EHM:"East Ham", HAY:"Hayes", GRV:"Gravesend", WAT:"Watford", STR:"Streatham" };
 const defaults: Schedule = { frequency:"nightly", time:"00:00", stores:Object.keys(labels), paused:true };
@@ -16,6 +17,7 @@ export function TillReceivePanel() {
   const [message,setMessage]=useState("");
   const [error,setError]=useState("");
   const [running,setRunning]=useState(false);
+  const [progress,setProgress]=useState<Progress|null>(null);
   const changed=JSON.stringify(schedule)!==JSON.stringify(saved);
 
   async function refresh() {
@@ -31,6 +33,13 @@ export function TillReceivePanel() {
   }
   useEffect(()=>{void refresh().catch(e=>setError(String(e))).finally(()=>setLoading(false));},[]);
 
+  useEffect(()=>{
+    if(!running)return;
+    const poll=()=>fetch("/api/scheduled-activity/till-receive/manual",{cache:"no-store"}).then(r=>r.json()).then((p:Progress)=>{if(p.startedAt)setProgress(p);}).catch(()=>{});
+    void poll();
+    const timer=setInterval(()=>void poll(),1200);
+    return ()=>clearInterval(timer);
+  },[running]);
   async function save(paused=schedule.paused) {
     setSaving(true);setMessage("");setError("");
     try {
@@ -49,12 +58,13 @@ export function TillReceivePanel() {
     if(!schedule.stores.length)return;
     const names=schedule.stores.map(s=>labels[s]).join(", ");
     if(!window.confirm(`Run actual Till Receive NOW for ${schedule.stores.length} store(s): ${names}?`))return;
-    setRunning(true);setError("");setMessage("Running manual Till Receive. Please wait for the results.");
+    setRunning(true);setProgress(null);setError("");setMessage("");
     try {
       const response=await fetch("/api/scheduled-activity/till-receive/manual",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({stores:schedule.stores,confirmation:"RECEIVE"})});
       const data=await response.json();
       if(!response.ok)throw new Error(data.error||"Manual run failed");
       setMessage(`Manual run completed: ${data.success} succeeded, ${data.failed} failed. See execution history below.`);
+      const finalProgress=await fetch("/api/scheduled-activity/till-receive/manual",{cache:"no-store"}).then(r=>r.json());setProgress(finalProgress);
       const updated=await fetch("/api/scheduled-activity/till-receive",{cache:"no-store"}).then(r=>r.json());
       setHistory(updated.history||[]);
     }catch(e){setError(String(e))}finally{setRunning(false)}
@@ -98,7 +108,11 @@ export function TillReceivePanel() {
         {changed&&<span className="text-sm text-amber-700">Unsaved changes</span>}
       </div>
       {!enabled&&<p className="text-sm text-amber-800">Automatic receiving is not yet activated on the Ubuntu server. The schedule can be configured and paused safely.</p>}
-      {running&&<p role="status" className="text-sm text-amber-800">Running Till Receive for selected stores. Please wait.</p>}
+      {(running||progress)&&<div role="status" className="rounded-lg border p-4 space-y-3 text-sm">
+        <div className="font-semibold">{running?"Till Receive in progress": "Latest manual run"} · {progress?`${progress.completed}/${progress.total} completed`:"Starting…"}</div>
+        {progress&&<><div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-emerald-600 transition-all" style={{width:`${progress.total?Math.round(progress.completed/progress.total*100):0}%`}}/></div>
+        <div className="grid gap-2 sm:grid-cols-2">{progress.stores.map((store,index)=>{const result=progress.results.find(r=>r.store===store);const state=result?result.status:progress.current===store?"running":"waiting";return <div key={store} className="rounded border p-2"><span className="font-medium">{labels[store]||store}</span> · <span className={state==="success"?"text-green-700":state==="failed"?"text-red-700":"text-slate-600"}>{state==="running"?"Running…":state==="waiting"?"Waiting":state==="success"?"Success":"Failed"}</span>{result?.status==="failed"&&<details className="mt-1"><summary className="cursor-pointer text-red-700">Error details</summary><pre className="whitespace-pre-wrap text-xs">{result.output}</pre></details>}</div>})}</div></>}
+      </div>}
       {message&&<p role="status" className="rounded-lg bg-slate-100 p-3 text-sm">{message}</p>}
       {error&&<p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     </section>
