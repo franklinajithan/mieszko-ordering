@@ -156,7 +156,8 @@ def run_store(url, marker, preview, progress):
                         if cells.count() < 7:
                             continue
                         till = cells.nth(2).inner_text(timeout=1000).strip().upper()
-                        if till.startswith(marker) and re.match(r'^\\d{4}TILL\\d+
+                        if till.startswith(marker) and re.match(r'^\d{4}TILL\d+$', till):
+                            messages.append(cells.nth(6).inner_text(timeout=1000).strip())
                 except Error:
                     continue
             return busy, "\n".join(messages)
