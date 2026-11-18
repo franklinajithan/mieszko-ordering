@@ -1,0 +1,13 @@
+[Unit]
+Description=Mieszko previous-day Nebula sales reports ZIP
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=backend
+WorkingDirectory=/home/backend/mieszko-daily-sales-reports
+Environment=TZ=Europe/London
+Environment=MIESZKO_DAILY_REPORT_ROOT=/home/backend/mieszko-daily-sales-reports/output
+ExecStart=/usr/bin/flock -n /home/backend/mieszko-daily-sales-reports/run.lock /home/backend/mieszko-weekly-wastage/.worker-runtime/venv/bin/python -u /home/backend/mieszko-daily-sales-reports/daily_sales_reports.py
+TimeoutStartSec=14400
