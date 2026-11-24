@@ -115,6 +115,7 @@ export const navGroups: NavGroup[] = [
   {
     title: "Ordering",
     items: [
+      { href: "/promo", label: "Promo Labels", icon: Tags, match: p => p.startsWith("/promo") },
       {href:"/orders",label:"Order History",icon:FileSpreadsheet,match:p=>p.startsWith("/orders")},
       {
         href: "/order-sheet",
